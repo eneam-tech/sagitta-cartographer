@@ -1,0 +1,827 @@
+import 'fake-indexeddb/auto';
+import {
+  IDBFactory as FakeIDBFactory,
+  IDBObjectStore as FakeIDBObjectStore
+} from 'fake-indexeddb';
+import { unzipSync, zipSync } from 'fflate';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { BUILTIN_POI_CATALOG, getBuiltinAssetSvgBytes } from '../../src/assets/catalog';
+import { encodeMaskPng } from '../../src/core/png';
+import {
+  COVER_FIELDS,
+  COVER_FOREST,
+  COVER_NATURAL,
+  MapDocument,
+  createEmptyDocument
+} from '../../src/model/document';
+import { createSampleWorldDocument } from '../../src/model/sampleDocument';
+import {
+  CartografoIndexedDb,
+  ConflictError,
+  MAX_ARCHIVE_FILES,
+  PersistenceService,
+  PersistenceState,
+  exportProjectArchive,
+  importProjectArchive,
+  migrateManifestV1ToV2
+} from '../../src/persistence';
+import { V1_FLAT_THEME } from '../../src/theme/theme';
+
+const enc = new TextEncoder();
+const dec = new TextDecoder('utf-8');
+
+function createCustomAssetBlob(svgText: string): Blob {
+  return new Blob([svgText], { type: 'image/svg+xml' });
+}
+
+async function blobToBytes(blob: Blob): Promise<Uint8Array> {
+  return new Uint8Array(await blob.arrayBuffer());
+}
+
+function expectBytesEqual(actual: Uint8Array, expected: Uint8Array): void {
+  expect(actual.length).toBe(expected.length);
+  for (let i = 0; i < expected.length; i += 1) {
+    if (actual[i] !== expected[i]) {
+      throw new Error(
+        `Byte mismatch at index ${i}: expected ${expected[i]}, got ${actual[i]}`
+      );
+    }
+  }
+}
+
+function createRichSampleDocument(): {
+  doc: MapDocument;
+  extraAssets: Map<string, Blob>;
+} {
+  const doc = createSampleWorldDocument({ widthPx: 96, heightPx: 72 });
+  doc.manifest.title = 'Arcipelago delle Città Sospese — ÀÈÌÒÙ';
+
+  const customAssetId = 'custom-banner';
+  const customAssetPath = 'assets/custom-banner.svg';
+  const customSvg =
+    '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 64 64"><circle cx="32" cy="32" r="24" fill="#8B493D"/></svg>';
+
+  doc.manifest.assets.push({
+    id: customAssetId,
+    path: customAssetPath,
+    mimeType: 'image/svg+xml',
+    version: 1,
+    author: 'Maestro Cartografo',
+    source: 'custom-test',
+    license: 'CC0-1.0',
+    attribution: 'Laboratorio Cartografico',
+    width: 64,
+    height: 64,
+    anchorX: 0.5,
+    anchorY: 0.5
+  });
+
+  doc.manifest.objects.push(
+    {
+      id: 'obj-deco-banner',
+      type: 'stamp',
+      role: 'decorative',
+      assetId: customAssetId,
+      x: 420,
+      y: 310,
+      width: 64,
+      height: 64,
+      rotationDeg: 18
+    },
+    {
+      id: 'obj-accented-label',
+      type: 'label',
+      text: 'Città di Èlite — Mare d’Argento (òàùìé)',
+      x: 800,
+      y: 640,
+      fontId: 'spectral-italic',
+      fontSize: 42.5,
+      color: '#263C40',
+      rotationDeg: -12.5
+    }
+  );
+
+  // Add subtle partial antialiasing alpha & mixed cover codes for bit-for-bit verification
+  doc.terrain.mask[10] = 128;
+  doc.terrain.height[10] = 35;
+  doc.terrain.cover[10] = COVER_FOREST;
+  doc.terrain.mask[11] = 255;
+  doc.terrain.height[11] = 210;
+  doc.terrain.cover[11] = COVER_FIELDS;
+
+  doc.theme.name = 'Tema personalizzato dell’Arcipelago';
+  doc.theme.coast.strokeWidthDoc = 4.5;
+
+  const extraAssets = new Map<string, Blob>([
+    [customAssetPath, createCustomAssetBlob(customSvg)]
+  ]);
+
+  return { doc, extraAssets };
+}
+
+describe('Persistence, Archive & v1 Migration', () => {
+  const activeServices: PersistenceService[] = [];
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+    for (const service of activeServices.splice(0, activeServices.length)) {
+      service.dispose();
+    }
+  });
+
+  it('1. Round-trips a rich project bit-for-bit through IndexedDB and ZIP archive', async () => {
+    const fdb = new FakeIDBFactory();
+    const { doc, extraAssets } = createRichSampleDocument();
+
+    const serviceA = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(serviceA);
+
+    await serviceA.flushNow(doc, extraAssets);
+    expect(serviceA.getState()).toEqual({
+      status: 'saved',
+      savedRevision: doc.manifest.revision
+    });
+
+    const summaries = await serviceA.listProjects();
+    expect(summaries).toHaveLength(1);
+    expect(summaries[0].id).toBe(doc.manifest.id);
+    expect(summaries[0].title).toBe(doc.manifest.title);
+    expect(summaries[0].revision).toBe(doc.manifest.revision);
+
+    // Reopen from a fresh service instance (cold session)
+    const serviceB = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(serviceB);
+
+    const loaded = await serviceB.loadProject(doc.manifest.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.document.manifest).toEqual(doc.manifest);
+    expect(loaded!.document.theme).toEqual(doc.theme);
+    expect(loaded!.document.terrainVersion).toBe(doc.terrainVersion);
+    expectBytesEqual(loaded!.document.terrain.mask, doc.terrain.mask);
+    expectBytesEqual(loaded!.document.terrain.height, doc.terrain.height);
+    expectBytesEqual(loaded!.document.terrain.cover, doc.terrain.cover);
+    expect(loaded!.extraAssetBlobs.size).toBe(1);
+    expectBytesEqual(
+      await blobToBytes(loaded!.extraAssetBlobs.get('assets/custom-banner.svg')!),
+      await blobToBytes(extraAssets.get('assets/custom-banner.svg')!)
+    );
+
+    // ZIP Export -> verify archive layout & LICENSES.txt -> clean Import round-trip
+    const zipBytes = await exportProjectArchive(loaded!.document, loaded!.extraAssetBlobs);
+    const unzippedEntries = unzipSync(zipBytes);
+    expect(Object.keys(unzippedEntries)).toEqual(
+      expect.arrayContaining([
+        'manifest.json',
+        'terrain/land.png',
+        'terrain/height.u8',
+        'terrain/cover.u8',
+        'theme/theme.json',
+        'assets/poi-tower.svg',
+        'assets/poi-harbor.svg',
+        'assets/custom-banner.svg',
+        'LICENSES.txt'
+      ])
+    );
+    const licensesText = dec.decode(unzippedEntries['LICENSES.txt']);
+    expect(licensesText).toContain('Maestro Cartografo');
+    expect(licensesText).toContain('CC0-1.0');
+    expect(licensesText).toContain('Laboratorio Cartografico');
+
+    const cleanService = new PersistenceService({
+      idbFactory: new FakeIDBFactory(),
+      debounceMs: 10
+    });
+    activeServices.push(cleanService);
+
+    const imported = await cleanService.importArchive(zipBytes);
+    expect(imported.wasMigratedFromV1).toBe(false);
+    expect(imported.wasIdRemapped).toBe(false);
+    expect(imported.document.manifest).toEqual(doc.manifest);
+    expect(imported.document.theme).toEqual(doc.theme);
+    expectBytesEqual(imported.document.terrain.mask, doc.terrain.mask);
+    expectBytesEqual(imported.document.terrain.height, doc.terrain.height);
+    expectBytesEqual(imported.document.terrain.cover, doc.terrain.cover);
+    expect(imported.extraAssetBlobs.size).toBe(1);
+    expectBytesEqual(
+      await blobToBytes(imported.extraAssetBlobs.get('assets/custom-banner.svg')!),
+      await blobToBytes(extraAssets.get('assets/custom-banner.svg')!)
+    );
+  });
+
+  it('reuses existing terrainBlobs without re-encoding PNG when terrainVersion is unchanged', async () => {
+    const fdb = new FakeIDBFactory();
+    const { doc, extraAssets } = createRichSampleDocument();
+    const encodeSpy = vi.fn((mask: Uint8Array, w: number, h: number) =>
+      encodeMaskPng(mask, w, h)
+    );
+
+    const db = new CartografoIndexedDb({
+      idbFactory: fdb,
+      encodeMaskPngFn: encodeSpy
+    });
+
+    await db.saveProject(doc, extraAssets);
+    expect(encodeSpy).toHaveBeenCalledTimes(1);
+
+    // Update only title/label, keeping terrainVersion unchanged
+    doc.manifest.title = 'Titolo aggiornato senza tocco al terreno';
+    doc.manifest.revision += 1;
+
+    const putSpy = vi.spyOn(FakeIDBObjectStore.prototype, 'put');
+    await db.saveProject(doc, extraAssets);
+
+    expect(encodeSpy).toHaveBeenCalledTimes(1);
+    const writtenStores = putSpy.mock.instances.map(
+      (store) => (store as unknown as { name?: string }).name
+    );
+    expect(writtenStores).not.toContain('terrainBlobs');
+
+    const loaded = await db.loadProject(doc.manifest.id);
+    expect(loaded!.document.manifest.title).toBe(doc.manifest.title);
+    expectBytesEqual(loaded!.document.terrain.mask, doc.terrain.mask);
+    db.close();
+  });
+
+  it('2. Rejects malformed/corrupt/unsafe archives with specific Italian errors without altering IndexedDB', async () => {
+    const fdb = new FakeIDBFactory();
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    const { doc, extraAssets } = createRichSampleDocument();
+    await service.flushNow(doc, extraAssets);
+    const validZip = await service.exportArchive(doc, extraAssets);
+
+    const validMaskPng = encodeMaskPng(
+      doc.terrain.mask,
+      doc.terrain.widthPx,
+      doc.terrain.heightPx
+    );
+    const buildBaseEntries = (): Record<string, Uint8Array> => ({
+      'manifest.json': enc.encode(JSON.stringify(doc.manifest)),
+      'terrain/land.png': validMaskPng,
+      'terrain/height.u8': new Uint8Array(doc.terrain.height),
+      'terrain/cover.u8': new Uint8Array(doc.terrain.cover),
+      'theme/theme.json': enc.encode(JSON.stringify(doc.theme)),
+      'assets/poi-tower.svg': getBuiltinAssetSvgBytes('poi-tower')!,
+      'assets/poi-harbor.svg': getBuiltinAssetSvgBytes('poi-harbor')!,
+      'assets/custom-banner.svg': enc.encode('<svg/>')
+    });
+
+    // 2a. Truncated ZIP
+    await expect(service.importArchive(validZip.subarray(0, 64))).rejects.toThrow(
+      /corrotto|troncato/i
+    );
+
+    // 2b. Missing height.u8
+    const noHeight = buildBaseEntries();
+    delete noHeight['terrain/height.u8'];
+    await expect(service.importArchive(zipSync(noHeight))).rejects.toThrow(
+      /height\.u8.*mancante/i
+    );
+
+    // 2c. Wrong height.u8 length
+    const badHeightLen = buildBaseEntries();
+    badHeightLen['terrain/height.u8'] = new Uint8Array(12);
+    await expect(service.importArchive(zipSync(badHeightLen))).rejects.toThrow(
+      /Lunghezza non valida.*height\.u8/i
+    );
+
+    // 2d. Invalid cover code in cover.u8
+    const badCoverCode = buildBaseEntries();
+    badCoverCode['terrain/cover.u8'][5] = 7;
+    await expect(service.importArchive(zipSync(badCoverCode))).rejects.toThrow(
+      /Codice copertura non valido.*7/i
+    );
+
+    // 2e. Referenced asset missing from ZIP
+    const missingAsset = buildBaseEntries();
+    delete missingAsset['assets/custom-banner.svg'];
+    await expect(service.importArchive(zipSync(missingAsset))).rejects.toThrow(
+      /File risorsa "assets\/custom-banner\.svg".*mancante/i
+    );
+
+    // 2f. Path traversal ../evil
+    const traversalZip = zipSync({
+      ...buildBaseEntries(),
+      '../evil': enc.encode('pwn')
+    });
+    await expect(service.importArchive(traversalZip)).rejects.toThrow(
+      /path traversal|non valido/i
+    );
+
+    // 2g. Unsupported schemaVersion: 99
+    const futureManifest = structuredClone(doc.manifest) as unknown as Record<
+      string,
+      unknown
+    >;
+    futureManifest.schemaVersion = 99;
+    const futureZip = zipSync({
+      ...buildBaseEntries(),
+      'manifest.json': enc.encode(JSON.stringify(futureManifest))
+    });
+    await expect(service.importArchive(futureZip)).rejects.toThrow(/99.*v1–v2/i);
+
+    // 2h. Exceeds MAX_ARCHIVE_FILES (500)
+    const tooManyFiles: Record<string, Uint8Array> = { ...buildBaseEntries() };
+    for (let i = 0; i <= MAX_ARCHIVE_FILES; i += 1) {
+      tooManyFiles[`extra/file-${i}.txt`] = enc.encode('x');
+    }
+    await expect(service.importArchive(zipSync(tooManyFiles))).rejects.toThrow(
+      /limite massimo.*500/i
+    );
+
+    // Verify original IndexedDB project is completely intact
+    const projectsAfter = await service.listProjects();
+    expect(projectsAfter).toHaveLength(1);
+    expect(projectsAfter[0].id).toBe(doc.manifest.id);
+    const reloaded = await service.loadProject(doc.manifest.id);
+    expect(reloaded!.document.manifest.title).toBe(doc.manifest.title);
+  });
+
+  it('3. Remaps colliding project ID on import and preserves the existing local project', async () => {
+    const fdb = new FakeIDBFactory();
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    const { doc, extraAssets } = createRichSampleDocument();
+    await service.flushNow(doc, extraAssets);
+
+    const zipBytes = await service.exportArchive(doc, extraAssets);
+
+    // Modify local title after export so we can verify original local copy stays untouched
+    doc.manifest.title = 'Originale Locale Intatto';
+    doc.manifest.revision += 1;
+    await service.flushNow(doc, extraAssets);
+
+    const imported = await service.importArchive(zipBytes);
+    expect(imported.wasIdRemapped).toBe(true);
+    expect(imported.document.manifest.id).not.toBe(doc.manifest.id);
+
+    await service.flushNow(imported.document, imported.extraAssetBlobs);
+
+    const list = await service.listProjects();
+    expect(list).toHaveLength(2);
+
+    const origReloaded = await service.loadProject(doc.manifest.id);
+    const copyReloaded = await service.loadProject(imported.document.manifest.id);
+    expect(origReloaded!.document.manifest.title).toBe('Originale Locale Intatto');
+    expect(copyReloaded!.document.manifest.title).toBe(
+      'Arcipelago delle Città Sospese — ÀÈÌÒÙ'
+    );
+  });
+
+  it('4. Migrates v1 archive: plains=64, sea=0, cover=0, V1_FLAT_THEME, stamps without role -> decorative', async () => {
+    const widthPx = 64;
+    const heightPx = 64;
+    const mask = new Uint8Array(widthPx * heightPx);
+    for (let y = 32; y < heightPx; y += 1) {
+      for (let x = 0; x < widthPx; x += 1) {
+        mask[y * widthPx + x] = y === 32 ? 128 : 255;
+      }
+    }
+
+    const towerItem = BUILTIN_POI_CATALOG.find((item) => item.id === 'poi-tower')!;
+    const legacyTreeAsset = {
+      id: 'legacy-tree',
+      path: 'assets/legacy-tree.svg',
+      mimeType: 'image/svg+xml',
+      version: 1,
+      author: 'Autore v1',
+      source: 'legacy',
+      license: 'CC0-1.0',
+      width: 64,
+      height: 64,
+      anchorX: 0.5,
+      anchorY: 0.5
+    };
+
+    const rawV1Manifest = {
+      schemaVersion: 1,
+      id: '11111111-1111-4111-8111-111111111111',
+      revision: 4,
+      kind: 'world',
+      title: 'Vecchia Mappa v1',
+      page: { widthMm: 297, heightMm: 210 },
+      terrain: {
+        mask: 'terrain/land.png',
+        widthPx,
+        heightPx
+      },
+      theme: { id: 'old-flat', version: 1, file: 'theme/theme.json' },
+      assets: [towerItem.asset, legacyTreeAsset],
+      objects: [
+        {
+          id: 'old-tree-stamp',
+          type: 'stamp',
+          assetId: 'legacy-tree',
+          x: 500,
+          y: 600,
+          width: 48,
+          height: 48,
+          rotationDeg: 15
+        },
+        {
+          id: 'new-poi-stamp',
+          type: 'stamp',
+          role: 'poi',
+          categoryId: 'tower',
+          assetId: 'poi-tower',
+          x: 900,
+          y: 700,
+          width: 96,
+          height: 96,
+          rotationDeg: 0
+        },
+        {
+          id: 'old-label',
+          type: 'label',
+          text: 'Valle Antica',
+          x: 1200,
+          y: 800,
+          fontId: 'spectral-regular',
+          fontSize: 38,
+          color: '#263C40',
+          rotationDeg: 0
+        }
+      ]
+    };
+
+    const v1Zip = zipSync({
+      'manifest.json': enc.encode(JSON.stringify(rawV1Manifest)),
+      'terrain/land.png': encodeMaskPng(mask, widthPx, heightPx),
+      'theme/theme.json': enc.encode(JSON.stringify({ id: 'old-flat', version: 1 })),
+      'assets/poi-tower.svg': getBuiltinAssetSvgBytes('poi-tower')!,
+      'assets/legacy-tree.svg': enc.encode('<svg xmlns="http://www.w3.org/2000/svg"/>')
+    });
+
+    const result = await importProjectArchive(v1Zip);
+    expect(result.wasMigratedFromV1).toBe(true);
+    expect(result.wasIdRemapped).toBe(false);
+
+    const { document } = result;
+    expect(document.manifest.schemaVersion).toBe(2);
+    expect(document.manifest.space).toEqual({ width: 2970, height: 2100 });
+    expect(document.manifest.terrain.seed).toBeGreaterThanOrEqual(0);
+    expect(document.manifest.terrain.seed).toBeLessThanOrEqual(0xffffffff);
+    expect(document.theme).toEqual(V1_FLAT_THEME);
+    expect(document.theme.mode).toBe('flat');
+
+    for (let y = 0; y < heightPx; y += 1) {
+      for (let x = 0; x < widthPx; x += 1) {
+        const idx = y * widthPx + x;
+        expect(document.terrain.cover[idx]).toBe(COVER_NATURAL);
+        expect(document.terrain.height[idx]).toBe(y < 32 ? 0 : 64);
+      }
+    }
+
+    const oldStamp = document.manifest.objects[0];
+    const poiStamp = document.manifest.objects[1];
+    expect(oldStamp.type === 'stamp' && oldStamp.role).toBe('decorative');
+    expect(poiStamp.type === 'stamp' && poiStamp.role).toBe('poi');
+    expect(poiStamp.type === 'stamp' && poiStamp.categoryId).toBe('tower');
+
+    const migratedA = migrateManifestV1ToV2(rawV1Manifest);
+    const migratedB = migrateManifestV1ToV2(rawV1Manifest);
+    expect(migratedA.terrain.seed).toBe(migratedB.terrain.seed);
+    expect((rawV1Manifest as { schemaVersion: number }).schemaVersion).toBe(1);
+  });
+
+  it('5. Handles concurrent edit during slow PNG encoding: Saved matches latest revision 2 and persists latest change', async () => {
+    const fdb = new FakeIDBFactory();
+    const doc = createEmptyDocument({
+      title: 'Titolo Iniziale',
+      widthPx: 64,
+      heightPx: 64
+    });
+    doc.terrain.mask.fill(255, 0, 128);
+    doc.manifest.revision = 1;
+    doc.terrainVersion = 1;
+    doc.manifest.objects.push({
+      id: 'lbl-1',
+      type: 'label',
+      text: 'Etichetta R1',
+      x: 100,
+      y: 100,
+      fontId: 'spectral-semibold',
+      fontSize: 38,
+      color: '#263C40',
+      rotationDeg: 0
+    });
+
+    let encodeCalls = 0;
+    let signalFirstEncodeStarted!: () => void;
+    const firstEncodeStarted = new Promise<void>((resolve) => {
+      signalFirstEncodeStarted = resolve;
+    });
+    let releaseFirstEncode!: () => void;
+    const allowFirstEncodeFinish = new Promise<void>((resolve) => {
+      releaseFirstEncode = resolve;
+    });
+
+    const slowEncodeMaskPng = async (
+      mask: Uint8Array,
+      w: number,
+      h: number
+    ): Promise<Uint8Array> => {
+      encodeCalls += 1;
+      if (encodeCalls === 1) {
+        signalFirstEncodeStarted();
+        await allowFirstEncodeFinish;
+      }
+      return encodeMaskPng(mask, w, h);
+    };
+
+    const service = new PersistenceService({
+      idbFactory: fdb,
+      debounceMs: 15,
+      encodeMaskPngFn: slowEncodeMaskPng
+    });
+    activeServices.push(service);
+
+    const states: PersistenceState[] = [];
+    const savedAtRev2 = new Promise<void>((resolve) => {
+      service.subscribe((s) => {
+        states.push(s);
+        if (s.status === 'saved' && s.savedRevision === 2) {
+          resolve();
+        }
+      });
+    });
+
+    // Kick off revision 1 save (blocks inside slow PNG encoding)
+    const flushR1 = service.flushNow(doc);
+    await firstEncodeStarted;
+
+    // While rev 1 is still encoding, mutate title & label to revision 2 and scheduleSave
+    doc.manifest.title = 'Titolo Aggiornato R2';
+    if (doc.manifest.objects[0].type === 'label') {
+      doc.manifest.objects[0].text = 'Etichetta R2 — Àncora';
+    }
+    doc.manifest.revision = 2;
+    service.scheduleSave(doc);
+
+    // Let rev 1 finish encoding & writing
+    releaseFirstEncode();
+    await flushR1;
+
+    expect(states.some((s) => s.status === 'saved' && s.savedRevision === 1)).toBe(
+      false
+    );
+
+    await savedAtRev2;
+    expect(service.getState()).toEqual({ status: 'saved', savedRevision: 2 });
+
+    // Reopen from fresh service and verify latest edit is persisted
+    const reader = new PersistenceService({ idbFactory: fdb });
+    activeServices.push(reader);
+    const reloaded = await reader.loadProject(doc.manifest.id);
+    expect(reloaded!.document.manifest.revision).toBe(2);
+    expect(reloaded!.document.manifest.title).toBe('Titolo Aggiornato R2');
+    expect(
+      reloaded!.document.manifest.objects[0].type === 'label' &&
+        reloaded!.document.manifest.objects[0].text
+    ).toBe('Etichetta R2 — Àncora');
+  });
+
+  it('6. Transitions to error with exact quota message on QuotaExceededError while exportArchive still succeeds', async () => {
+    const fdb = new FakeIDBFactory();
+    const { doc, extraAssets } = createRichSampleDocument();
+
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    vi.spyOn(FakeIDBObjectStore.prototype, 'put').mockImplementation(() => {
+      throw new DOMException('Quota exceeded', 'QuotaExceededError');
+    });
+
+    await service.flushNow(doc, extraAssets);
+
+    const state = service.getState();
+    expect(state.status).toBe('error');
+    expect(state.errorMessage).toBe(
+      'Spazio locale esaurito. Scarica una copia del progetto.'
+    );
+
+    // Document in memory stays intact and portable ZIP export continues to work
+    const exportedBytes = await service.exportArchive(doc, extraAssets);
+    const imported = await importProjectArchive(exportedBytes);
+    expect(imported.document.manifest.id).toBe(doc.manifest.id);
+    expect(imported.document.manifest.title).toBe(doc.manifest.title);
+
+    // Also test unavailable IndexedDB (idbFactory: null)
+    const offlineService = new PersistenceService({
+      idbFactory: null,
+      debounceMs: 10
+    });
+    activeServices.push(offlineService);
+    await offlineService.flushNow(doc, extraAssets);
+    expect(offlineService.getState().status).toBe('error');
+    expect(offlineService.getState().errorMessage).toContain('Scarica una copia');
+
+    const offlineZip = await offlineService.exportArchive(doc, extraAssets);
+    const offlineImported = await offlineService.importArchive(offlineZip);
+    expect(offlineImported.document.manifest.id).toBe(doc.manifest.id);
+  });
+
+  it('7. Detects multi-tab conflict on same project ID and preserves both versions via saveAsCopy', async () => {
+    const fdb = new FakeIDBFactory();
+    const tabA = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    const tabB = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(tabA, tabB);
+
+    const docA = createEmptyDocument({
+      title: 'Base Condivisa',
+      widthPx: 64,
+      heightPx: 64
+    });
+    docA.manifest.revision = 1;
+    docA.terrainVersion = 1;
+    docA.terrain.mask[0] = 255;
+    await tabA.flushNow(docA);
+
+    // Tab B loads the same project at revision 1
+    const loadedB = await tabB.loadProject(docA.manifest.id);
+    expect(loadedB).not.toBeNull();
+
+    // Tab A edits & saves revision 2
+    docA.manifest.title = 'Modifica Scheda A';
+    docA.manifest.revision = 2;
+    await tabA.flushNow(docA);
+    expect(tabA.getState()).toEqual({ status: 'saved', savedRevision: 2 });
+
+    // Tab B edits & tries to flush -> must detect conflict with remote revision 2
+    const docB = loadedB!.document;
+    docB.manifest.title = 'Modifica Scheda B';
+    docB.manifest.revision = 2;
+    docB.terrain.mask[1] = 255;
+    docB.terrain.height[1] = 120;
+    docB.terrainVersion = 2;
+
+    await tabB.flushNow(docB);
+    expect(tabB.getState().status).toBe('conflict');
+    expect(tabB.getState().conflictRemoteRevision).toBe(2);
+
+    // Low-level DB must also throw ConflictError directly
+    const rawDb = new CartografoIndexedDb({ idbFactory: fdb });
+    await expect(rawDb.saveProject(docB)).rejects.toBeInstanceOf(ConflictError);
+    rawDb.close();
+
+    // Tab B resolves via saveAsCopy -> both versions saved without data loss
+    const copyDoc = await tabB.saveAsCopy(docB, loadedB!.extraAssetBlobs);
+    expect(copyDoc.manifest.id).not.toBe(docA.manifest.id);
+    expect(copyDoc.manifest.title).toBe('Modifica Scheda B');
+    expect(tabB.getState()).toEqual({
+      status: 'saved',
+      savedRevision: copyDoc.manifest.revision
+    });
+
+    const projects = await tabA.listProjects();
+    expect(projects).toHaveLength(2);
+
+    const checkA = await tabA.loadProject(docA.manifest.id);
+    const checkB = await tabA.loadProject(copyDoc.manifest.id);
+    expect(checkA!.document.manifest.title).toBe('Modifica Scheda A');
+    expect(checkB!.document.manifest.title).toBe('Modifica Scheda B');
+    expect(checkB!.document.terrain.mask[1]).toBe(255);
+    expect(checkB!.document.terrain.height[1]).toBe(120);
+  });
+
+  it('coalesces rapid scheduleSave bursts, cleans up old blobs on terrainVersion bump & deleteProject', async () => {
+    const fdb = new FakeIDBFactory();
+    const encodeSpy = vi.fn((mask: Uint8Array, w: number, h: number) =>
+      encodeMaskPng(mask, w, h)
+    );
+    const service = new PersistenceService({
+      idbFactory: fdb,
+      debounceMs: 30,
+      encodeMaskPngFn: encodeSpy
+    });
+    activeServices.push(service);
+
+    const doc = createEmptyDocument({ title: 'Burst', widthPx: 64, heightPx: 64 });
+    const doneRev3 = new Promise<void>((resolve) => {
+      service.subscribe((s) => {
+        if (s.status === 'saved' && s.savedRevision === 3) resolve();
+      });
+    });
+
+    doc.manifest.revision = 1;
+    doc.terrainVersion = 1;
+    service.scheduleSave(doc);
+
+    doc.manifest.revision = 2;
+    doc.manifest.title = 'Burst 2';
+    service.scheduleSave(doc);
+
+    doc.manifest.revision = 3;
+    doc.manifest.title = 'Burst 3';
+    service.scheduleSave(doc);
+
+    await doneRev3;
+    expect(encodeSpy).toHaveBeenCalledTimes(1);
+
+    // Bump terrainVersion and flush -> old terrainBlob key should be removed
+    doc.manifest.revision = 4;
+    doc.terrainVersion = 2;
+    doc.terrain.mask[0] = 255;
+    await service.flushNow(doc);
+
+    const rawDb = new CartografoIndexedDb({ idbFactory: fdb });
+    expect(await rawDb.projectExists(doc.manifest.id)).toBe(true);
+    expect(await rawDb.projectExists('missing-id')).toBe(false);
+    expect(await service.loadProject('missing-id')).toBeNull();
+    rawDb.close();
+
+    // Verify terrainBlobs contains only 1 key (no stale v1 blob leaked)
+    const countStoreKeys = (storeName: string): Promise<number> =>
+      new Promise((resolve, reject) => {
+        const req = fdb.open('cartografo-db', 1);
+        req.onsuccess = () => {
+          const db = req.result;
+          const tx = db.transaction([storeName], 'readonly');
+          const countReq = tx.objectStore(storeName).count();
+          countReq.onsuccess = () => {
+            db.close();
+            resolve(countReq.result);
+          };
+          countReq.onerror = () => reject(countReq.error);
+        };
+        req.onerror = () => reject(req.error);
+      });
+
+    expect(await countStoreKeys('terrainBlobs')).toBe(1);
+
+    // Deleting project removes project, terrainBlobs, and assets
+    await service.deleteProject(doc.manifest.id);
+    expect(await service.listProjects()).toHaveLength(0);
+    expect(await countStoreKeys('terrainBlobs')).toBe(0);
+    expect(await countStoreKeys('assets')).toBe(0);
+  });
+
+  it('rejects additional edge-case invalid archives (/abs, backslash, schemaVersion 0, missing manifest/theme, bad PNG dims) and missing asset on export', async () => {
+    const { doc, extraAssets } = createRichSampleDocument();
+    const validMaskPng = encodeMaskPng(
+      doc.terrain.mask,
+      doc.terrain.widthPx,
+      doc.terrain.heightPx
+    );
+    const baseEntries = (): Record<string, Uint8Array> => ({
+      'manifest.json': enc.encode(JSON.stringify(doc.manifest)),
+      'terrain/land.png': validMaskPng,
+      'terrain/height.u8': new Uint8Array(doc.terrain.height),
+      'terrain/cover.u8': new Uint8Array(doc.terrain.cover),
+      'theme/theme.json': enc.encode(JSON.stringify(doc.theme)),
+      'assets/poi-tower.svg': getBuiltinAssetSvgBytes('poi-tower')!,
+      'assets/poi-harbor.svg': getBuiltinAssetSvgBytes('poi-harbor')!,
+      'assets/custom-banner.svg': enc.encode('<svg/>')
+    });
+
+    // Leading slash path traversal
+    await expect(
+      importProjectArchive(zipSync({ ...baseEntries(), '/etc/passwd': enc.encode('x') }))
+    ).rejects.toThrow(/non valido|path traversal/i);
+
+    // Backslash path traversal
+    await expect(
+      importProjectArchive(zipSync({ ...baseEntries(), 'assets\\evil.svg': enc.encode('x') }))
+    ).rejects.toThrow(/non valido|path traversal/i);
+
+    // Schema version 0
+    const m0 = structuredClone(doc.manifest) as unknown as Record<string, unknown>;
+    m0.schemaVersion = 0;
+    await expect(
+      importProjectArchive(
+        zipSync({ ...baseEntries(), 'manifest.json': enc.encode(JSON.stringify(m0)) })
+      )
+    ).rejects.toThrow(/0.*v1–v2/i);
+
+    // Missing manifest.json
+    const noManifest = baseEntries();
+    delete noManifest['manifest.json'];
+    await expect(importProjectArchive(zipSync(noManifest))).rejects.toThrow(
+      /manifest\.json.*mancante/i
+    );
+
+    // Missing theme/theme.json
+    const noTheme = baseEntries();
+    delete noTheme['theme/theme.json'];
+    await expect(importProjectArchive(zipSync(noTheme))).rejects.toThrow(
+      /theme\.json.*mancante/i
+    );
+
+    // Mismatched PNG mask dimensions
+    const wrongPng = encodeMaskPng(new Uint8Array(64 * 64), 64, 64);
+    await expect(
+      importProjectArchive(zipSync({ ...baseEntries(), 'terrain/land.png': wrongPng }))
+    ).rejects.toThrow(/Dimensioni della maschera/i);
+
+    // Export fails if declared custom asset has no Blob in extraAssets
+    await expect(exportProjectArchive(doc)).rejects.toThrow(
+      /assets\/custom-banner\.svg.*mancante/i
+    );
+
+    // Export succeeds when extraAssets provides it
+    const validBytes = await exportProjectArchive(doc, extraAssets);
+    expect(validBytes.length).toBeGreaterThan(100);
+  });
+});

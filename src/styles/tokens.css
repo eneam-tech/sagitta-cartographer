@@ -1,0 +1,48 @@
+@import '@fontsource/spectral/400.css';
+@import '@fontsource/spectral/600.css';
+@import '@fontsource/spectral/400-italic.css';
+@import '@fontsource/spectral/600-italic.css';
+@import '@fontsource/source-sans-3/400.css';
+@import '@fontsource/source-sans-3/600.css';
+
+:root {
+  /* Superfici e testi dell'interfaccia — «Il tavolo del cartografo» */
+  --ui-bench: #17232D;
+  --ui-panel: #22323F;
+  --ui-raised: #304554;
+  --ui-text: #F3EEDF;
+  --ui-muted: #C0C9C9;
+  --ui-line: #81939A;
+  --ui-line-subtle: rgba(129, 147, 154, 0.3);
+  --ui-accent: #E0BB79;
+  --ui-focus: #9CDEEF;
+  --ui-error: #FFB3A6;
+  --ui-success: #A8D8BC;
+
+  /* Tipografia */
+  --ui-font-display: 'Spectral', Georgia, serif;
+  --ui-font-sans: 'Source Sans 3', system-ui, -apple-system, sans-serif;
+
+  /* Griglia a 4 px */
+  --ui-space-1: 4px;
+  --ui-space-2: 8px;
+  --ui-space-3: 12px;
+  --ui-space-4: 16px;
+  --ui-space-5: 20px;
+  --ui-space-6: 24px;
+
+  /* Raggi e misure dell'editor */
+  --ui-radius-control: 4px;
+  --ui-radius-dialog: 8px;
+  --ui-border-w: 1px;
+  --ui-control-h: 36px;
+  --ui-tool-size: 44px;
+
+  --ui-topbar-h: 56px;
+  --ui-rail-w: 64px;
+  --ui-panel-w: 280px;
+  --ui-statusbar-h: 36px;
+
+  /* Movimento */
+  --ui-motion-fast: 140ms ease;
+}
