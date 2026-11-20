@@ -107,9 +107,11 @@ export default function App() {
   return (
     <div className="editor-shell">
       <TopBar store={store} />
-      <ToolRail store={store} />
-      <MapViewport store={store} />
-      <PropertiesPanel store={store} />
+      <div className="editor-workspace">
+        <ToolRail store={store} />
+        <MapViewport store={store} />
+        <PropertiesPanel store={store} />
+      </div>
       <StatusBar store={store} />
       <DialogsHost store={store} />
     </div>
