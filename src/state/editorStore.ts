@@ -755,6 +755,7 @@ export class EditorStore {
   private lastAlertedStatus: PersistenceState['status'] = 'idle';
 
   private listeners = new Set<() => void>();
+  private terrainRedrawListeners = new Set<() => void>();
   private snapshot: EditorSnapshot;
 
   constructor(options: EditorStoreOptions = {}) {
@@ -793,6 +794,13 @@ export class EditorStore {
     this.listeners.add(listener);
     return () => {
       this.listeners.delete(listener);
+    };
+  };
+
+  subscribeTerrainRedraw = (listener: () => void): (() => void) => {
+    this.terrainRedrawListeners.add(listener);
+    return () => {
+      this.terrainRedrawListeners.delete(listener);
     };
   };
 
@@ -1036,6 +1044,7 @@ export class EditorStore {
       }
       this.terrainRenderTick += 1;
       this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
     }
 
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
@@ -1068,6 +1077,7 @@ export class EditorStore {
       }
       this.terrainRenderTick += 1;
       this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
     }
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
@@ -1093,6 +1103,7 @@ export class EditorStore {
       }
       this.terrainRenderTick += 1;
       this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
     }
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
@@ -1128,6 +1139,7 @@ export class EditorStore {
     if (dirtyRect) {
       this.renderer.renderRegion(this.doc, dirtyRect);
       this.terrainRenderTick += 1;
+      this.notifyTerrainRedraw();
     }
     this.notify();
     return true;
@@ -1140,7 +1152,7 @@ export class EditorStore {
     if (dirtyRect) {
       this.renderer.renderRegion(this.doc, dirtyRect);
       this.terrainRenderTick += 1;
-      this.notify();
+      this.notifyTerrainRedraw();
     }
   }
 
@@ -1154,6 +1166,7 @@ export class EditorStore {
     }
     this.renderer.renderRegion(this.doc, result.dirtyRect);
     this.terrainRenderTick += 1;
+    this.notifyTerrainRedraw();
     this.executeCommand(result.command, { alreadyApplied: true });
   }
 
@@ -1163,6 +1176,7 @@ export class EditorStore {
     if (dirtyRect) {
       this.renderer.renderRegion(this.doc, dirtyRect);
       this.terrainRenderTick += 1;
+      this.notifyTerrainRedraw();
     }
     this.hasLand = computeHasLand(this.doc);
     this.notify();
@@ -1197,6 +1211,7 @@ export class EditorStore {
     this.documentVersionTick += 1;
     this.renderer.renderFull(this.doc);
     this.terrainRenderTick += 1;
+    this.notifyTerrainRedraw();
     this.hasInitialFit = false;
     if (this.viewportSize.width > 0 && this.viewportSize.height > 0) {
       this.camera = fitCameraToViewport(
@@ -1401,6 +1416,7 @@ export class EditorStore {
     this.unsubPersistence?.();
     this.unsubPersistence = null;
     this.listeners.clear();
+    this.terrainRedrawListeners.clear();
   }
 
   private buildSnapshot(): EditorSnapshot {
@@ -1430,6 +1446,12 @@ export class EditorStore {
       terrainRenderTick: this.terrainRenderTick,
       documentVersionTick: this.documentVersionTick
     };
+  }
+
+  private notifyTerrainRedraw(): void {
+    for (const listener of this.terrainRedrawListeners) {
+      listener();
+    }
   }
 
   private notify(): void {

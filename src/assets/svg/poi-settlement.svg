@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Insediamento">
+  <!-- Ombra a terra da luce nord-ovest -->
+  <ellipse cx="67" cy="96" rx="47" ry="11" fill="#263C40" opacity="0.22"/>
+  <path d="M51 96 Q64 103 77 96 L73 91 L55 91 Z" fill="#D9C598" opacity="0.8"/>
+
+  <!-- Case del borgo dietro la cinta muraria -->
+  <!-- Casa sinistra con camino -->
+  <rect x="26" y="34" width="5" height="14" fill="#7B7880" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="24,52 46,52 46,76 24,74" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="46,52 54,54 54,75 46,76" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="21,53 35,34 49,53" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="35,34 49,53 57,55 43,36" fill="#6E372D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <rect x="32" y="57" width="5" height="7" rx="1" fill="#263C40"/>
+
+  <!-- Palazzo centrale / campanile -->
+  <polygon points="45,42 70,42 70,74 45,74" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="70,42 82,44 82,74 70,74" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="42,43 58,21 73,43" fill="#8B493D" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="58,21 73,43 85,45 70,23" fill="#6E372D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M58 21 L58 15" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <circle cx="58" cy="15" r="2.2" fill="#E0BB79" stroke="#263C40" stroke-width="1.6"/>
+  <path d="M55 55 L55 48 Q58 44 61 48 L61 55 Z" fill="#263C40"/>
+
+  <!-- Casa destra -->
+  <polygon points="76,51 98,51 98,76 76,76" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="98,51 105,53 105,74 98,76" fill="#5F5D65" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="73,52 87,36 101,52" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="87,36 101,52 108,54 94,38" fill="#6E372D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <rect x="84" y="57" width="5" height="7" rx="1" fill="#263C40"/>
+
+  <!-- Cinta muraria merlata di tre quarti -->
+  <!-- Cortina muraria sinistra (illuminata NW) -->
+  <path d="M18 68 L24 68 L24 72 L29 72 L29 68 L35 68 L35 72 L40 72 L40 68 L46 68 L46 72 L52 72 L52 94 L18 90 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Torretta angolare sinistra -->
+  <path d="M15 62 L21 62 L21 66 L25 66 L25 62 L30 62 L30 91 L16 89 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="25,62 30,62 30,91 25,90" fill="#B9B1AA"/>
+  <path d="M15 62 L21 62 L21 66 L25 66 L25 62 L30 62 L30 91 L16 89 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <rect x="20" y="73" width="3" height="8" rx="1.5" fill="#263C40"/>
+
+  <!-- Cortina muraria destra (in ombra SE) -->
+  <path d="M76 72 L82 72 L82 68 L88 68 L88 72 L93 72 L93 68 L99 68 L99 72 L105 72 L105 68 L110 68 L110 90 L76 94 Z" fill="#7B7880" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Torretta angolare destra -->
+  <path d="M98 62 L103 62 L103 66 L107 66 L107 62 L113 62 L112 89 L98 91 Z" fill="#5F5D65" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="98,62 103,62 103,90 98,91" fill="#7B7880"/>
+  <path d="M98 62 L103 62 L103 66 L107 66 L107 62 L113 62 L112 89 L98 91 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <rect x="104" y="73" width="3" height="8" rx="1.5" fill="#263C40"/>
+
+  <!-- Corpo centrale della porta urbica (3/4 con fianco in ombra) -->
+  <path d="M48 57 L54 57 L54 61 L60 61 L60 57 L66 57 L66 61 L71 61 L71 57 L76 57 L81 59 L81 94 L75 95 L48 95 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="75,58 81,59 81,94 75,95" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M48 67 L75 67 L81 68" fill="none" stroke="#263C40" stroke-width="2"/>
+  <!-- Porta ad arco -->
+  <path d="M55 95 L55 80 Q62 70 69 80 L69 95 Z" fill="#263C40"/>
+  <path d="M57 95 L57 81 Q62 73 67 81 L67 95" fill="none" stroke="#5F5D65" stroke-width="1.5"/>
+  <path d="M62 75 L62 95" stroke="#5F5D65" stroke-width="1.4"/>
+  <!-- Lanterna sopra la porta -->
+  <circle cx="62" cy="70" r="2.6" fill="#E0BB79" stroke="#263C40" stroke-width="1.6"/>
+  <!-- Giunti di pietra sulle mura -->
+  <path d="M32 80 L43 80 M24 85 L36 85 M85 80 L95 80 M83 86 L93 86" stroke="#263C40" stroke-width="1.4" stroke-linecap="round" opacity="0.5"/>
+</svg>

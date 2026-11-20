@@ -67,7 +67,6 @@ export function MapViewport({
     hasLand,
     spacePanActive,
     seaOnlyHintVisible,
-    terrainRenderTick,
     activePoiId
   } = snap;
 
@@ -409,10 +408,39 @@ export function MapViewport({
     doc,
     effectiveTool,
     brushDiameterDoc,
-    terrainRenderTick,
     store,
     syncOverlayCursor
   ]);
+
+  // Ridisegno isolato e accorpato per frame del solo terreno durante la pennellata
+  useEffect(() => {
+    let rafId: number | null = null;
+    const flushTerrainDraw = () => {
+      rafId = null;
+      const terrainLayer = terrainLayerRef.current;
+      const terrainImg = terrainImageRef.current;
+      if (!terrainLayer || !terrainImg) return;
+      terrainImg.image(store.getRenderer().getCanvas() ?? undefined);
+      terrainLayer.batchDraw();
+    };
+
+    const unsub = store.subscribeTerrainRedraw(() => {
+      if (typeof requestAnimationFrame === 'function') {
+        if (rafId === null) {
+          rafId = requestAnimationFrame(flushTerrainDraw);
+        }
+      } else {
+        flushTerrainDraw();
+      }
+    });
+
+    return () => {
+      unsub();
+      if (rafId !== null && typeof cancelAnimationFrame === 'function') {
+        cancelAnimationFrame(rafId);
+      }
+    };
+  }, [store]);
 
   const computePointerCoords = (clientX: number, clientY: number) => {
     const container = containerRef.current;

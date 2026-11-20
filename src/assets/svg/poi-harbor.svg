@@ -1,0 +1,69 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Porto">
+  <!-- Specchio d'acqua e ombra di costa -->
+  <ellipse cx="67" cy="96" rx="48" ry="11" fill="#A8C8C6" opacity="0.65"/>
+  <ellipse cx="44" cy="94" rx="26" ry="7" fill="#263C40" opacity="0.2"/>
+
+  <!-- Banchina / molo in pietra e legno verso destra -->
+  <polygon points="48,79 81,79 82,87 48,87" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="48,84 82,84 82,89 48,89" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Palafitte di sostegno nell'acqua -->
+  <rect x="57" y="87" width="4.5" height="9" rx="1" fill="#6E372D" stroke="#263C40" stroke-width="2.2"/>
+  <rect x="67" y="87" width="4.5" height="10" rx="1" fill="#6E372D" stroke="#263C40" stroke-width="2.2"/>
+  <rect x="76" y="87" width="4.5" height="10" rx="1" fill="#6E372D" stroke="#263C40" stroke-width="2.2"/>
+  <path d="M60 80 L60 84 M68 80 L68 84 M76 80 L76 84" stroke="#263C40" stroke-width="1.4" opacity="0.6"/>
+  <!-- Bitta d'ormeggio e cima -->
+  <rect x="77" y="74" width="4" height="6" rx="1" fill="#5F5D65" stroke="#263C40" stroke-width="2"/>
+  <path d="M80 78 Q84 82 86 83" fill="none" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Zoccolo roccioso del faro -->
+  <polygon points="18,93 26,80 56,79 62,92 50,95 24,95" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="42,79 56,79 62,92 50,95 40,94" fill="#7B7880"/>
+  <polygon points="22,87 34,82 40,92 24,93" fill="#E8D8AF"/>
+  <polygon points="18,93 26,80 56,79 62,92 50,95 24,95" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Torre del faro costiero -->
+  <polygon points="30,83 34,42 49,42 53,83" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="43,42 49,42 53,83 45,83" fill="#7B7880"/>
+  <polygon points="30,83 34,42 49,42 53,83" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Fasce marcapiano e feritoie -->
+  <path d="M33 58 L50 58" stroke="#263C40" stroke-width="2"/>
+  <rect x="39" y="48" width="4" height="6" rx="1.5" fill="#263C40"/>
+  <rect x="39" y="65" width="4" height="7" rx="1.5" fill="#263C40"/>
+  <path d="M38 83 L38 77 Q41.5 74 45 77 L45 83 Z" fill="#263C40"/>
+
+  <!-- Galleria del faro -->
+  <rect x="30" y="38" width="23" height="5" rx="1.5" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6"/>
+  <rect x="43" y="38" width="10" height="5" rx="1" fill="#7B7880"/>
+  <rect x="30" y="38" width="23" height="5" rx="1.5" fill="none" stroke="#263C40" stroke-width="2.6"/>
+
+  <!-- Lanterna dorata -->
+  <rect x="34" y="27" width="15" height="11" fill="#E0BB79" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="41.5" cy="32.5" r="3" fill="#F3EEDF"/>
+  <path d="M39 27 L39 38 M44 27 L44 38" stroke="#263C40" stroke-width="1.6"/>
+  <!-- Raggi di luce sottili -->
+  <path d="M26 30 L21 28 M26 35 L21 37 M57 30 L62 28 M57 35 L62 37" stroke="#E0BB79" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Tetto conico rosso -->
+  <polygon points="31,27 41.5,14 52,27" fill="#8B493D"/>
+  <polygon points="41.5,14 52,27 44,27" fill="#6E372D"/>
+  <polygon points="31,27 41.5,14 52,27" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <circle cx="41.5" cy="13" r="2" fill="#E0BB79" stroke="#263C40" stroke-width="1.5"/>
+
+  <!-- Piccola barca a vela ormeggiata -->
+  <path d="M98 48 L98 84" stroke="#263C40" stroke-width="2.6" stroke-linecap="round"/>
+  <!-- Gagliardetto rosso -->
+  <polygon points="98,47 108,50 98,53" fill="#8B493D" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- Vela principale -->
+  <path d="M98 53 Q112 62 110 79 L95 79 Q93 66 98 53 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M102 56 Q109 65 107 78 L110 78 Q112 63 102 56 Z" fill="#D9C598"/>
+  <!-- Scafo della barca -->
+  <path d="M82 82 L114 82 L110 92 L87 92 Z" fill="#8B493D"/>
+  <polygon points="98,82 114,82 110,92 98,92" fill="#6E372D"/>
+  <path d="M82 82 L114 82 L110 92 L87 92 Z" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M83 84 L113 84" stroke="#E8D8AF" stroke-width="1.6"/>
+
+  <!-- Increspature d'acqua in primo piano -->
+  <path d="M20 97 Q32 94 44 97 T68 97 T92 97 T114 97" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M30 103 Q44 100 58 103 T88 103 T108 102" fill="none" stroke="#7BA1A1" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M80 94 Q90 91 100 94 T114 94" fill="none" stroke="#F3EEDF" stroke-width="1.8" stroke-linecap="round"/>
+</svg>
