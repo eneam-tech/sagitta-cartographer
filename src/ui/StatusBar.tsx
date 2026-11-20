@@ -87,9 +87,9 @@ export function StatusBar({ store }: StatusBarProps) {
     }
 
     if (
-      persistenceState.status === 'saved' ||
-      doc.manifest.revision === 0 ||
-      persistenceState.savedRevision === doc.manifest.revision
+      (persistenceState.status === 'saved' &&
+        persistenceState.savedRevision === doc.manifest.revision) ||
+      (persistenceState.status === 'idle' && doc.manifest.revision === 0)
     ) {
       return (
         <>
