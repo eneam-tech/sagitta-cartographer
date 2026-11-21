@@ -19,6 +19,23 @@ export interface ThemeColors {
   stone: string;
   settlement: string;
   labelHalo: string;
+  sand: string;
+  sandShadow: string;
+  brick: string;
+  brickMortar: string;
+  snow: string;
+  snowShadow: string;
+  swamp: string;
+  swampWater: string;
+  rock: string;
+  rockShadow: string;
+  meadow: string;
+  meadowAccent: string;
+  lava: string;
+  lavaGlow: string;
+  pathRiver: string;
+  pathRoad: string;
+  pathBorder: string;
 }
 
 export interface ElevationThresholds {
@@ -103,7 +120,7 @@ export const LABEL_ROLE_PRESETS = [
 
 export const DEFAULT_THEME: MapTheme = {
   id: 'base',
-  version: 1,
+  version: 2,
   name: 'Carta di stracci classica',
   mode: 'reactive',
   colors: {
@@ -122,7 +139,24 @@ export const DEFAULT_THEME: MapTheme = {
     fieldsFurrow: '#9F8E52',
     stone: '#7B7880',
     settlement: '#8B493D',
-    labelHalo: '#E8D8AF'
+    labelHalo: '#E8D8AF',
+    sand: '#EBDDAA',
+    sandShadow: '#C9B67D',
+    brick: '#B86B58',
+    brickMortar: '#7C4438',
+    snow: '#F4F7F8',
+    snowShadow: '#C5D5DD',
+    swamp: '#6B7E5E',
+    swampWater: '#4D6B68',
+    rock: '#8C8986',
+    rockShadow: '#5D5B59',
+    meadow: '#A8B97E',
+    meadowAccent: '#7F9A58',
+    lava: '#C94A28',
+    lavaGlow: '#F4A236',
+    pathRiver: '#5E95A0',
+    pathRoad: '#7D5C43',
+    pathBorder: '#8E3B35'
   },
   coast: {
     strokeWidthDoc: 3.2,
@@ -131,6 +165,157 @@ export const DEFAULT_THEME: MapTheme = {
   elevation: DEFAULT_ELEVATION_THRESHOLDS,
   fonts: DEFAULT_THEME_FONTS
 };
+
+export const NORDICA_THEME: MapTheme = {
+  id: 'nordica',
+  version: 2,
+  name: 'Atlante boreale',
+  mode: 'reactive',
+  colors: {
+    sea: '#85A3B3',
+    seaShallow: '#9BB7C4',
+    seaBathymetry: '#5F7E91',
+    beach: '#DFE7E9',
+    land: '#E6ECEE',
+    hill: '#CBD6DB',
+    mountain: '#98A4AE',
+    mountainCrest: '#F7FAFB',
+    ink: '#1C2B36',
+    forest: '#325249',
+    forestShadow: '#203832',
+    fields: '#BFC499',
+    fieldsFurrow: '#8A8F67',
+    stone: '#6D7A84',
+    settlement: '#7D4B46',
+    labelHalo: '#E6ECEE',
+    sand: '#DCDAC8',
+    sandShadow: '#B5B29B',
+    brick: '#9E625B',
+    brickMortar: '#69403B',
+    snow: '#F6FAFC',
+    snowShadow: '#BFD2DF',
+    swamp: '#5B6F68',
+    swampWater: '#405B63',
+    rock: '#7B8790',
+    rockShadow: '#505B63',
+    meadow: '#8EA88E',
+    meadowAccent: '#68836B',
+    lava: '#BF4A30',
+    lavaGlow: '#F29F3D',
+    pathRiver: '#4F84A3',
+    pathRoad: '#6B5C50',
+    pathBorder: '#8C3F45'
+  },
+  coast: {
+    strokeWidthDoc: 3.2,
+    bathymetryOffsetDoc: 16
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS
+};
+
+export const PERGAMENA_THEME: MapTheme = {
+  id: 'pergamena',
+  version: 2,
+  name: 'Pergamena d’archivio',
+  mode: 'reactive',
+  colors: {
+    sea: '#B5BDB0',
+    seaShallow: '#C4CBBF',
+    seaBathymetry: '#8D998C',
+    beach: '#F3E8CE',
+    land: '#EEDFBA',
+    hill: '#DEC89C',
+    mountain: '#BCAA92',
+    mountainCrest: '#F6EEDF',
+    ink: '#3A281E',
+    forest: '#5A6D49',
+    forestShadow: '#3F4F32',
+    fields: '#DEC97F',
+    fieldsFurrow: '#A68E49',
+    stone: '#85776C',
+    settlement: '#964935',
+    labelHalo: '#EEDFBA',
+    sand: '#EFE0AC',
+    sandShadow: '#CBB679',
+    brick: '#B0654A',
+    brickMortar: '#75402E',
+    snow: '#F5F0E6',
+    snowShadow: '#D1C7B6',
+    swamp: '#767E56',
+    swampWater: '#5C6C5D',
+    rock: '#8D8175',
+    rockShadow: '#5F554B',
+    meadow: '#B5BC7C',
+    meadowAccent: '#8D9853',
+    lava: '#C74F28',
+    lavaGlow: '#F0A43A',
+    pathRiver: '#698D8E',
+    pathRoad: '#7C5338',
+    pathBorder: '#9A3828'
+  },
+  coast: {
+    strokeWidthDoc: 3.4,
+    bathymetryOffsetDoc: 18
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS
+};
+
+export const VULCANICA_THEME: MapTheme = {
+  id: 'vulcanica',
+  version: 2,
+  name: 'Terra d’ossidiana',
+  mode: 'reactive',
+  colors: {
+    sea: '#667E8A',
+    seaShallow: '#79929E',
+    seaBathymetry: '#445C68',
+    beach: '#C7BCB0',
+    land: '#BCB1A4',
+    hill: '#A19589',
+    mountain: '#7A716B',
+    mountainCrest: '#E6DDD0',
+    ink: '#1F1B1A',
+    forest: '#455E4B',
+    forestShadow: '#2C4032',
+    fields: '#BDA875',
+    fieldsFurrow: '#877548',
+    stone: '#6E6966',
+    settlement: '#914635',
+    labelHalo: '#D4CAC0',
+    sand: '#CFC0A1',
+    sandShadow: '#A39273',
+    brick: '#A35847',
+    brickMortar: '#6B362B',
+    snow: '#E9ECEE',
+    snowShadow: '#B4BCC2',
+    swamp: '#5F6956',
+    swampWater: '#465858',
+    rock: '#78726E',
+    rockShadow: '#4D4845',
+    meadow: '#8F9C72',
+    meadowAccent: '#69784E',
+    lava: '#D44820',
+    lavaGlow: '#FFA733',
+    pathRiver: '#527E91',
+    pathRoad: '#6B5242',
+    pathBorder: '#A3392E'
+  },
+  coast: {
+    strokeWidthDoc: 3.4,
+    bathymetryOffsetDoc: 16
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS
+};
+
+export const MAP_THEMES: readonly MapTheme[] = [
+  DEFAULT_THEME,
+  NORDICA_THEME,
+  PERGAMENA_THEME,
+  VULCANICA_THEME
+] as const;
 
 export const V1_FLAT_THEME: MapTheme = {
   ...DEFAULT_THEME,
@@ -142,6 +327,51 @@ export const V1_FLAT_THEME: MapTheme = {
 
 export function cloneTheme(theme: MapTheme): MapTheme {
   return JSON.parse(JSON.stringify(theme)) as MapTheme;
+}
+
+export function getBuiltinThemeById(id: string): MapTheme | undefined {
+  if (id === V1_FLAT_THEME.id) return V1_FLAT_THEME;
+  return MAP_THEMES.find((t) => t.id === id);
+}
+
+/**
+ * Fills any v2/v3 missing color/font/threshold fields on an imported theme using
+ * matching built-in theme values or DEFAULT_THEME defaults.
+ */
+export function normalizeTheme(raw: unknown): MapTheme {
+  if (!raw || typeof raw !== 'object') {
+    throw new Error('Tema non valido.');
+  }
+  const t = raw as Partial<MapTheme>;
+  const fallback = getBuiltinThemeById(typeof t.id === 'string' ? t.id : '') ?? DEFAULT_THEME;
+  return cloneTheme({
+    id: typeof t.id === 'string' && t.id.trim() ? t.id : fallback.id,
+    version: typeof t.version === 'number' && Number.isInteger(t.version) && t.version >= 1 ? t.version : fallback.version,
+    name: typeof t.name === 'string' && t.name.trim() ? t.name : fallback.name,
+    mode: t.mode === 'flat' ? 'flat' : 'reactive',
+    colors: {
+      ...DEFAULT_THEME.colors,
+      ...fallback.colors,
+      ...(t.colors ?? {})
+    },
+    coast: {
+      ...DEFAULT_THEME.coast,
+      ...fallback.coast,
+      ...(t.coast ?? {})
+    },
+    elevation: {
+      ...DEFAULT_THEME.elevation,
+      ...fallback.elevation,
+      ...(t.elevation ?? {})
+    },
+    fonts: {
+      defaultFontId: t.fonts?.defaultFontId ?? fallback.fonts.defaultFontId,
+      presets: {
+        ...DEFAULT_THEME_FONTS.presets,
+        ...(t.fonts?.presets ?? {})
+      }
+    }
+  });
 }
 
 export function getFontSpec(theme: MapTheme, fontId: string): FontStyleSpec {

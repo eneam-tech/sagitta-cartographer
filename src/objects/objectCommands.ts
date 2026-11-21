@@ -62,6 +62,15 @@ export function getDefaultObjectLabel(obj: MapObject): string {
   if (obj.type === 'label') {
     return obj.text.trim() || 'Etichetta';
   }
+  if (obj.type === 'path') {
+    return obj.kind === 'river'
+      ? 'Fiume'
+      : obj.kind === 'road'
+        ? 'Strada'
+        : obj.kind === 'border'
+          ? 'Confine'
+          : 'Tracciato';
+  }
   return getCatalogItemById(obj.assetId)?.name ?? obj.categoryId ?? obj.assetId;
 }
 

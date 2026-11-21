@@ -90,6 +90,10 @@ function isPointInsideObject(
     return lx >= left && lx <= left + obj.width && ly >= top && ly <= top + obj.height;
   }
 
+  if (obj.type === 'path') {
+    return false;
+  }
+
   const textNode = node as Konva.Text | undefined;
   const width = textNode ? Math.max(20, textNode.width()) : Math.max(24, obj.text.length * obj.fontSize * 0.6);
   const height = textNode ? Math.max(obj.fontSize, textNode.height()) : obj.fontSize * 1.25;
@@ -573,7 +577,7 @@ export class ObjectsLayerController {
           })
         : new KonvaCtor.Text({
             id: obj.id,
-            text: obj.text,
+            text: obj.type === 'label' ? obj.text : '',
             draggable,
             lineJoin: 'round',
             fillAfterStrokeEnabled: true,
@@ -606,7 +610,7 @@ export class ObjectsLayerController {
         rotation: obj.rotationDeg,
         image: cached?.loaded ? cached.image : undefined
       });
-    } else {
+    } else if (obj.type === 'label') {
       const spec = getFontSpec(doc.theme, obj.fontId);
       node.setAttrs({
         x: obj.x,
@@ -704,7 +708,7 @@ export class ObjectsLayerController {
           height: nextHeight,
           rotationDeg: nextRotation
         };
-      } else {
+      } else if (prev.type === 'label') {
         const scaleFactor = Math.max(scaleX, scaleY);
         const nextFontSize = Math.max(8, Number((prev.fontSize * scaleFactor).toFixed(2)));
         node.setAttrs({
@@ -723,6 +727,8 @@ export class ObjectsLayerController {
           fontSize: nextFontSize,
           rotationDeg: nextRotation
         };
+      } else {
+        return;
       }
 
       this.transformer.forceUpdate();

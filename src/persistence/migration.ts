@@ -14,6 +14,7 @@ import {
   SCHEMA_VERSION,
   StampObject,
   TerrainBuffers,
+  createDefaultLayers,
   isValidArchivePath,
   validateDocumentManifest
 } from '../model/document';
@@ -24,7 +25,7 @@ const PLAINS_DEFAULT_HEIGHT = 64;
 /**
  * Validates that a manifest schemaVersion is within the supported range [1, SCHEMA_VERSION].
  */
-export function assertSupportedSchemaVersion(version: unknown): 1 | 2 {
+export function assertSupportedSchemaVersion(version: unknown): 1 | 2 | 3 {
   if (typeof version !== 'number' || !Number.isInteger(version)) {
     throw new Error(
       `Versione schema non valida o mancante (supportate: v1–v${SCHEMA_VERSION}).`
@@ -35,7 +36,7 @@ export function assertSupportedSchemaVersion(version: unknown): 1 | 2 {
       `Versione schema non supportata: trovata v${version}, supportate v1–v${SCHEMA_VERSION}.`
     );
   }
-  return version as 1 | 2;
+  return version as 1 | 2 | 3;
 }
 
 /**
@@ -317,6 +318,7 @@ export function migrateManifestV1ToV2(
       file: themeFile
     },
     assets,
+    layers: createDefaultLayers(),
     objects
   };
 

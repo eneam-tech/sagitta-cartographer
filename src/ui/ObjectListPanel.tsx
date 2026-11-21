@@ -147,6 +147,31 @@ function ObjectThumb({ obj }: { obj: MapObject }) {
     );
   }
 
+  if (obj.type === 'path') {
+    return (
+      <span
+        aria-hidden="true"
+        style={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '3px',
+          backgroundColor: 'var(--ui-bench)',
+          border: '1px solid var(--ui-line-subtle)',
+          color: obj.color,
+          fontSize: '13px',
+          fontWeight: 700,
+          lineHeight: 1,
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}
+      >
+        〜
+      </span>
+    );
+  }
+
   const catalogItem = getCatalogItemById(obj.assetId);
   return (
     <span

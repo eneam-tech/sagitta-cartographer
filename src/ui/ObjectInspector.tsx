@@ -594,8 +594,12 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
 
       {selectedObject.type === 'stamp' ? (
         <StampInspectorFields store={store} stamp={selectedObject} />
-      ) : (
+      ) : selectedObject.type === 'label' ? (
         <LabelInspectorFields store={store} labelObj={selectedObject} />
+      ) : (
+        <div className="panel-group">
+          <p className="panel-hint">Tracciato vettoriale ({selectedObject.kind}).</p>
+        </div>
       )}
 
       <div

@@ -37,10 +37,28 @@ function getToolLabel(tool: TerrainBrushTool): string {
       return 'Alza rilievo';
     case 'lower':
       return 'Abbassa rilievo';
+    case 'flatten':
+      return 'Appiattisci rilievo';
+    case 'smooth':
+      return 'Ammorbidisci rilievo';
     case 'forest':
       return 'Copertura foresta';
     case 'fields':
       return 'Copertura campi';
+    case 'sand':
+      return 'Copertura sabbia';
+    case 'brick':
+      return 'Copertura mattoni';
+    case 'snow':
+      return 'Copertura neve';
+    case 'swamp':
+      return 'Copertura palude';
+    case 'rock':
+      return 'Copertura roccia';
+    case 'meadow':
+      return 'Copertura prateria';
+    case 'lava':
+      return 'Copertura lava';
     case 'natural':
       return 'Rimuovi copertura';
   }

@@ -6,9 +6,18 @@ export type TerrainBrushTool =
   | 'water'
   | 'raise'
   | 'lower'
+  | 'flatten'
+  | 'smooth'
+  | 'natural'
   | 'forest'
   | 'fields'
-  | 'natural';
+  | 'sand'
+  | 'brick'
+  | 'snow'
+  | 'swamp'
+  | 'rock'
+  | 'meadow'
+  | 'lava';
 
 export type BiomeKind = 'sea' | 'beach' | 'plain' | 'hill' | 'mountain';
 
@@ -16,6 +25,7 @@ export interface BrushStrokeParams {
   tool: TerrainBrushTool;
   diameterDoc: number;
   intensity: number; // 0.05..1.0
+  targetHeight?: number; // 0..255 optional target elevation for 'flatten'
 }
 
 export interface StrokeCommitResult {

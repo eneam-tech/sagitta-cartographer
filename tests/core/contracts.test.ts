@@ -1,18 +1,40 @@
 import { describe, expect, it } from 'vitest';
 import {
+  clampPrintDimensions,
+  computeAnchorOffset,
   docToScreen,
   fitCameraToViewport,
   mmToPdfPoints,
   mmToPrintPx,
+  PAGE_PRESETS,
   ptToDocUnits,
   screenToDoc,
   zoomAtPoint
 } from '../../src/model/coordinates';
-import { createEmptyDocument, validateDocumentManifest } from '../../src/model/document';
+import {
+  COVER_LAVA,
+  COVER_MATERIALS,
+  COVER_NATURAL,
+  DEFAULT_LAYER_TERRAIN_ID,
+  PathObject,
+  SCHEMA_VERSION,
+  createEmptyDocument,
+  isCoverCode,
+  validateDocumentManifest
+} from '../../src/model/document';
 import { HistoryManager } from '../../src/model/history';
-import { SetTitleCommand, TerrainPatchCommand } from '../../src/model/commands';
+import {
+  AddLayerCommand,
+  DeleteLayerCommand,
+  ReorderLayersCommand,
+  ResizeCanvasCommand,
+  SetTitleCommand,
+  TerrainPatchCommand,
+  UpdateLayerCommand
+} from '../../src/model/commands';
 import { decodeMaskPng, encodeMaskPng } from '../../src/core/png';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
+import { MAP_THEMES, normalizeTheme } from '../../src/theme/theme';
 
 describe('Core module contracts', () => {
   it('converts physical page sizes to PDF points and print pixels accurately', () => {
@@ -107,5 +129,120 @@ describe('Core module contracts', () => {
     const sample = createSampleWorldDocument();
     expect(() => validateDocumentManifest(sample.manifest)).not.toThrow();
     expect(sample.manifest.objects).toHaveLength(3);
+  });
+
+  it('validates v3 schema layers, 10 cover materials, PathObject, 4 themes, and large page presets', () => {
+    expect(SCHEMA_VERSION).toBe(3);
+    expect(COVER_MATERIALS).toHaveLength(10);
+    expect(isCoverCode(COVER_NATURAL)).toBe(true);
+    expect(isCoverCode(COVER_LAVA)).toBe(true);
+    expect(isCoverCode(10)).toBe(false);
+    expect(MAP_THEMES).toHaveLength(4);
+    expect(PAGE_PRESETS.length).toBeGreaterThanOrEqual(7);
+
+    const normalized = normalizeTheme({
+      id: 'legacy',
+      version: 1,
+      name: 'Legacy',
+      mode: 'reactive',
+      colors: { land: '#E0D0A0' }
+    });
+    expect(normalized.colors.lava).toBeDefined();
+    expect(normalized.colors.pathRiver).toBeDefined();
+
+    const doc = createEmptyDocument({ page: { widthMm: 841, heightMm: 594 } });
+    expect(doc.manifest.layers).toHaveLength(4);
+    const river: PathObject = {
+      id: 'path-river-1',
+      type: 'path',
+      kind: 'river',
+      layerId: 'layer-vectors',
+      x: 500,
+      y: 400,
+      rotationDeg: 0,
+      points: [-100, -40, 0, 20, 120, 60],
+      strokeWidthDoc: 12,
+      color: normalized.colors.pathRiver,
+      tapered: true,
+      smooth: true
+    };
+    doc.manifest.objects.push(river);
+    expect(() => validateDocumentManifest(doc.manifest)).not.toThrow();
+
+    expect(computeAnchorOffset(2970, 2100, 4200, 2970, 'top-left')).toEqual({ dx: 0, dy: 0 });
+    expect(computeAnchorOffset(2970, 2100, 4200, 2970, 'center')).toEqual({ dx: 615, dy: 435 });
+
+    const clamped = clampPrintDimensions({ widthMm: 841, heightMm: 594 }, 300);
+    expect(clamped.widthPx * clamped.heightPx).toBeLessThanOrEqual(32_000_000);
+    expect(clamped.widthPx).toBeLessThanOrEqual(8192);
+  });
+
+  it('supports undo/redo for layer commands and ResizeCanvasCommand cleanly', () => {
+    const doc = createEmptyDocument({ widthPx: 120, heightPx: 80 });
+    const history = new HistoryManager();
+
+    const customLayer = {
+      id: 'layer-custom-1',
+      name: 'Annotazioni',
+      kind: 'custom' as const,
+      visible: true,
+      locked: false,
+      opacity: 0.75
+    };
+
+    history.execute(doc, new AddLayerCommand(customLayer));
+    expect(doc.manifest.layers).toHaveLength(5);
+    expect(doc.manifest.layers[4].id).toBe('layer-custom-1');
+
+    history.execute(
+      doc,
+      new UpdateLayerCommand(customLayer, { ...customLayer, visible: false, locked: true })
+    );
+    expect(doc.manifest.layers[4].visible).toBe(false);
+
+    const prevOrder = [...doc.manifest.layers];
+    const reordered = [prevOrder[0], prevOrder[4], prevOrder[1], prevOrder[2], prevOrder[3]];
+    history.execute(doc, new ReorderLayersCommand(prevOrder, reordered));
+    expect(doc.manifest.layers[1].id).toBe('layer-custom-1');
+
+    // Terrain layer cannot be deleted
+    history.execute(doc, new DeleteLayerCommand(DEFAULT_LAYER_TERRAIN_ID));
+    expect(doc.manifest.layers.some((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)).toBe(true);
+
+    history.undo(doc); // reorder
+    history.undo(doc); // delete (no-op command still on stack)
+    history.undo(doc); // update
+    expect(doc.manifest.layers[4].visible).toBe(true);
+    history.undo(doc); // add
+    expect(doc.manifest.layers).toHaveLength(4);
+
+    const before = {
+      page: doc.manifest.page,
+      space: doc.manifest.space,
+      terrain: doc.terrain,
+      objects: doc.manifest.objects
+    };
+    const afterTerrain = {
+      widthPx: 180,
+      heightPx: 120,
+      mask: new Uint8Array(180 * 120),
+      height: new Uint8Array(180 * 120),
+      cover: new Uint8Array(180 * 120)
+    };
+    const resizeCmd = new ResizeCanvasCommand(before, {
+      page: { widthMm: 420, heightMm: 297 },
+      space: { width: 4200, height: 2970 },
+      terrain: afterTerrain,
+      objects: doc.manifest.objects
+    });
+    history.execute(doc, resizeCmd);
+    expect(doc.manifest.page.widthMm).toBe(420);
+    expect(doc.terrain.widthPx).toBe(180);
+    expect(doc.terrainVersion).toBe(1);
+
+    history.undo(doc);
+    expect(doc.manifest.page.widthMm).toBe(297);
+    expect(doc.terrain.widthPx).toBe(120);
+    expect(doc.terrainVersion).toBe(2);
   });
 });

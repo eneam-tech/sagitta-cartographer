@@ -128,6 +128,9 @@ function getFallbackObjectName(obj: MapObject): string {
   if (obj.type === 'label') {
     return obj.text.trim() || 'Etichetta vuota';
   }
+  if (obj.type === 'path') {
+    return obj.kind;
+  }
   return obj.categoryId || obj.assetId;
 }
 
@@ -142,7 +145,11 @@ function FallbackObjectInspector({
     <div className="panel-group">
       <div className="slider-header">
         <h3 className="panel-subheading">
-          {object.type === 'stamp' ? 'Simbolo selezionato' : 'Etichetta selezionata'}
+          {object.type === 'stamp'
+            ? 'Simbolo selezionato'
+            : object.type === 'label'
+              ? 'Etichetta selezionata'
+              : 'Tracciato selezionato'}
         </h3>
         <button type="button" className="btn btn-ghost btn-compact" onClick={onClearSelection}>
           Deseleziona
@@ -162,10 +169,15 @@ function FallbackObjectInspector({
               {Math.round(object.width)} × {Math.round(object.height)} u
             </span>
           </>
-        ) : (
+        ) : object.type === 'label' ? (
           <>
             <span className="inspector-summary-key">Corpo testo</span>
             <span className="inspector-summary-val">{object.fontSize.toFixed(1)} u</span>
+          </>
+        ) : (
+          <>
+            <span className="inspector-summary-key">Spessore</span>
+            <span className="inspector-summary-val">{object.strokeWidthDoc.toFixed(1)} u</span>
           </>
         )}
         <span className="inspector-summary-key">Rotazione</span>

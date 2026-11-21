@@ -20,6 +20,7 @@ import {
   COVER_FIELDS,
   COVER_FOREST,
   COVER_NATURAL,
+  CoverToolId,
   CreateEmptyDocumentOptions,
   MapDocument,
   createEmptyDocument
@@ -42,23 +43,20 @@ import {
 export type EditorTool =
   | 'hand'
   | 'select'
-  | 'land'
-  | 'water'
-  | 'raise'
-  | 'lower'
-  | 'forest'
-  | 'fields'
-  | 'natural'
+  | TerrainBrushTool
+  | 'path'
   | 'poi'
   | 'label';
 
-export type ElevationSubTool = 'raise' | 'lower';
-export type CoverSubTool = 'forest' | 'fields' | 'natural';
+export type ElevationSubTool = 'raise' | 'lower' | 'flatten' | 'smooth';
+export type CoverSubTool = CoverToolId;
 
 export type EditorDialogKind =
   | 'newProject'
   | 'openProject'
   | 'exportPdf'
+  | 'resizeCanvas'
+  | 'shortcuts'
   | 'conflict'
   | 'storageError'
   | null;
@@ -83,8 +81,17 @@ export function isTerrainBrushTool(tool: EditorTool): tool is TerrainBrushTool {
     tool === 'water' ||
     tool === 'raise' ||
     tool === 'lower' ||
+    tool === 'flatten' ||
+    tool === 'smooth' ||
     tool === 'forest' ||
     tool === 'fields' ||
+    tool === 'sand' ||
+    tool === 'brick' ||
+    tool === 'snow' ||
+    tool === 'swamp' ||
+    tool === 'rock' ||
+    tool === 'meadow' ||
+    tool === 'lava' ||
     tool === 'natural'
   );
 }
@@ -93,8 +100,17 @@ export function isLandRequiredBrush(tool: EditorTool): boolean {
   return (
     tool === 'raise' ||
     tool === 'lower' ||
+    tool === 'flatten' ||
+    tool === 'smooth' ||
     tool === 'forest' ||
     tool === 'fields' ||
+    tool === 'sand' ||
+    tool === 'brick' ||
+    tool === 'snow' ||
+    tool === 'swamp' ||
+    tool === 'rock' ||
+    tool === 'meadow' ||
+    tool === 'lava' ||
     tool === 'natural'
   );
 }
@@ -214,8 +230,17 @@ const TOOL_LABELS: Record<TerrainBrushTool, string> = {
   water: 'Pennellata Acqua',
   raise: 'Alza rilievo',
   lower: 'Abbassa rilievo',
+  flatten: 'Appiattisci rilievo',
+  smooth: 'Ammorbidisci rilievo',
   forest: 'Copertura Foresta',
   fields: 'Copertura Campi',
+  sand: 'Copertura Sabbia',
+  brick: 'Copertura Mattoni',
+  snow: 'Copertura Neve',
+  swamp: 'Copertura Palude',
+  rock: 'Copertura Roccia',
+  meadow: 'Copertura Prateria',
+  lava: 'Copertura Lava',
   natural: 'Copertura Naturale'
 };
 

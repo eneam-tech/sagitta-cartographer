@@ -1,5 +1,6 @@
 import { AssetManifestEntry, MapDocument } from '../model/document';
-import { LoadedAssetMap, LoadedAssetResource, PoiCatalogItem } from './types';
+import { LoadedAssetMap, LoadedAssetResource, POI_CATEGORIES, PoiCatalogItem } from './types';
+export { POI_CATEGORIES };
 import citadelSvg from './svg/poi-citadel.svg?raw';
 import harborSvg from './svg/poi-harbor.svg?raw';
 import monolithSvg from './svg/poi-monolith.svg?raw';
@@ -10,6 +11,8 @@ import towerSvg from './svg/poi-tower.svg?raw';
 interface BuiltinPoiSpec {
   id: string;
   categoryId: string;
+  categoryLabel: string;
+  tags: readonly string[];
   name: string;
   description: string;
   defaultWidthDoc: number;
@@ -22,6 +25,8 @@ function makeBuiltinPoiItem(spec: BuiltinPoiSpec): PoiCatalogItem {
   return {
     id: spec.id,
     categoryId: spec.categoryId,
+    categoryLabel: spec.categoryLabel,
+    tags: spec.tags,
     name: spec.name,
     description: spec.description,
     defaultWidthDoc: spec.defaultWidthDoc,
@@ -46,7 +51,9 @@ function makeBuiltinPoiItem(spec: BuiltinPoiSpec): PoiCatalogItem {
 export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   makeBuiltinPoiItem({
     id: 'poi-settlement',
-    categoryId: 'settlement',
+    categoryId: 'settlements',
+    categoryLabel: 'Insediamenti',
+    tags: ['borgo', 'città', 'villaggio'],
     name: 'Insediamento',
     description: 'Borgo murato con cinta merlata, porta ad arco e tetti rossi',
     defaultWidthDoc: 110,
@@ -55,7 +62,9 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   }),
   makeBuiltinPoiItem({
     id: 'poi-harbor',
-    categoryId: 'harbor',
+    categoryId: 'coasts',
+    categoryLabel: 'Coste e Porti',
+    tags: ['porto', 'faro', 'nave'],
     name: 'Porto',
     description: 'Faro costiero con banchina e barca a vela ormeggiata',
     defaultWidthDoc: 112,
@@ -64,7 +73,9 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   }),
   makeBuiltinPoiItem({
     id: 'poi-tower',
-    categoryId: 'tower',
+    categoryId: 'fortresses',
+    categoryLabel: 'Fortezze',
+    tags: ['torre', 'guardia', 'vedetta'],
     name: 'Torre',
     description: 'Torre di guardia isolata su zoccolo roccioso',
     defaultWidthDoc: 96,
@@ -73,7 +84,9 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   }),
   makeBuiltinPoiItem({
     id: 'poi-ruin',
-    categoryId: 'ruin',
+    categoryId: 'ruins',
+    categoryLabel: 'Rovine e Misteri',
+    tags: ['rovina', 'tempio', 'antico'],
     name: 'Rovina',
     description: 'Archi spezzati, colonna abbattuta e pietre antiche',
     defaultWidthDoc: 102,
@@ -82,7 +95,9 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   }),
   makeBuiltinPoiItem({
     id: 'poi-citadel',
-    categoryId: 'citadel',
+    categoryId: 'fortresses',
+    categoryLabel: 'Fortezze',
+    tags: ['cittadella', 'castello', 'fortezza'],
     name: 'Cittadella',
     description: 'Fortezza arroccata con mastio centrale e bastioni angolari',
     defaultWidthDoc: 118,
@@ -91,7 +106,9 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
   }),
   makeBuiltinPoiItem({
     id: 'poi-monolith',
-    categoryId: 'monolith',
+    categoryId: 'ruins',
+    categoryLabel: 'Rovine e Misteri',
+    tags: ['monolite', 'pietra', 'runa'],
     name: 'Monolite',
     description: 'Stele di pietra scura con incisione dorata e cerchio di pietre',
     defaultWidthDoc: 90,
