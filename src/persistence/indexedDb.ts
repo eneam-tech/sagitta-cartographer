@@ -1,11 +1,19 @@
 import { PageSizeMm } from '../model/coordinates';
 import {
   DocumentManifest,
+  MAX_COVER_CODE,
   MapDocument,
+  isCoverCode,
   validateDocumentManifest
 } from '../model/document';
 import { decodeMaskPng, encodeMaskPng } from '../core/png';
-import { MapTheme, cloneTheme } from '../theme/theme';
+import { MapTheme, V1_FLAT_THEME, cloneTheme, normalizeTheme } from '../theme/theme';
+import { validateMapTheme } from './archive';
+import {
+  assertSupportedSchemaVersion,
+  initializeV1TerrainBuffers,
+  migrateManifestToV3
+} from './migration';
 import { SavedProjectSummary } from './types';
 
 export const CARTOGRAFO_DB_NAME = 'cartografo-db';
@@ -546,7 +554,8 @@ export class CartografoIndexedDb {
           if (
             existing &&
             existing.terrainVersion === terrainVersion &&
-            existing.lastSavedMaskKey
+            existing.lastSavedMaskKey &&
+            (existing.manifest?.schemaVersion ?? 1) >= 2
           ) {
             const verifyBlobReq = terrainStore.getKey(existing.lastSavedMaskKey);
             verifyBlobReq.onerror = () => {
@@ -647,8 +656,14 @@ export class CartografoIndexedDb {
       );
     }
 
-    const manifest = validateDocumentManifest(structuredClone(project.manifest));
     const decoded = this.decodeMaskPngFn(new Uint8Array(terrain.maskPng));
+    const rawManifest = project.manifest as unknown as Record<string, unknown> | undefined;
+    const sourceVersion = assertSupportedSchemaVersion(rawManifest?.schemaVersion);
+    const manifest = migrateManifestToV3(rawManifest, {
+      widthPx: decoded.width,
+      heightPx: decoded.height
+    });
+
     if (
       decoded.width !== manifest.terrain.widthPx ||
       decoded.height !== manifest.terrain.heightPx
@@ -659,18 +674,53 @@ export class CartografoIndexedDb {
     }
 
     const expectedCells = decoded.width * decoded.height;
-    const height = new Uint8Array(terrain.heightU8);
-    const cover = new Uint8Array(terrain.coverU8);
-    if (height.length !== expectedCells || cover.length !== expectedCells) {
-      throw new Error(
-        `Lunghezza dei raster quota/copertura non valida per "${manifest.id}".`
+    let height: Uint8Array;
+    let cover: Uint8Array;
+    let initializedFromV1 = false;
+
+    if (
+      sourceVersion === 1 &&
+      (!terrain.heightU8 ||
+        terrain.heightU8.length === 0 ||
+        !terrain.coverU8 ||
+        terrain.coverU8.length === 0)
+    ) {
+      const initialized = initializeV1TerrainBuffers(
+        decoded.mask,
+        decoded.width,
+        decoded.height
       );
+      height = initialized.height;
+      cover = initialized.cover;
+      initializedFromV1 = true;
+    } else {
+      height = new Uint8Array(terrain.heightU8);
+      cover = new Uint8Array(terrain.coverU8);
+      if (height.length !== expectedCells || cover.length !== expectedCells) {
+        throw new Error(
+          `Lunghezza dei raster quota/copertura non valida per "${manifest.id}".`
+        );
+      }
+      for (let i = 0; i < cover.length; i += 1) {
+        if (!isCoverCode(cover[i])) {
+          throw new Error(
+            `Codice copertura non valido (${cover[i]}) in IndexedDB per "${manifest.id}" alla cella ${i}: ammessi solo 0–${MAX_COVER_CODE}.`
+          );
+        }
+      }
     }
 
     const extraAssetBlobs = new Map<string, Blob>();
     for (const rec of assets) {
       extraAssetBlobs.set(rec.path, toBlobFromStored(rec.blob, rec.mimeType));
     }
+
+    const theme =
+      sourceVersion === 1
+        ? normalizeTheme(V1_FLAT_THEME)
+        : validateMapTheme(project.theme);
+    const terrainVersion =
+      typeof project.terrainVersion === 'number' ? project.terrainVersion : 0;
 
     const document: MapDocument = {
       manifest,
@@ -681,13 +731,18 @@ export class CartografoIndexedDb {
         height,
         cover
       },
-      theme: cloneTheme(project.theme),
-      terrainVersion: project.terrainVersion
+      theme,
+      terrainVersion
     };
 
     this.expectedPersistedRevision.set(id, manifest.revision);
-    this.lastSavedTerrainVersion.set(id, project.terrainVersion);
-    this.lastSavedMaskKey.set(id, project.lastSavedMaskKey);
+    if (!initializedFromV1) {
+      this.lastSavedTerrainVersion.set(id, terrainVersion);
+      this.lastSavedMaskKey.set(id, project.lastSavedMaskKey);
+    } else {
+      this.lastSavedTerrainVersion.delete(id);
+      this.lastSavedMaskKey.delete(id);
+    }
 
     return { document, extraAssetBlobs };
   }

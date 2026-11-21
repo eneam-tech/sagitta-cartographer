@@ -1,0 +1,46 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Porta fortificata">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="48" ry="10" fill="#263C40" opacity="0.22"/>
+
+  <!-- Bastioni di roccia laterali del valico -->
+  <polygon points="10,95 16,74 34,70 36,96 18,98" fill="#B9B1AA" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="92,96 94,70 112,74 118,95 110,98" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Strada lastricata che attraversa il varco -->
+  <path d="M53 68 L75 68 L84 103 L44 103 Z" fill="#D9C598" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M58 68 L70 68 L74 103 L54 103 Z" fill="#EFE4C8"/>
+
+  <!-- Corpo ad arco sopraelevato centrale con ponte merlato -->
+  <path d="M40 33 L46 33 L46 37 L53 37 L53 33 L60 33 L60 37 L68 37 L68 33 L75 33 L75 37 L82 37 L82 33 L88 33 L88 96 L79 96 L79 70 Q64 51 49 70 L49 96 L40 96 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="73,37 75,37 75,33 82,33 82,37 88,37 88,96 79,96 79,70 73,63" fill="#7B7880"/>
+  <path d="M40 33 L46 33 L46 37 L53 37 L53 33 L60 33 L60 37 L68 37 L68 33 L75 33 L75 37 L82 37 L82 33 L88 33 L88 96 L79 96 L79 70 Q64 51 49 70 L49 96 L40 96 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Ombra dell'arcata interna e saracinesca alzata -->
+  <path d="M49 96 L49 70 Q64 51 79 70 L79 96 L75 96 L75 73 Q64 58 53 73 L53 96 Z" fill="#263C40"/>
+  <!-- Griglia della saracinesca sollevata a metà -->
+  <path d="M52 67 L76 67 M52 72 L76 72 M56 62 L56 76 M61 59 L61 76 M67 59 L67 76 M72 62 L72 76" stroke="#263C40" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M56 76 L56 79 M61 76 L61 79 M67 76 L67 79 M72 76 L72 79" stroke="#5F5D65" stroke-width="2" stroke-linecap="round"/>
+  <!-- Scudo araldico d'ottone sopra l'arco -->
+  <polygon points="59,43 69,43 69,50 64,54 59,50" fill="#E0BB79" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Torri gemelle fiancheggianti -->
+  <!-- Torre sinistra (illuminata NW) -->
+  <polygon points="24,96 27,32 45,32 48,96" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="39,32 45,32 48,96 40,96" fill="#B9B1AA"/>
+  <polygon points="24,96 27,32 45,32 48,96" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M24 24 L30 24 L30 28 L34 28 L34 24 L39 24 L39 28 L43 28 L43 24 L48 24 L47 34 L25 34 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="34" y="45" width="4" height="11" rx="2" fill="#263C40"/>
+  <rect x="34" y="67" width="4" height="11" rx="2" fill="#263C40"/>
+
+  <!-- Torre destra (in ombra SE) -->
+  <polygon points="80,96 83,32 101,32 104,96" fill="#7B7880" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="93,32 101,32 104,96 94,96" fill="#5F5D65"/>
+  <polygon points="80,96 83,32 101,32 104,96" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M80 24 L85 24 L85 28 L89 28 L89 24 L94 24 L94 28 L98 28 L98 24 L104 24 L103 34 L81 34 Z" fill="#7B7880" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="90" y="45" width="4" height="11" rx="2" fill="#263C40"/>
+  <rect x="90" y="67" width="4" height="11" rx="2" fill="#263C40"/>
+
+  <!-- Stendardo sulla torre sinistra -->
+  <path d="M36 24 L36 12" stroke="#263C40" stroke-width="2.2" stroke-linecap="round"/>
+  <polygon points="36,12 49,15 36,19" fill="#8B493D" stroke="#263C40" stroke-width="1.6" stroke-linejoin="round"/>
+</svg>

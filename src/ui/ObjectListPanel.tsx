@@ -1,11 +1,12 @@
 import { useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import { getCatalogItemById, svgToDataUrl } from '../assets/catalog';
-import { MapObject } from '../model/document';
+import { MapObject, resolveObjectLayerId } from '../model/document';
 import {
   DeleteObjectCommand,
   commitObjectReorder,
-  getDefaultObjectLabel
+  getDefaultObjectLabel,
+  getDeleteObjectLabel
 } from '../objects/objectCommands';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 
@@ -157,17 +158,25 @@ function ObjectThumb({ obj }: { obj: MapObject }) {
           borderRadius: '3px',
           backgroundColor: 'var(--ui-bench)',
           border: '1px solid var(--ui-line-subtle)',
-          color: obj.color,
-          fontSize: '13px',
-          fontWeight: 700,
-          lineHeight: 1,
           display: 'inline-flex',
           alignItems: 'center',
           justifyContent: 'center',
           flexShrink: 0
         }}
       >
-        〜
+        <svg
+          width={16}
+          height={16}
+          viewBox="0 0 24 24"
+          fill="none"
+          stroke={obj.color}
+          strokeWidth={2.2}
+          strokeLinecap="round"
+          strokeLinejoin="round"
+          strokeDasharray={obj.dashed ? '4 3' : undefined}
+        >
+          <path d="M4 17c4-8 8-8 10 0s4 2 6-9" />
+        </svg>
       </span>
     );
   }
@@ -212,6 +221,8 @@ interface ObjectRowProps {
   docIndex: number;
   totalCount: number;
   isSelected: boolean;
+  layerName: string;
+  layerEditable: boolean;
   onSelect: (id: string) => void;
   onBringForward: (obj: MapObject, docIndex: number) => void;
   onSendBackward: (obj: MapObject, docIndex: number) => void;
@@ -226,6 +237,8 @@ function ObjectRow({
   docIndex,
   totalCount,
   isSelected,
+  layerName,
+  layerEditable,
   onSelect,
   onBringForward,
   onSendBackward,
@@ -235,8 +248,10 @@ function ObjectRow({
   registerRowButton
 }: ObjectRowProps) {
   const displayName = getDefaultObjectLabel(obj);
-  const canMoveForward = docIndex < totalCount - 1;
-  const canMoveBackward = docIndex > 0;
+  const kindLabel =
+    obj.type === 'stamp' ? 'POI' : obj.type === 'label' ? 'Etichetta' : 'Tracciato';
+  const canMoveForward = layerEditable && docIndex < totalCount - 1;
+  const canMoveBackward = layerEditable && docIndex > 0;
 
   return (
     <li
@@ -248,14 +263,15 @@ function ObjectRow({
         padding: '0 2px 0 4px',
         backgroundColor: isSelected ? 'var(--ui-raised)' : 'transparent',
         border: `1px solid ${isSelected ? 'var(--ui-accent)' : 'transparent'}`,
-        borderRadius: 'var(--ui-radius-control)'
+        borderRadius: 'var(--ui-radius-control)',
+        opacity: layerEditable ? 1 : 0.72
       }}
     >
       <button
         ref={(el) => registerRowButton(visibleIndex, el)}
         type="button"
         aria-current={isSelected ? 'true' : undefined}
-        aria-label={`${displayName} (${obj.type === 'stamp' ? 'POI' : 'Etichetta'})`}
+        aria-label={`${displayName} (${kindLabel}, livello ${layerName})`}
         onClick={() => onSelect(obj.id)}
         onKeyDown={(e) => onKeyDownSelectBtn(e, visibleIndex, obj)}
         style={{
@@ -273,7 +289,7 @@ function ObjectRow({
           fontWeight: isSelected ? 600 : 400,
           display: 'flex',
           alignItems: 'center',
-          gap: '8px',
+          gap: '6px',
           textAlign: 'left',
           cursor: 'pointer'
         }}
@@ -281,12 +297,34 @@ function ObjectRow({
         <ObjectThumb obj={obj} />
         <span
           style={{
+            flex: '1 1 auto',
+            minWidth: 0,
             overflow: 'hidden',
             textOverflow: 'ellipsis',
             whiteSpace: 'nowrap'
           }}
         >
           {displayName}
+        </span>
+        <span
+          title={`Livello: ${layerName}`}
+          style={{
+            fontSize: '13px',
+            lineHeight: '18px',
+            fontWeight: 400,
+            color: 'var(--ui-muted)',
+            backgroundColor: 'rgba(23, 35, 45, 0.55)',
+            border: '1px solid var(--ui-line-subtle)',
+            borderRadius: 'var(--ui-radius-control)',
+            padding: '0 6px',
+            maxWidth: '68px',
+            overflow: 'hidden',
+            textOverflow: 'ellipsis',
+            whiteSpace: 'nowrap',
+            flexShrink: 0
+          }}
+        >
+          {layerName}
         </span>
       </button>
 
@@ -332,6 +370,7 @@ function ObjectRow({
           className="btn btn-ghost has-tooltip-top"
           aria-label={`Elimina ${displayName}`}
           data-tooltip="Elimina"
+          disabled={!layerEditable}
           onClick={() => onDelete(obj)}
           style={{
             minHeight: '36px',
@@ -350,12 +389,13 @@ function ObjectRow({
 }
 
 /**
- * Foreground-first object z-order list with thumbnails, keyboard arrow navigation,
- * forward/backward/delete controls, and windowing for 2,000+ symbols.
+ * Foreground-first object z-order list with thumbnails, layer badges, keyboard arrow
+ * navigation, forward/backward/delete controls, and windowing for 2,000+ symbols.
  */
 export function ObjectListPanel({ store }: ObjectListPanelProps) {
   const snap = useEditorStore(store);
   const objects = snap.doc.manifest.objects;
+  const layers = snap.doc.manifest.layers;
   const totalCount = objects.length;
   const selectedId = snap.selectedObjectId;
 
@@ -365,6 +405,16 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
   if (totalCount === 0) {
     return <p className="panel-empty-hint">Nessun oggetto sulla mappa.</p>;
   }
+
+  const layerById = new Map(layers.map((l) => [l.id, l]));
+  const getLayerMeta = (obj: MapObject) => {
+    const resolvedId = resolveObjectLayerId(obj, layers);
+    const layer = layerById.get(resolvedId);
+    return {
+      layerName: layer?.name ?? 'Oggetti',
+      layerEditable: layer ? layer.visible && !layer.locked : true
+    };
+  };
 
   const isVirtualized = totalCount > VIRTUAL_THRESHOLD;
   const effectiveLimit = isVirtualized ? Math.min(totalCount, visibleLimit) : totalCount;
@@ -384,19 +434,19 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
       : null;
 
   const handleBringForward = (obj: MapObject, docIndex: number) => {
+    if (!getLayerMeta(obj).layerEditable) return;
     commitObjectReorder(store, obj.id, docIndex + 1, 'Porta avanti');
   };
 
   const handleSendBackward = (obj: MapObject, docIndex: number) => {
+    if (!getLayerMeta(obj).layerEditable) return;
     commitObjectReorder(store, obj.id, docIndex - 1, 'Porta indietro');
   };
 
   const handleDelete = (obj: MapObject) => {
+    if (!getLayerMeta(obj).layerEditable) return;
     store.executeCommand(
-      new DeleteObjectCommand(
-        obj.id,
-        obj.type === 'stamp' ? 'Elimina simbolo' : 'Elimina etichetta'
-      )
+      new DeleteObjectCommand(obj.id, getDeleteObjectLabel(obj))
     );
   };
 
@@ -423,57 +473,69 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--ui-space-2)' }}>
       {pinnedSelectedOutsideWindow ? (
-        <div
-          style={{
-            paddingBottom: 'var(--ui-space-2)',
-            borderBottom: '1px solid var(--ui-line-subtle)'
-          }}
-        >
-          <div
-            style={{
-              fontSize: '13px',
-              lineHeight: '18px',
-              color: 'var(--ui-accent)',
-              marginBottom: '4px'
-            }}
-          >
-            Selezionato (#{pinnedSelectedOutsideWindow.rank + 1} su {totalCount})
-          </div>
-          <ul className="objects-fallback-list" aria-label="Oggetto selezionato">
+        (() => {
+          const meta = getLayerMeta(pinnedSelectedOutsideWindow.obj);
+          return (
+            <div
+              style={{
+                paddingBottom: 'var(--ui-space-2)',
+                borderBottom: '1px solid var(--ui-line-subtle)'
+              }}
+            >
+              <div
+                style={{
+                  fontSize: '13px',
+                  lineHeight: '18px',
+                  color: 'var(--ui-accent)',
+                  marginBottom: '4px'
+                }}
+              >
+                Selezionato (#{pinnedSelectedOutsideWindow.rank + 1} su {totalCount})
+              </div>
+              <ul className="objects-fallback-list" aria-label="Oggetto selezionato">
+                <ObjectRow
+                  obj={pinnedSelectedOutsideWindow.obj}
+                  docIndex={pinnedSelectedOutsideWindow.docIndex}
+                  totalCount={totalCount}
+                  isSelected={true}
+                  layerName={meta.layerName}
+                  layerEditable={meta.layerEditable}
+                  onSelect={(id) => store.selectObject(id)}
+                  onBringForward={handleBringForward}
+                  onSendBackward={handleSendBackward}
+                  onDelete={handleDelete}
+                  onKeyDownSelectBtn={handleKeyDownSelectBtn}
+                  visibleIndex={-1}
+                  registerRowButton={() => {}}
+                />
+              </ul>
+            </div>
+          );
+        })()
+      ) : null}
+
+      <ul className="objects-fallback-list" aria-label="Oggetti dal primo piano al fondo">
+        {visibleEntries.map((entry, idx) => {
+          const meta = getLayerMeta(entry.obj);
+          return (
             <ObjectRow
-              obj={pinnedSelectedOutsideWindow.obj}
-              docIndex={pinnedSelectedOutsideWindow.docIndex}
+              key={entry.obj.id}
+              obj={entry.obj}
+              docIndex={entry.docIndex}
               totalCount={totalCount}
-              isSelected={true}
+              isSelected={entry.obj.id === selectedId}
+              layerName={meta.layerName}
+              layerEditable={meta.layerEditable}
               onSelect={(id) => store.selectObject(id)}
               onBringForward={handleBringForward}
               onSendBackward={handleSendBackward}
               onDelete={handleDelete}
               onKeyDownSelectBtn={handleKeyDownSelectBtn}
-              visibleIndex={-1}
-              registerRowButton={() => {}}
+              visibleIndex={idx}
+              registerRowButton={registerRowButton}
             />
-          </ul>
-        </div>
-      ) : null}
-
-      <ul className="objects-fallback-list" aria-label="Oggetti dal primo piano al fondo">
-        {visibleEntries.map((entry, idx) => (
-          <ObjectRow
-            key={entry.obj.id}
-            obj={entry.obj}
-            docIndex={entry.docIndex}
-            totalCount={totalCount}
-            isSelected={entry.obj.id === selectedId}
-            onSelect={(id) => store.selectObject(id)}
-            onBringForward={handleBringForward}
-            onSendBackward={handleSendBackward}
-            onDelete={handleDelete}
-            onKeyDownSelectBtn={handleKeyDownSelectBtn}
-            visibleIndex={idx}
-            registerRowButton={registerRowButton}
-          />
-        ))}
+          );
+        })}
       </ul>
 
       {remainingCount > 0 ? (

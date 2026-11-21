@@ -8,10 +8,24 @@ import { afterEach, describe, expect, it, vi } from 'vitest';
 import { BUILTIN_POI_CATALOG, getBuiltinAssetSvgBytes } from '../../src/assets/catalog';
 import { encodeMaskPng } from '../../src/core/png';
 import {
+  COVER_BRICK,
   COVER_FIELDS,
   COVER_FOREST,
+  COVER_LAVA,
+  COVER_MEADOW,
   COVER_NATURAL,
+  COVER_ROCK,
+  COVER_SAND,
+  COVER_SNOW,
+  COVER_SWAMP,
+  DEFAULT_LAYER_LABELS_ID,
+  DEFAULT_LAYER_POI_ID,
+  DEFAULT_LAYER_TERRAIN_ID,
+  DEFAULT_LAYER_VECTORS_ID,
   MapDocument,
+  PathObject,
+  SCHEMA_VERSION,
+  createDefaultLayers,
   createEmptyDocument
 } from '../../src/model/document';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
@@ -25,7 +39,9 @@ import {
   importProjectArchive,
   migrateManifestV1ToV2
 } from '../../src/persistence';
-import { V1_FLAT_THEME } from '../../src/theme/theme';
+import { validateMapTheme } from '../../src/persistence/archive';
+import { migrateManifestToV3 } from '../../src/persistence/migration';
+import { DEFAULT_THEME, NORDICA_THEME, V1_FLAT_THEME } from '../../src/theme/theme';
 
 const enc = new TextEncoder();
 const dec = new TextDecoder('utf-8');
@@ -286,11 +302,11 @@ describe('Persistence, Archive & v1 Migration', () => {
       /Lunghezza non valida.*height\.u8/i
     );
 
-    // 2d. Invalid cover code in cover.u8
+    // 2d. Invalid cover code in cover.u8 (0..9 are valid; 10 is invalid)
     const badCoverCode = buildBaseEntries();
-    badCoverCode['terrain/cover.u8'][5] = 7;
+    badCoverCode['terrain/cover.u8'][5] = 10;
     await expect(service.importArchive(zipSync(badCoverCode))).rejects.toThrow(
-      /Codice copertura non valido.*7/i
+      /Codice copertura non valido.*10/i
     );
 
     // 2e. Referenced asset missing from ZIP
@@ -319,7 +335,7 @@ describe('Persistence, Archive & v1 Migration', () => {
       ...buildBaseEntries(),
       'manifest.json': enc.encode(JSON.stringify(futureManifest))
     });
-    await expect(service.importArchive(futureZip)).rejects.toThrow(/99.*v1–v2/i);
+    await expect(service.importArchive(futureZip)).rejects.toThrow(/99.*v1–v3/i);
 
     // 2h. Exceeds MAX_ARCHIVE_FILES (500)
     const tooManyFiles: Record<string, Uint8Array> = { ...buildBaseEntries() };
@@ -459,7 +475,9 @@ describe('Persistence, Archive & v1 Migration', () => {
     expect(result.wasIdRemapped).toBe(false);
 
     const { document } = result;
-    expect(document.manifest.schemaVersion).toBe(2);
+    expect(document.manifest.schemaVersion).toBe(SCHEMA_VERSION);
+    expect(document.manifest.schemaVersion).toBe(3);
+    expect(document.manifest.layers).toEqual(createDefaultLayers());
     expect(document.manifest.space).toEqual({ width: 2970, height: 2100 });
     expect(document.manifest.terrain.seed).toBeGreaterThanOrEqual(0);
     expect(document.manifest.terrain.seed).toBeLessThanOrEqual(0xffffffff);
@@ -476,13 +494,20 @@ describe('Persistence, Archive & v1 Migration', () => {
 
     const oldStamp = document.manifest.objects[0];
     const poiStamp = document.manifest.objects[1];
+    const oldLabel = document.manifest.objects[2];
     expect(oldStamp.type === 'stamp' && oldStamp.role).toBe('decorative');
+    expect(oldStamp.layerId).toBe(DEFAULT_LAYER_POI_ID);
     expect(poiStamp.type === 'stamp' && poiStamp.role).toBe('poi');
     expect(poiStamp.type === 'stamp' && poiStamp.categoryId).toBe('tower');
+    expect(poiStamp.layerId).toBe(DEFAULT_LAYER_POI_ID);
+    expect(oldLabel.layerId).toBe(DEFAULT_LAYER_LABELS_ID);
 
-    const migratedA = migrateManifestV1ToV2(rawV1Manifest);
+    const migratedA = migrateManifestToV3(rawV1Manifest);
     const migratedB = migrateManifestV1ToV2(rawV1Manifest);
+    expect(migratedA.schemaVersion).toBe(3);
+    expect(migratedB.schemaVersion).toBe(3);
     expect(migratedA.terrain.seed).toBe(migratedB.terrain.seed);
+    expect(migratedA).toEqual(migratedB);
     expect((rawV1Manifest as { schemaVersion: number }).schemaVersion).toBe(1);
   });
 
@@ -793,7 +818,7 @@ describe('Persistence, Archive & v1 Migration', () => {
       importProjectArchive(
         zipSync({ ...baseEntries(), 'manifest.json': enc.encode(JSON.stringify(m0)) })
       )
-    ).rejects.toThrow(/0.*v1–v2/i);
+    ).rejects.toThrow(/0.*v1–v3/i);
 
     // Missing manifest.json
     const noManifest = baseEntries();
@@ -823,5 +848,603 @@ describe('Persistence, Archive & v1 Migration', () => {
     // Export succeeds when extraAssets provides it
     const validBytes = await exportProjectArchive(doc, extraAssets);
     expect(validBytes.length).toBeGreaterThan(100);
+  });
+
+  it('8. Migrates real v2 ZIP archive and 16-color theme.json cleanly to v3 without data loss', async () => {
+    const widthPx = 96;
+    const heightPx = 64;
+    const cells = widthPx * heightPx;
+    const mask = new Uint8Array(cells);
+    const height = new Uint8Array(cells);
+    const cover = new Uint8Array(cells);
+    mask.fill(255, 0, cells / 2);
+    height.fill(140, 0, cells / 2);
+    cover[0] = COVER_FOREST;
+    cover[1] = COVER_FIELDS;
+    cover[2] = COVER_NATURAL;
+
+    const towerItem = BUILTIN_POI_CATALOG.find((item) => item.id === 'poi-tower')!;
+    const rawV2Manifest = {
+      schemaVersion: 2,
+      id: '22222222-2222-4222-8222-222222222222',
+      revision: 7,
+      kind: 'world',
+      title: 'Regno Boreale v2',
+      page: { widthMm: 420, heightMm: 297 },
+      space: { width: 4200, height: 2970 },
+      terrain: {
+        mask: 'terrain/land.png',
+        height: 'terrain/height.u8',
+        cover: 'terrain/cover.u8',
+        rulesVersion: 1,
+        seed: 9876,
+        widthPx,
+        heightPx
+      },
+      theme: {
+        id: 'nordica',
+        file: 'theme/theme.json'
+      },
+      assets: [towerItem.asset],
+      objects: [
+        {
+          id: 'v2-tower',
+          type: 'stamp',
+          role: 'poi',
+          categoryId: towerItem.categoryId,
+          assetId: 'poi-tower',
+          x: 1100,
+          y: 950,
+          width: 96,
+          height: 96,
+          rotationDeg: 10
+        },
+        {
+          id: 'v2-label',
+          type: 'label',
+          text: 'Fjord di Tramontana',
+          x: 1350,
+          y: 1120,
+          fontId: 'spectral-italic',
+          fontSize: 40,
+          color: '#1C2B36',
+          rotationDeg: -6
+        }
+      ]
+    };
+
+    // Real v2 theme.json with only the 16 base colors (missing v3 extended materials/paths)
+    const legacyV2Theme = {
+      id: 'nordica',
+      version: 1,
+      name: 'Atlante boreale v2',
+      mode: 'reactive',
+      colors: {
+        sea: NORDICA_THEME.colors.sea,
+        seaShallow: NORDICA_THEME.colors.seaShallow,
+        seaBathymetry: NORDICA_THEME.colors.seaBathymetry,
+        beach: NORDICA_THEME.colors.beach,
+        land: '#E1EAEB',
+        hill: NORDICA_THEME.colors.hill,
+        mountain: NORDICA_THEME.colors.mountain,
+        mountainCrest: NORDICA_THEME.colors.mountainCrest,
+        ink: NORDICA_THEME.colors.ink,
+        forest: NORDICA_THEME.colors.forest,
+        forestShadow: NORDICA_THEME.colors.forestShadow,
+        fields: NORDICA_THEME.colors.fields,
+        fieldsFurrow: NORDICA_THEME.colors.fieldsFurrow,
+        stone: NORDICA_THEME.colors.stone,
+        settlement: NORDICA_THEME.colors.settlement,
+        labelHalo: NORDICA_THEME.colors.labelHalo
+      },
+      coast: { ...NORDICA_THEME.coast },
+      elevation: { ...NORDICA_THEME.elevation },
+      fonts: structuredClone(NORDICA_THEME.fonts)
+    };
+
+    const validatedTheme = validateMapTheme(legacyV2Theme);
+    expect(validatedTheme.colors.land).toBe('#E1EAEB');
+    expect(validatedTheme.colors.sand).toBe(NORDICA_THEME.colors.sand);
+    expect(validatedTheme.colors.lava).toBe(NORDICA_THEME.colors.lava);
+    expect(validatedTheme.colors.pathRiver).toBe(NORDICA_THEME.colors.pathRiver);
+    expect(() =>
+      validateMapTheme({ ...legacyV2Theme, colors: { ...legacyV2Theme.colors, sea: '' } })
+    ).toThrow(/Colore tema "sea"/i);
+    expect(() =>
+      validateMapTheme({ ...legacyV2Theme, mode: 'invalid' })
+    ).toThrow(/Modalità tema/i);
+
+    const v2Zip = zipSync({
+      'manifest.json': enc.encode(JSON.stringify(rawV2Manifest)),
+      'terrain/land.png': encodeMaskPng(mask, widthPx, heightPx),
+      'terrain/height.u8': height,
+      'terrain/cover.u8': cover,
+      'theme/theme.json': enc.encode(JSON.stringify(legacyV2Theme)),
+      'assets/poi-tower.svg': getBuiltinAssetSvgBytes('poi-tower')!
+    });
+
+    const imported = await importProjectArchive(v2Zip);
+    expect(imported.wasMigratedFromV1).toBe(false);
+    expect(imported.wasIdRemapped).toBe(false);
+
+    const { document } = imported;
+    expect(document.manifest.schemaVersion).toBe(3);
+    expect(document.manifest.revision).toBe(7);
+    expect(document.manifest.title).toBe('Regno Boreale v2');
+    expect(document.manifest.page).toEqual({ widthMm: 420, heightMm: 297 });
+    expect(document.manifest.space).toEqual({ width: 4200, height: 2970 });
+    expect(document.manifest.terrain.rulesVersion).toBe(1);
+    expect(document.manifest.terrain.seed).toBe(9876);
+    expect(document.manifest.theme).toEqual({
+      id: 'nordica',
+      version: NORDICA_THEME.version,
+      file: 'theme/theme.json'
+    });
+    expect(document.manifest.layers).toEqual(createDefaultLayers());
+    expect(document.manifest.objects[0].layerId).toBe(DEFAULT_LAYER_POI_ID);
+    expect(document.manifest.objects[1].layerId).toBe(DEFAULT_LAYER_LABELS_ID);
+    expect(document.theme.colors.land).toBe('#E1EAEB');
+    expect(document.theme.colors.brick).toBe(NORDICA_THEME.colors.brick);
+    expect(document.theme.colors.snow).toBe(NORDICA_THEME.colors.snow);
+    expect(document.theme.colors.swamp).toBe(NORDICA_THEME.colors.swamp);
+    expect(document.theme.colors.rock).toBe(NORDICA_THEME.colors.rock);
+    expect(document.theme.colors.meadow).toBe(NORDICA_THEME.colors.meadow);
+    expect(document.theme.colors.lava).toBe(NORDICA_THEME.colors.lava);
+    expect(document.theme.colors.pathRiver).toBe(NORDICA_THEME.colors.pathRiver);
+    expect(document.theme.colors.pathRoad).toBe(NORDICA_THEME.colors.pathRoad);
+    expect(document.theme.colors.pathBorder).toBe(NORDICA_THEME.colors.pathBorder);
+    expectBytesEqual(document.terrain.mask, mask);
+    expectBytesEqual(document.terrain.height, height);
+    expectBytesEqual(document.terrain.cover, cover);
+
+    // Direct manifest migration leaves raw v2 object unmutated
+    const directMigrated = migrateManifestToV3(rawV2Manifest);
+    expect(directMigrated.schemaVersion).toBe(3);
+    expect((rawV2Manifest as { schemaVersion: number }).schemaVersion).toBe(2);
+    expect('layers' in rawV2Manifest).toBe(false);
+  });
+
+  it('9. Loads and migrates legacy v1 and v2 ProjectRecords directly from IndexedDB to v3', async () => {
+    const fdb = new FakeIDBFactory();
+
+    const widthPx = 64;
+    const heightPx = 64;
+    const cells = widthPx * heightPx;
+    const mask = new Uint8Array(cells);
+    mask.fill(255, 0, cells / 2);
+    const maskPng = encodeMaskPng(mask, widthPx, heightPx);
+
+    const v1Id = '33333333-3333-4333-8333-333333333333';
+    const v2Id = '44444444-4444-4444-8444-444444444444';
+
+    // Seed FakeIDB directly with v1 and v2 records (simulating existing browser storage)
+    await new Promise<void>((resolve, reject) => {
+      const openReq = fdb.open('cartografo-db', 1);
+      openReq.onupgradeneeded = () => {
+        const db = openReq.result;
+        db.createObjectStore('projects', { keyPath: 'id' });
+        db.createObjectStore('terrainBlobs', { keyPath: 'key' });
+        db.createObjectStore('assets', { keyPath: 'key' });
+      };
+      openReq.onsuccess = () => {
+        const db = openReq.result;
+        const tx = db.transaction(['projects', 'terrainBlobs'], 'readwrite');
+        const projects = tx.objectStore('projects');
+        const blobs = tx.objectStore('terrainBlobs');
+
+        projects.put({
+          id: v1Id,
+          title: 'Archivio Locale v1',
+          revision: 2,
+          page: { widthMm: 297, heightMm: 210 },
+          manifest: {
+            schemaVersion: 1,
+            id: v1Id,
+            revision: 2,
+            kind: 'world',
+            title: 'Archivio Locale v1',
+            page: { widthMm: 297, heightMm: 210 },
+            terrain: { mask: 'terrain/land.png', widthPx, heightPx },
+            theme: { id: 'old-v1', version: 1, file: 'theme/theme.json' },
+            assets: [],
+            objects: [
+              {
+                id: 'v1-lbl',
+                type: 'label',
+                text: 'Costa Antica',
+                x: 400,
+                y: 300,
+                fontSize: 36
+              }
+            ]
+          },
+          theme: { id: 'old-v1', version: 1, name: 'Old', mode: 'flat', colors: {} },
+          terrainVersion: 1,
+          updatedAt: 1000,
+          lastSavedMaskKey: `${v1Id}:terrain:1`,
+          assetKeys: []
+        });
+        blobs.put({
+          key: `${v1Id}:terrain:1`,
+          projectId: v1Id,
+          terrainVersion: 1,
+          maskPng,
+          heightU8: new Uint8Array(0),
+          coverU8: new Uint8Array(0)
+        });
+
+        const v2Height = new Uint8Array(cells).fill(95);
+        const v2Cover = new Uint8Array(cells).fill(COVER_FOREST);
+        projects.put({
+          id: v2Id,
+          title: 'Archivio Locale v2',
+          revision: 5,
+          page: { widthMm: 420, heightMm: 297 },
+          manifest: {
+            schemaVersion: 2,
+            id: v2Id,
+            revision: 5,
+            kind: 'world',
+            title: 'Archivio Locale v2',
+            page: { widthMm: 420, heightMm: 297 },
+            space: { width: 4200, height: 2970 },
+            terrain: {
+              mask: 'terrain/land.png',
+              height: 'terrain/height.u8',
+              cover: 'terrain/cover.u8',
+              rulesVersion: 1,
+              seed: 777,
+              widthPx,
+              heightPx
+            },
+            theme: { id: 'base', version: 1, file: 'theme/theme.json' },
+            assets: [],
+            objects: [
+              {
+                id: 'v2-lbl',
+                type: 'label',
+                text: 'Valico v2',
+                x: 700,
+                y: 500,
+                fontId: 'spectral-semibold',
+                fontSize: 38.81,
+                color: '#263C40',
+                rotationDeg: 0
+              }
+            ]
+          },
+          theme: {
+            id: 'base',
+            version: 1,
+            name: 'Base v2',
+            mode: 'reactive',
+            colors: {
+              sea: DEFAULT_THEME.colors.sea,
+              seaShallow: DEFAULT_THEME.colors.seaShallow,
+              seaBathymetry: DEFAULT_THEME.colors.seaBathymetry,
+              beach: DEFAULT_THEME.colors.beach,
+              land: DEFAULT_THEME.colors.land,
+              hill: DEFAULT_THEME.colors.hill,
+              mountain: DEFAULT_THEME.colors.mountain,
+              mountainCrest: DEFAULT_THEME.colors.mountainCrest,
+              ink: DEFAULT_THEME.colors.ink,
+              forest: DEFAULT_THEME.colors.forest,
+              forestShadow: DEFAULT_THEME.colors.forestShadow,
+              fields: DEFAULT_THEME.colors.fields,
+              fieldsFurrow: DEFAULT_THEME.colors.fieldsFurrow,
+              stone: DEFAULT_THEME.colors.stone,
+              settlement: DEFAULT_THEME.colors.settlement,
+              labelHalo: DEFAULT_THEME.colors.labelHalo
+            },
+            coast: { ...DEFAULT_THEME.coast },
+            elevation: { ...DEFAULT_THEME.elevation },
+            fonts: structuredClone(DEFAULT_THEME.fonts)
+          },
+          terrainVersion: 3,
+          updatedAt: 2000,
+          lastSavedMaskKey: `${v2Id}:terrain:3`,
+          assetKeys: []
+        });
+        blobs.put({
+          key: `${v2Id}:terrain:3`,
+          projectId: v2Id,
+          terrainVersion: 3,
+          maskPng,
+          heightU8: v2Height,
+          coverU8: v2Cover
+        });
+
+        tx.oncomplete = () => {
+          db.close();
+          resolve();
+        };
+        tx.onerror = () => reject(tx.error);
+      };
+      openReq.onerror = () => reject(openReq.error);
+    });
+
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    const loadedV1 = await service.loadProject(v1Id);
+    expect(loadedV1).not.toBeNull();
+    expect(loadedV1!.document.manifest.schemaVersion).toBe(3);
+    expect(loadedV1!.document.manifest.layers).toEqual(createDefaultLayers());
+    expect(loadedV1!.document.manifest.objects[0].layerId).toBe(DEFAULT_LAYER_LABELS_ID);
+    expect(loadedV1!.document.theme).toEqual(V1_FLAT_THEME);
+    expect(loadedV1!.document.terrain.height[0]).toBe(64);
+    expect(loadedV1!.document.terrain.height[cells - 1]).toBe(0);
+    expect(loadedV1!.document.terrain.cover[0]).toBe(COVER_NATURAL);
+
+    const loadedV2 = await service.loadProject(v2Id);
+    expect(loadedV2).not.toBeNull();
+    expect(loadedV2!.document.manifest.schemaVersion).toBe(3);
+    expect(loadedV2!.document.manifest.layers).toEqual(createDefaultLayers());
+    expect(loadedV2!.document.manifest.objects[0].layerId).toBe(DEFAULT_LAYER_LABELS_ID);
+    expect(loadedV2!.document.theme.colors.lava).toBe(DEFAULT_THEME.colors.lava);
+    expect(loadedV2!.document.theme.colors.pathRiver).toBe(DEFAULT_THEME.colors.pathRiver);
+    expect(loadedV2!.document.terrain.height[0]).toBe(95);
+    expect(loadedV2!.document.terrain.cover[0]).toBe(COVER_FOREST);
+
+    // Migrated v1 and v2 projects can be edited and persisted seamlessly back to IndexedDB as v3
+    loadedV1!.document.manifest.revision += 1;
+    loadedV1!.document.manifest.title = 'v1 Promosso a v3';
+    await service.flushNow(loadedV1!.document);
+    expect(service.getState()).toEqual({ status: 'saved', savedRevision: 3 });
+
+    loadedV2!.document.manifest.revision += 1;
+    loadedV2!.document.manifest.title = 'Aggiornato a v3';
+    await service.flushNow(loadedV2!.document);
+    expect(service.getState()).toEqual({ status: 'saved', savedRevision: 6 });
+
+    const coldReader = new PersistenceService({ idbFactory: fdb });
+    activeServices.push(coldReader);
+    const reloadedV1AsV3 = await coldReader.loadProject(v1Id);
+    expect(reloadedV1AsV3!.document.manifest.schemaVersion).toBe(3);
+    expect(reloadedV1AsV3!.document.manifest.title).toBe('v1 Promosso a v3');
+    expect(reloadedV1AsV3!.document.terrain.height[0]).toBe(64);
+    expect(reloadedV1AsV3!.document.terrain.cover[0]).toBe(COVER_NATURAL);
+  });
+
+  it('10. Round-trips v3 document with cover 0..9, custom layers, PathObjects (river & border), and A1/2000mm canvases', async () => {
+    const fdb = new FakeIDBFactory();
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    // A1 landscape canvas (841 x 594 mm)
+    const doc = createEmptyDocument({
+      title: 'Atlante A1 Completo — v3',
+      page: { widthMm: 841, heightMm: 594 },
+      widthPx: 128,
+      heightPx: 96,
+      seed: 2026
+    });
+    doc.manifest.revision = 4;
+    doc.terrainVersion = 2;
+
+    const allCovers = [
+      COVER_NATURAL,
+      COVER_FOREST,
+      COVER_FIELDS,
+      COVER_SAND,
+      COVER_BRICK,
+      COVER_SNOW,
+      COVER_SWAMP,
+      COVER_ROCK,
+      COVER_MEADOW,
+      COVER_LAVA
+    ] as const;
+    allCovers.forEach((code, idx) => {
+      doc.terrain.mask[idx] = 255;
+      doc.terrain.height[idx] = 40 + idx * 18;
+      doc.terrain.cover[idx] = code;
+    });
+
+    // Customize built-in layers + add custom layer with visibility/lock/opacity
+    doc.manifest.layers = [
+      {
+        id: DEFAULT_LAYER_TERRAIN_ID,
+        name: 'Terreno e Rilievo',
+        kind: 'terrain',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_VECTORS_ID,
+        name: 'Fiumi e Strade',
+        kind: 'vector',
+        visible: true,
+        locked: false,
+        opacity: 0.92
+      },
+      {
+        id: 'layer-custom-borders',
+        name: 'Confini Politici',
+        kind: 'custom',
+        visible: false,
+        locked: true,
+        opacity: 0.65
+      },
+      {
+        id: DEFAULT_LAYER_POI_ID,
+        name: 'Luoghi e POI',
+        kind: 'poi',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_LABELS_ID,
+        name: 'Nomi e Note',
+        kind: 'labels',
+        visible: true,
+        locked: false,
+        opacity: 0.85
+      }
+    ];
+
+    const riverPath: PathObject = {
+      id: 'path-river-main',
+      type: 'path',
+      layerId: DEFAULT_LAYER_VECTORS_ID,
+      kind: 'river',
+      x: 1200,
+      y: 800,
+      rotationDeg: 0,
+      points: [-200, -100, -40, 20, 120, 85, 310, 190],
+      strokeWidthDoc: 16,
+      color: DEFAULT_THEME.colors.pathRiver,
+      opacity: 0.9,
+      tapered: true,
+      smooth: true
+    };
+    const borderPath: PathObject = {
+      id: 'path-border-realm',
+      type: 'path',
+      layerId: 'layer-custom-borders',
+      kind: 'border',
+      x: 2400,
+      y: 1600,
+      rotationDeg: 12.5,
+      points: [0, 0, 520, -140, 980, 160],
+      strokeWidthDoc: 7.5,
+      color: DEFAULT_THEME.colors.pathBorder,
+      dashed: true,
+      smooth: false
+    };
+    doc.manifest.objects.push(riverPath, borderPath);
+
+    await service.flushNow(doc);
+    const reader = new PersistenceService({ idbFactory: fdb });
+    activeServices.push(reader);
+
+    const loaded = await reader.loadProject(doc.manifest.id);
+    expect(loaded).not.toBeNull();
+    expect(loaded!.document.manifest).toEqual(doc.manifest);
+    expect(loaded!.document.manifest.page).toEqual({ widthMm: 841, heightMm: 594 });
+    expect(loaded!.document.manifest.space).toEqual({ width: 8410, height: 5940 });
+    expectBytesEqual(loaded!.document.terrain.cover, doc.terrain.cover);
+    for (let i = 0; i < allCovers.length; i += 1) {
+      expect(loaded!.document.terrain.cover[i]).toBe(allCovers[i]);
+    }
+
+    const zipBytes = await exportProjectArchive(loaded!.document);
+    const imported = await importProjectArchive(zipBytes);
+    expect(imported.wasMigratedFromV1).toBe(false);
+    expect(imported.document.manifest).toEqual(doc.manifest);
+    expect(imported.document.theme).toEqual(doc.theme);
+    expectBytesEqual(imported.document.terrain.cover, doc.terrain.cover);
+    expectBytesEqual(imported.document.terrain.height, doc.terrain.height);
+    expectBytesEqual(imported.document.terrain.mask, doc.terrain.mask);
+
+    // Validate maximum allowed physical size (2000 x 2000 mm) and 32M px dimensions
+    const giantDoc = createEmptyDocument({
+      title: 'Mappa Massima 2000mm',
+      page: { widthMm: 2000, heightMm: 2000 },
+      widthPx: 96,
+      heightPx: 96
+    });
+    const giantZip = await exportProjectArchive(giantDoc);
+    const giantImported = await importProjectArchive(giantZip);
+    expect(giantImported.document.manifest.page).toEqual({
+      widthMm: 2000,
+      heightMm: 2000
+    });
+    expect(giantImported.document.manifest.space).toEqual({
+      width: 20000,
+      height: 20000
+    });
+
+    const maxPixelManifest = structuredClone(giantDoc.manifest);
+    maxPixelManifest.terrain.widthPx = 8000;
+    maxPixelManifest.terrain.heightPx = 4000; // 32,000,000 px
+    const validatedMax = migrateManifestToV3(maxPixelManifest);
+    expect(validatedMax.terrain.widthPx * validatedMax.terrain.heightPx).toBe(
+      32_000_000
+    );
+  });
+
+  it('11. Rejects invalid v3 theme, invalid PathObject, or invalid layerId atomically without altering saved project', async () => {
+    const fdb = new FakeIDBFactory();
+    const service = new PersistenceService({ idbFactory: fdb, debounceMs: 10 });
+    activeServices.push(service);
+
+    const { doc, extraAssets } = createRichSampleDocument();
+    await service.flushNow(doc, extraAssets);
+
+    const maskPng = encodeMaskPng(
+      doc.terrain.mask,
+      doc.terrain.widthPx,
+      doc.terrain.heightPx
+    );
+    const baseEntries = (): Record<string, Uint8Array> => ({
+      'manifest.json': enc.encode(JSON.stringify(doc.manifest)),
+      'terrain/land.png': maskPng,
+      'terrain/height.u8': new Uint8Array(doc.terrain.height),
+      'terrain/cover.u8': new Uint8Array(doc.terrain.cover),
+      'theme/theme.json': enc.encode(JSON.stringify(doc.theme)),
+      'assets/poi-tower.svg': getBuiltinAssetSvgBytes('poi-tower')!,
+      'assets/poi-harbor.svg': getBuiltinAssetSvgBytes('poi-harbor')!,
+      'assets/custom-banner.svg': enc.encode('<svg/>')
+    });
+
+    // Invalid theme.json missing required base color
+    const brokenTheme = structuredClone(doc.theme) as unknown as {
+      colors: Record<string, string>;
+    };
+    delete brokenTheme.colors.sea;
+    await expect(
+      service.importArchive(
+        zipSync({
+          ...baseEntries(),
+          'theme/theme.json': enc.encode(JSON.stringify(brokenTheme))
+        })
+      )
+    ).rejects.toThrow(/Colore tema "sea"/i);
+
+    // Invalid PathObject (only 2 coords)
+    const badPathManifest = structuredClone(doc.manifest);
+    badPathManifest.objects.push({
+      id: 'bad-path',
+      type: 'path',
+      layerId: DEFAULT_LAYER_VECTORS_ID,
+      kind: 'road',
+      x: 100,
+      y: 100,
+      rotationDeg: 0,
+      points: [0, 0],
+      strokeWidthDoc: 5,
+      color: '#7D5C43'
+    });
+    await expect(
+      service.importArchive(
+        zipSync({
+          ...baseEntries(),
+          'manifest.json': enc.encode(JSON.stringify(badPathManifest))
+        })
+      )
+    ).rejects.toThrow(/Vertici del tracciato non validi/i);
+
+    // Invalid layerId reference on object
+    const badLayerRefManifest = structuredClone(doc.manifest);
+    badLayerRefManifest.objects[0] = {
+      ...badLayerRefManifest.objects[0],
+      layerId: 'non-existent-layer'
+    };
+    await expect(
+      service.importArchive(
+        zipSync({
+          ...baseEntries(),
+          'manifest.json': enc.encode(JSON.stringify(badLayerRefManifest))
+        })
+      )
+    ).rejects.toThrow(/Riferimento layerId non valido/i);
+
+    // Existing IndexedDB project must remain completely intact
+    const projects = await service.listProjects();
+    expect(projects).toHaveLength(1);
+    const reloaded = await service.loadProject(doc.manifest.id);
+    expect(reloaded!.document.manifest).toEqual(doc.manifest);
   });
 });

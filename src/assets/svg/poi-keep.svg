@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Bastione">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="46" ry="10" fill="#263C40" opacity="0.26"/>
+
+  <!-- Terrapieno e fossato roccioso -->
+  <polygon points="15,96 25,86 103,86 113,96 95,101 33,101" fill="#B9B1AA" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="68,86 103,86 113,96 95,101 66,101" fill="#7B7880"/>
+  <polygon points="15,96 25,86 103,86 113,96 95,101 33,101" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Braciere di segnalazione e stendardo sulla terrazza -->
+  <path d="M84 36 L84 14" stroke="#263C40" stroke-width="2.6" stroke-linecap="round"/>
+  <polygon points="84,15 101,19 84,24" fill="#8B493D" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="90" cy="19.5" r="1.8" fill="#E0BB79"/>
+  <!-- Braciere acceso a sinistra -->
+  <polygon points="39,37 49,37 47,32 41,32" fill="#5F5D65" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M41 32 Q40 24 44 21 Q48 24 47 32 Z" fill="#F4A236" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M43 32 Q44 26 45 32 Z" fill="#E0BB79"/>
+
+  <!-- Corpo massiccio del bastione a scarpa (tre quarti angolato) -->
+  <!-- Fianco sinistro illuminato NW -->
+  <polygon points="21,92 27,44 50,40 48,96" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Facciata centrale -->
+  <polygon points="48,96 50,40 80,40 82,96" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Fianco destro in ombra SE -->
+  <polygon points="80,40 101,44 107,92 82,96" fill="#7B7880" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="90,42 101,44 107,92 92,94" fill="#5F5D65"/>
+  <polygon points="80,40 101,44 107,92 82,96" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Contrafforti angolari sporgenti -->
+  <polygon points="18,93 25,52 33,52 29,94" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="45,96 47,49 54,49 54,96" fill="#D9C598" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="76,96 76,49 83,49 85,96" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="99,94 95,52 103,52 110,93" fill="#5F5D65" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Cornicione e merlatura piatta pesante -->
+  <polygon points="23,44 50,39 80,39 105,44 102,49 80,45 50,45 26,49" fill="#5F5D65" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M23 35 L31 35 L31 39 L37 39 L37 34 L45 34 L45 38 L52 38 L52 33 L60 33 L60 38 L68 38 L68 33 L76 33 L76 38 L83 38 L83 34 L91 34 L91 39 L97 39 L97 35 L105 35 L104 45 L80 41 L50 41 L24 45 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="76,33 76,38 83,38 83,34 91,34 91,39 97,39 97,35 105,35 104,45 80,41 72,41 72,33" fill="#7B7880" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- Portone blindato centrale e feritoie -->
+  <path d="M57 96 L57 76 Q65 69 73 76 L73 96 Z" fill="#6E372D" stroke="#263C40" stroke-width="2.6"/>
+  <path d="M65 72 L65 96 M58 83 L72 83 M58 90 L72 90" stroke="#263C40" stroke-width="2"/>
+  <circle cx="61" cy="79" r="1.4" fill="#E0BB79"/>
+  <circle cx="69" cy="79" r="1.4" fill="#E0BB79"/>
+  <!-- Feritoie verticali -->
+  <rect x="35" y="59" width="3.5" height="12" rx="1.5" fill="#263C40"/>
+  <rect x="63" y="50" width="4" height="12" rx="1.5" fill="#263C40"/>
+  <rect x="90" y="59" width="3.5" height="12" rx="1.5" fill="#263C40"/>
+  <!-- Giunti di pietra -->
+  <path d="M31 77 L41 76 M56 66 L74 66 M88 77 L98 78" stroke="#263C40" stroke-width="1.6" stroke-linecap="round" opacity="0.5"/>
+</svg>

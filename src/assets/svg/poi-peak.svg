@@ -1,0 +1,42 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Picco alpino">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="98" rx="49" ry="10" fill="#263C40" opacity="0.22"/>
+
+  <!-- Spalla alpina sinistra (arretrata) -->
+  <polygon points="12,92 33,43 56,66 48,94" fill="#B9B1AA" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="16,90 33,43 39,60 28,92" fill="#EFE8DB"/>
+  <polygon points="33,43 56,66 48,94 37,65" fill="#7B7880"/>
+  <path d="M26 59 L33 43 L42 52 L36 55 L32 52 L28 59 Z" fill="#F3EEDF"/>
+  <polygon points="12,92 33,43 56,66 48,94" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Contrafforte roccioso destro -->
+  <polygon points="72,66 95,46 116,92 78,94" fill="#7B7880" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="75,68 95,46 92,65 82,92" fill="#B9B1AA"/>
+  <polygon points="95,46 116,92 94,93 92,65" fill="#5F5D65"/>
+  <path d="M88 54 L95 46 L101 59 L95 57 L91 61 Z" fill="#F3EEDF"/>
+  <polygon points="72,66 95,46 116,92 78,94" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Picco dominante centrale di tre quarti (versante NW illuminato, versante SE in ombra) -->
+  <polygon points="24,95 63,14 104,95 66,99" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Versante sinistro illuminato -->
+  <polygon points="24,95 63,14 66,44 58,64 62,98" fill="#E8D8AF"/>
+  <!-- Versante destro in ombra netta -->
+  <polygon points="63,14 104,95 62,98 58,64 66,44" fill="#7B7880"/>
+  <polygon points="74,40 104,95 79,97 67,62" fill="#5F5D65"/>
+
+  <!-- Calotta nevosa sommitale frastagliata -->
+  <polygon points="44,51 63,14 78,44 70,40 65,49 58,42 52,51" fill="#F3EEDF"/>
+  <polygon points="63,14 78,44 70,40 65,49 66,44" fill="#C5D5DD"/>
+  <path d="M44 51 L52 51 L58 42 L65 49 L70 40 L78 44" fill="none" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Cresta principale scolpita e contorno esterno -->
+  <path d="M63 14 L66 44 L58 64 L62 98" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M36 74 L48 61 M79 65 L91 81" fill="none" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+  <polygon points="24,95 63,14 104,95 66,99" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Abeti alpini e pietraia in primo piano -->
+  <polygon points="20,96 26,77 32,96" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="31,98 37,81 43,98" fill="#334E3D" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="87,97 93,80 99,97" fill="#334E3D" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="98,95 104,76 110,95" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+</svg>

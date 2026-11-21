@@ -1,0 +1,60 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Tempio antico">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="48" ry="10" fill="#263C40" opacity="0.24"/>
+
+  <!-- Basamento gradonato a tre livelli -->
+  <polygon points="14,97 22,89 106,89 114,97 104,101 24,101" fill="#B9B1AA" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="74,89 106,89 114,97 104,101 74,101" fill="#7B7880"/>
+  <polygon points="14,97 22,89 106,89 114,97 104,101 24,101" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <polygon points="21,91 27,84 101,84 107,91 98,94 30,94" fill="#E8D8AF" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="72,84 101,84 107,91 98,94 72,94" fill="#B9B1AA"/>
+  <polygon points="21,91 27,84 101,84 107,91 98,94 30,94" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Cella interna oscura e altare sacro con fiamma -->
+  <rect x="31" y="45" width="66" height="40" fill="#263C40" stroke="#263C40" stroke-width="2"/>
+  <rect x="34" y="47" width="60" height="38" fill="#46454C"/>
+  <!-- Braciere d'oro acceso nel santuario -->
+  <polygon points="58,83 70,83 68,75 60,75" fill="#7B7880" stroke="#263C40" stroke-width="1.8"/>
+  <path d="M60 75 Q59 66 64 62 Q69 66 68 75 Z" fill="#F4A236"/>
+  <path d="M62 75 Q64 68 66 75 Z" fill="#E0BB79"/>
+
+  <!-- Quattro colonne scanalate -->
+  <!-- Colonna 1 -->
+  <rect x="28" y="46" width="9" height="39" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="33" y="46" width="4" height="39" fill="#B9B1AA"/>
+  <rect x="28" y="46" width="9" height="39" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="26" y="43" width="13" height="4" rx="1" fill="#F3EEDF" stroke="#263C40" stroke-width="2"/>
+  <!-- Colonna 2 -->
+  <rect x="46" y="46" width="9" height="39" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="51" y="46" width="4" height="39" fill="#B9B1AA"/>
+  <rect x="46" y="46" width="9" height="39" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="44" y="43" width="13" height="4" rx="1" fill="#F3EEDF" stroke="#263C40" stroke-width="2"/>
+  <!-- Colonna 3 -->
+  <rect x="73" y="46" width="9" height="39" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="78" y="46" width="4" height="39" fill="#7B7880"/>
+  <rect x="73" y="46" width="9" height="39" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="71" y="43" width="13" height="4" rx="1" fill="#E8D8AF" stroke="#263C40" stroke-width="2"/>
+  <!-- Colonna 4 -->
+  <rect x="91" y="46" width="9" height="39" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="96" y="46" width="4" height="39" fill="#7B7880"/>
+  <rect x="91" y="46" width="9" height="39" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="89" y="43" width="13" height="4" rx="1" fill="#E8D8AF" stroke="#263C40" stroke-width="2"/>
+
+  <!-- Trabeazione e fregio -->
+  <rect x="22" y="36" width="84" height="8" rx="1" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M35 36 L35 44 M49 36 L49 44 M64 36 L64 44 M79 36 L79 44 M93 36 L93 44" stroke="#263C40" stroke-width="1.6"/>
+
+  <!-- Frontone triangolare classico -->
+  <polygon points="18,36 64,15 110,36" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="64,15 110,36 69,36" fill="#D9C598" opacity="0.65"/>
+  <polygon points="27,34 64,18 101,34" fill="#B9B1AA" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+  <polygon points="18,36 64,15 110,36" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Medaglione solare nel timpano e acroterio -->
+  <circle cx="64" cy="28" r="4.2" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+  <circle cx="64" cy="13" r="2.6" fill="#E0BB79" stroke="#263C40" stroke-width="1.6"/>
+
+  <!-- Ciuffi d'edera e muschio antico agli angoli -->
+  <path d="M18 96 Q17 87 22 85 Q24 91 28 89 Q28 94 25 97 Z" fill="#486953" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+  <path d="M101 97 Q101 89 105 87 Q108 91 112 90 Q111 95 109 98 Z" fill="#486953" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+</svg>

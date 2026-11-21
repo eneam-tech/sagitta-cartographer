@@ -9,16 +9,24 @@ import {
   COVER_NATURAL,
   DocumentManifest,
   LabelObject,
+  MapLayer,
   MapObject,
   RULES_VERSION,
   SCHEMA_VERSION,
   StampObject,
   TerrainBuffers,
+  ThemeRef,
   createDefaultLayers,
   isValidArchivePath,
+  resolveObjectLayerId,
   validateDocumentManifest
 } from '../model/document';
-import { DEFAULT_THEME, DEFAULT_THEME_FONTS, V1_FLAT_THEME } from '../theme/theme';
+import {
+  DEFAULT_THEME,
+  DEFAULT_THEME_FONTS,
+  V1_FLAT_THEME,
+  getBuiltinThemeById
+} from '../theme/theme';
 
 const PLAINS_DEFAULT_HEIGHT = 64;
 
@@ -111,15 +119,17 @@ function normalizeV1AssetEntry(raw: unknown): AssetManifestEntry {
   };
 }
 
-function normalizeV1Object(raw: unknown): MapObject {
+function normalizeV1Object(raw: unknown, layers: readonly MapLayer[]): MapObject {
   if (!raw || typeof raw !== 'object') {
     throw new Error('Oggetto non valido nel manifest v1.');
   }
   const obj = raw as Record<string, unknown>;
+  const rawLayerId = typeof obj.layerId === 'string' ? obj.layerId : undefined;
   if (obj.type === 'stamp') {
     const stamp: StampObject = {
       id: obj.id as string,
       type: 'stamp',
+      layerId: resolveObjectLayerId({ type: 'stamp', layerId: rawLayerId }, layers),
       role: obj.role === undefined ? 'decorative' : (obj.role as StampObject['role']),
       ...(typeof obj.categoryId === 'string' ? { categoryId: obj.categoryId } : {}),
       assetId: obj.assetId as string,
@@ -136,6 +146,7 @@ function normalizeV1Object(raw: unknown): MapObject {
     const label: LabelObject = {
       id: obj.id as string,
       type: 'label',
+      layerId: resolveObjectLayerId({ type: 'label', layerId: rawLayerId }, layers),
       text: obj.text as string,
       x: obj.x as number,
       y: obj.y as number,
@@ -153,6 +164,117 @@ function normalizeV1Object(raw: unknown): MapObject {
   throw new Error(`Tipo di oggetto non supportato nel manifest v1: ${String(obj.type)}.`);
 }
 
+function normalizeThemeRef(rawThemeInput: unknown, fallbackId: string): ThemeRef {
+  if (
+    rawThemeInput !== undefined &&
+    (typeof rawThemeInput !== 'object' || rawThemeInput === null || Array.isArray(rawThemeInput))
+  ) {
+    throw new Error('Riferimento al tema non valido.');
+  }
+  const rawTheme = (rawThemeInput as Record<string, unknown> | undefined) ?? {};
+  if (
+    rawTheme.file !== undefined &&
+    (typeof rawTheme.file !== 'string' || !isValidArchivePath(rawTheme.file))
+  ) {
+    throw new Error('Riferimento al tema non valido.');
+  }
+  const id =
+    typeof rawTheme.id === 'string' && rawTheme.id.trim() ? rawTheme.id : fallbackId;
+  const builtin = getBuiltinThemeById(id);
+  const version =
+    typeof rawTheme.version === 'number' &&
+    Number.isInteger(rawTheme.version) &&
+    rawTheme.version >= 1
+      ? rawTheme.version
+      : (builtin?.version ?? DEFAULT_THEME.version);
+  const file = typeof rawTheme.file === 'string' ? rawTheme.file : 'theme/theme.json';
+  return { id, version, file };
+}
+
+function normalizeLayerEntries(rawLayers: unknown[]): MapLayer[] {
+  return rawLayers.map((entry) => {
+    if (!entry || typeof entry !== 'object' || Array.isArray(entry)) {
+      return entry as MapLayer;
+    }
+    const cloned = structuredClone(entry) as Record<string, unknown>;
+    if (cloned.visible === undefined) cloned.visible = true;
+    if (cloned.locked === undefined) cloned.locked = false;
+    if (cloned.opacity === undefined) cloned.opacity = 1;
+    return cloned as unknown as MapLayer;
+  });
+}
+
+function normalizeV2Object(raw: unknown, layers: readonly MapLayer[]): MapObject {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Oggetto non valido nel manifest v2.');
+  }
+  const obj = structuredClone(raw) as Record<string, unknown>;
+  if (obj.type === 'stamp') {
+    if (obj.role === undefined) {
+      obj.role = 'decorative';
+    }
+    if (obj.rotationDeg === undefined) {
+      obj.rotationDeg = 0;
+    }
+  } else if (obj.type === 'label') {
+    if (typeof obj.fontId !== 'string' || !obj.fontId) {
+      obj.fontId = DEFAULT_THEME_FONTS.defaultFontId;
+    }
+    if (typeof obj.color !== 'string' || !obj.color) {
+      obj.color = DEFAULT_THEME.colors.ink;
+    }
+    if (obj.rotationDeg === undefined) {
+      obj.rotationDeg = 0;
+    }
+  } else if (obj.type === 'path') {
+    if (obj.rotationDeg === undefined) {
+      obj.rotationDeg = 0;
+    }
+  } else {
+    throw new Error(`Tipo di oggetto non supportato: ${String(obj.type)}.`);
+  }
+
+  obj.layerId = resolveObjectLayerId(
+    {
+      type: obj.type as MapObject['type'],
+      layerId: typeof obj.layerId === 'string' ? obj.layerId : undefined
+    },
+    layers
+  );
+
+  return obj as unknown as MapObject;
+}
+
+function normalizeOptionalV3Fields(raw: unknown): unknown {
+  const cloned = structuredClone(raw) as Record<string, unknown>;
+  if (cloned.theme && typeof cloned.theme === 'object' && !Array.isArray(cloned.theme)) {
+    const themeRef = cloned.theme as Record<string, unknown>;
+    if (themeRef.version === undefined && typeof themeRef.id === 'string') {
+      themeRef.version =
+        getBuiltinThemeById(themeRef.id)?.version ?? DEFAULT_THEME.version;
+    }
+  }
+  if (Array.isArray(cloned.layers)) {
+    cloned.layers = normalizeLayerEntries(cloned.layers);
+  }
+  if (Array.isArray(cloned.objects)) {
+    cloned.objects = cloned.objects.map((rawObj) => {
+      if (!rawObj || typeof rawObj !== 'object' || Array.isArray(rawObj)) {
+        return rawObj;
+      }
+      const obj = rawObj as Record<string, unknown>;
+      if (
+        (obj.type === 'stamp' || obj.type === 'label' || obj.type === 'path') &&
+        obj.rotationDeg === undefined
+      ) {
+        obj.rotationDeg = 0;
+      }
+      return obj;
+    });
+  }
+  return cloned;
+}
+
 function resolvePageAndSpace(
   rawPage: unknown,
   rawSpace: unknown
@@ -160,13 +282,19 @@ function resolvePageAndSpace(
   let page: DocumentManifest['page'] | undefined;
   let space: DocumentManifest['space'] | undefined;
 
-  if (rawPage && typeof rawPage === 'object') {
+  if (rawPage !== undefined) {
+    if (!rawPage || typeof rawPage !== 'object' || Array.isArray(rawPage)) {
+      throw new Error('Dimensioni fisiche della pagina mancanti.');
+    }
     const p = rawPage as Record<string, unknown>;
     page = { widthMm: p.widthMm as number, heightMm: p.heightMm as number };
     validatePageSizeMm(page);
   }
 
-  if (rawSpace && typeof rawSpace === 'object') {
+  if (rawSpace !== undefined) {
+    if (!rawSpace || typeof rawSpace !== 'object' || Array.isArray(rawSpace)) {
+      throw new Error('Spazio logico non valido nel manifest.');
+    }
     const s = rawSpace as Record<string, unknown>;
     if (
       typeof s.width !== 'number' ||
@@ -176,7 +304,7 @@ function resolvePageAndSpace(
       s.width <= 0 ||
       s.height <= 0
     ) {
-      throw new Error('Spazio logico non valido nel manifest v1.');
+      throw new Error('Spazio logico non valido nel manifest.');
     }
     space = { width: s.width, height: s.height };
   }
@@ -200,24 +328,10 @@ function resolvePageAndSpace(
   return { page, space };
 }
 
-/**
- * Migrates a v1 document manifest to schemaVersion 2 without mutating the input.
- * Accepts already-v2 manifests by validating and returning a deep clone.
- */
-export function migrateManifestV1ToV2(
-  raw: unknown,
+function migrateV1ToV3(
+  m: Record<string, unknown>,
   fallbackDims?: { widthPx: number; heightPx: number }
 ): DocumentManifest {
-  if (!raw || typeof raw !== 'object') {
-    throw new Error('Manifest del documento non valido o assente.');
-  }
-
-  const m = raw as Record<string, unknown>;
-  const version = assertSupportedSchemaVersion(m.schemaVersion);
-  if (version === SCHEMA_VERSION) {
-    return validateDocumentManifest(structuredClone(raw));
-  }
-
   if (typeof m.id !== 'string' || !m.id.trim()) {
     throw new Error('Identificativo documento mancante nel manifest v1.');
   }
@@ -280,10 +394,14 @@ export function migrateManifestV1ToV2(
 
   const rawTheme =
     m.theme && typeof m.theme === 'object' ? (m.theme as Record<string, unknown>) : {};
+  if (
+    rawTheme.file !== undefined &&
+    (typeof rawTheme.file !== 'string' || !isValidArchivePath(rawTheme.file))
+  ) {
+    throw new Error('Riferimento al tema non valido.');
+  }
   const themeFile =
-    typeof rawTheme.file === 'string' && isValidArchivePath(rawTheme.file)
-      ? rawTheme.file
-      : 'theme/theme.json';
+    typeof rawTheme.file === 'string' ? rawTheme.file : 'theme/theme.json';
 
   if (m.assets !== undefined && !Array.isArray(m.assets)) {
     throw new Error('Elenco assets non valido nel manifest v1.');
@@ -292,8 +410,11 @@ export function migrateManifestV1ToV2(
     throw new Error('Elenco objects non valido nel manifest v1.');
   }
 
+  const layers = createDefaultLayers();
   const assets = ((m.assets as unknown[]) ?? []).map(normalizeV1AssetEntry);
-  const objects = ((m.objects as unknown[]) ?? []).map(normalizeV1Object);
+  const objects = ((m.objects as unknown[]) ?? []).map((obj) =>
+    normalizeV1Object(obj, layers)
+  );
 
   const migrated: DocumentManifest = {
     schemaVersion: SCHEMA_VERSION,
@@ -318,9 +439,136 @@ export function migrateManifestV1ToV2(
       file: themeFile
     },
     assets,
-    layers: createDefaultLayers(),
+    layers,
     objects
   };
 
   return validateDocumentManifest(migrated);
+}
+
+function migrateV2ToV3(
+  m: Record<string, unknown>,
+  fallbackDims?: { widthPx: number; heightPx: number }
+): DocumentManifest {
+  if (typeof m.id !== 'string' || !m.id.trim()) {
+    throw new Error('Identificativo documento mancante.');
+  }
+  if (m.kind !== undefined && m.kind !== 'world') {
+    throw new Error(`Tipo di mappa non supportato: ${String(m.kind)}.`);
+  }
+  if (m.title !== undefined && typeof m.title !== 'string') {
+    throw new Error('Titolo del documento non valido.');
+  }
+  const title = typeof m.title === 'string' ? m.title : 'Nuova carta';
+
+  const revision = m.revision === undefined ? 0 : m.revision;
+  if (typeof revision !== 'number' || !Number.isInteger(revision) || revision < 0) {
+    throw new Error('Revisione del documento non valida.');
+  }
+
+  const { page, space } = resolvePageAndSpace(m.page, m.space);
+
+  if (!m.terrain || typeof m.terrain !== 'object' || Array.isArray(m.terrain)) {
+    throw new Error('Metadati terreno mancanti.');
+  }
+  const rawTerrain = m.terrain as Record<string, unknown>;
+  const maskPath = rawTerrain.mask === undefined ? 'terrain/land.png' : (rawTerrain.mask as string);
+  const heightPath =
+    rawTerrain.height === undefined ? 'terrain/height.u8' : (rawTerrain.height as string);
+  const coverPath =
+    rawTerrain.cover === undefined ? 'terrain/cover.u8' : (rawTerrain.cover as string);
+
+  const widthPx =
+    typeof rawTerrain.widthPx === 'number' ? rawTerrain.widthPx : fallbackDims?.widthPx;
+  const heightPx =
+    typeof rawTerrain.heightPx === 'number' ? rawTerrain.heightPx : fallbackDims?.heightPx;
+  if (widthPx === undefined || heightPx === undefined) {
+    throw new Error('Dimensioni della maschera terreno mancanti nel manifest v2.');
+  }
+  validateMaskDimensions({ widthPx, heightPx });
+
+  const seed =
+    rawTerrain.seed === undefined ? deriveStableSeed(m.id, title) : (rawTerrain.seed as number);
+  const rulesVersion =
+    rawTerrain.rulesVersion === undefined ? 1 : (rawTerrain.rulesVersion as number);
+
+  if (m.assets !== undefined && !Array.isArray(m.assets)) {
+    throw new Error('Elenchi assets o objects non validi.');
+  }
+  if (m.objects !== undefined && !Array.isArray(m.objects)) {
+    throw new Error('Elenchi assets o objects non validi.');
+  }
+
+  let layers: MapLayer[];
+  if (m.layers === undefined || m.layers === null) {
+    layers = createDefaultLayers();
+  } else if (Array.isArray(m.layers)) {
+    layers = normalizeLayerEntries(m.layers);
+  } else {
+    throw new Error('Elenco livelli mancante o vuoto nel manifest.');
+  }
+
+  const assets = structuredClone((m.assets as AssetManifestEntry[] | undefined) ?? []);
+  const objects = ((m.objects as unknown[]) ?? []).map((obj) =>
+    normalizeV2Object(obj, layers)
+  );
+
+  const migrated: DocumentManifest = {
+    schemaVersion: SCHEMA_VERSION,
+    id: m.id,
+    revision,
+    kind: 'world',
+    title,
+    page,
+    space,
+    terrain: {
+      mask: maskPath,
+      height: heightPath,
+      cover: coverPath,
+      rulesVersion,
+      seed,
+      widthPx,
+      heightPx
+    },
+    theme: normalizeThemeRef(m.theme, DEFAULT_THEME.id),
+    assets,
+    layers,
+    objects
+  };
+
+  return validateDocumentManifest(migrated);
+}
+
+/**
+ * Migrates a v1 or v2 document manifest to schemaVersion 3 without mutating the input.
+ * Accepts already-v3 manifests by normalizing optional fields, validating, and returning a deep clone.
+ */
+export function migrateManifestToV3(
+  raw: unknown,
+  fallbackDims?: { widthPx: number; heightPx: number }
+): DocumentManifest {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
+    throw new Error('Manifest del documento non valido o assente.');
+  }
+
+  const m = raw as Record<string, unknown>;
+  const version = assertSupportedSchemaVersion(m.schemaVersion);
+
+  if (version === SCHEMA_VERSION) {
+    return validateDocumentManifest(normalizeOptionalV3Fields(raw));
+  }
+  if (version === 2) {
+    return migrateV2ToV3(m, fallbackDims);
+  }
+  return migrateV1ToV3(m, fallbackDims);
+}
+
+/**
+ * Backward-compatible alias that migrates v1/v2 manifests to the current v3 schema.
+ */
+export function migrateManifestV1ToV2(
+  raw: unknown,
+  fallbackDims?: { widthPx: number; heightPx: number }
+): DocumentManifest {
+  return migrateManifestToV3(raw, fallbackDims);
 }

@@ -1,0 +1,39 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Grotta">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="47" ry="10" fill="#263C40" opacity="0.24"/>
+
+  <!-- Massiccio roccioso illuminato da NW -->
+  <polygon points="14,95 25,53 45,30 74,26 97,44 112,73 114,95 88,99 36,99" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Facce in luce NW -->
+  <polygon points="14,95 25,53 45,30 62,28 53,48 31,64 29,96" fill="#E8D8AF"/>
+  <polygon points="25,53 45,30 57,30 43,48" fill="#F3EEDF"/>
+  <!-- Versante destro in ombra SE -->
+  <polygon points="74,26 97,44 112,73 114,95 89,98 84,54" fill="#7B7880"/>
+  <polygon points="94,46 112,73 114,95 96,97" fill="#5F5D65"/>
+  <polygon points="14,95 25,53 45,30 74,26 97,44 112,73 114,95 88,99 36,99" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Muschio e vegetazione sulla cresta della rupe -->
+  <path d="M39 36 Q42 25 52 28 Q58 21 66 28 Q72 24 77 31 Q62 35 39 36 Z" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M16 95 Q15 84 22 82 Q25 88 29 85 Q29 92 26 96 Z" fill="#486953" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Bocca profonda della caverna -->
+  <path d="M35 97 L38 66 Q47 45 66 44 Q85 45 92 68 L94 97 Z" fill="#263C40" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Stalattiti pendenti dall'arco -->
+  <polygon points="46,51 53,48 50,65" fill="#E8D8AF" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="57,46 65,45 61,61" fill="#B9B1AA" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="69,46 77,48 73,63" fill="#B9B1AA" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="80,52 87,56 82,67" fill="#7B7880" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+
+  <!-- Cristalli e bagliore caldo alla soglia -->
+  <polygon points="42,96 46,82 51,95" fill="#5E95A0" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="48,96 53,86 56,96" fill="#A8C8C6" stroke="#263C40" stroke-width="1.6" stroke-linejoin="round"/>
+  <ellipse cx="66" cy="92" rx="14" ry="5" fill="#D9C598"/>
+  <circle cx="78" cy="87" r="3.5" fill="#E0BB79" stroke="#263C40" stroke-width="1.6"/>
+  <circle cx="78" cy="87" r="1.5" fill="#F3EEDF"/>
+
+  <!-- Massi laterali di primo piano -->
+  <polygon points="24,98 31,85 41,87 42,99" fill="#E8D8AF" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="87,98 92,84 103,87 105,98" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M29 58 L38 51 M90 56 L101 66" fill="none" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+</svg>

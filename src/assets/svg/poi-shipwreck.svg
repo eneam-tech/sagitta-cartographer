@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Relitto">
+  <!-- Specchio d'acqua e bassofondo -->
+  <ellipse cx="64" cy="96" rx="48" ry="12" fill="#A8C8C6" opacity="0.68"/>
+  <ellipse cx="64" cy="94" rx="34" ry="8" fill="#5E95A0" opacity="0.42"/>
+
+  <!-- Albero maestro spezzato inclinato con vela lacera -->
+  <path d="M52 74 L69 20" stroke="#6E372D" stroke-width="4.4" stroke-linecap="round"/>
+  <path d="M52 74 L69 20" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+  <!-- Pennone inclinato -->
+  <path d="M46 31 L85 41" stroke="#6E372D" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M46 31 L85 41" stroke="#263C40" stroke-width="1.5" stroke-linecap="round"/>
+  <!-- Vela strappata al vento -->
+  <path d="M48 33 L82 41 Q76 53 79 62 L69 57 L64 64 L57 54 L49 59 Q50 45 48 33 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M68 38 L82 41 Q76 53 79 62 L69 57 Z" fill="#D9C598"/>
+  <path d="M48 33 L82 41 Q76 53 79 62 L69 57 L64 64 L57 54 L49 59 Q50 45 48 33 Z" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Sartiame lento -->
+  <path d="M67 24 L94 60 M63 35 L33 67" fill="none" stroke="#263C40" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Scoglio emerso a sinistra che incaglia la prua -->
+  <polygon points="17,92 25,74 41,72 47,91 28,95" fill="#B9B1AA" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="34,72 41,72 47,91 34,94" fill="#7B7880"/>
+  <polygon points="17,92 25,74 41,72 47,91 28,95" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Troncone dell'albero di trinchetto e bompresso -->
+  <path d="M35 76 L26 57" stroke="#6E372D" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M28 73 L14 66" stroke="#8B493D" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M28 73 L14 66" stroke="#263C40" stroke-width="1.4" stroke-linecap="round"/>
+
+  <!-- Scafo squarciato inclinato -->
+  <path d="M24 72 L56 80 L94 60 L108 63 L98 89 L42 94 L27 83 Z" fill="#8B493D" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Bordo chiaro illuminato del ponte -->
+  <polygon points="24,72 56,80 94,60 108,63 102,68 92,65 56,85 26,77" fill="#E8D8AF" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <!-- Fianco basso in ombra -->
+  <polygon points="56,85 103,72 98,89 48,93" fill="#6E372D"/>
+  <!-- Falla e costole spezzate nello scafo -->
+  <polygon points="48,79 67,74 72,89 45,91" fill="#263C40"/>
+  <path d="M53 76 L51 90 M59 75 L57 89 M65 74 L63 89" stroke="#D9C598" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M24 72 L56 80 L94 60 L108 63 L98 89 L42 94 L27 83 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Lanterna di poppa inclinata -->
+  <circle cx="105" cy="57" r="3" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+
+  <!-- Scoglio affiorante a destra e onda bianca -->
+  <polygon points="90,93 99,81 112,84 114,94 98,96" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M16 96 Q29 92 42 96 T68 96 T96 96 T115 95" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M24 91 Q35 87 46 92 M78 93 Q88 89 96 93" fill="none" stroke="#F3EEDF" stroke-width="2.2" stroke-linecap="round"/>
+  <path d="M28 102 Q48 99 68 102 T106 101" fill="none" stroke="#7BA1A1" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

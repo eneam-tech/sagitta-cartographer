@@ -1,0 +1,53 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Abbazia">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="48" ry="10" fill="#263C40" opacity="0.22"/>
+
+  <!-- Sagrato erboso e cipresso conventuale -->
+  <ellipse cx="64" cy="95" rx="46" ry="8" fill="#D9C598" stroke="#263C40" stroke-width="2.4"/>
+  <path d="M18 90 Q15 68 22 57 Q29 68 26 90 Z" fill="#486953" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M22 57 Q29 68 26 90 L22 90 Z" fill="#334E3D"/>
+  <path d="M18 90 Q15 68 22 57 Q29 68 26 90 Z" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Chiostro porticato a destra -->
+  <polygon points="71,69 109,69 109,93 71,93" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="102,69 109,69 109,93 102,93" fill="#7B7880"/>
+  <polygon points="71,69 109,69 109,93 71,93" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- Tetto spiovente del chiostro -->
+  <polygon points="68,69 75,58 112,60 110,69" fill="#8B493D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Arcate del chiostro -->
+  <path d="M77 93 L77 81 Q80.5 76 84 81 L84 93 Z" fill="#263C40"/>
+  <path d="M88 93 L88 81 Q91.5 76 95 81 L95 93 Z" fill="#263C40"/>
+  <path d="M99 93 L99 81 Q102.5 76 106 81 L106 93 Z" fill="#263C40"/>
+
+  <!-- Campanile slanciato -->
+  <polygon points="62,72 64,29 82,29 84,72" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="75,29 82,29 84,72 76,72" fill="#7B7880"/>
+  <polygon points="62,72 64,29 82,29 84,72" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Cella campanaria con campana dorata -->
+  <path d="M68 48 L68 37 Q73 32 78 37 L78 48 Z" fill="#263C40"/>
+  <path d="M70.5 44 L71.5 39 L74.5 39 L75.5 44 Z" fill="#E0BB79"/>
+  <!-- Guglia del campanile -->
+  <polygon points="61,29 73,12 85,29" fill="#5E95A0" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="73,12 85,29 75,29" fill="#466B75"/>
+  <polygon points="61,29 73,12 85,29" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M73 12 L73 6 M69.5 9 L76.5 9" stroke="#263C40" stroke-width="3.4" stroke-linecap="round"/>
+  <path d="M73 12 L73 6.5 M70 9 L76 9" stroke="#E0BB79" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Navata principale dell'abbazia -->
+  <polygon points="29,52 67,52 67,95 29,95" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="67,52 75,55 75,93 67,95" fill="#B9B1AA" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Timpano e tetto a doppia falda -->
+  <polygon points="26,53 48,30 70,53" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="24,53 48,28 52,32 29,54" fill="#5E95A0" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="48,28 70,53 76,55 54,31" fill="#466B75" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Rosone dorato -->
+  <circle cx="48" cy="49" r="7.5" fill="#263C40" stroke="#263C40" stroke-width="2"/>
+  <circle cx="48" cy="49" r="5.5" fill="none" stroke="#E0BB79" stroke-width="1.8"/>
+  <path d="M48 43.5 L48 54.5 M42.5 49 L53.5 49" stroke="#E0BB79" stroke-width="1.4"/>
+  <circle cx="48" cy="49" r="2" fill="#E0BB79"/>
+
+  <!-- Portale strombato -->
+  <path d="M41 95 L41 73 Q48 64 55 73 L55 95 Z" fill="#263C40"/>
+  <path d="M43 95 L43 75 Q48 68 53 75 L53 95" fill="none" stroke="#D9C598" stroke-width="1.6"/>
+  <path d="M48 70 L48 95" stroke="#6E372D" stroke-width="1.8"/>
+</svg>

@@ -3,6 +3,7 @@ import { getBuiltinAssetSvgBytes } from '../assets/catalog';
 import { decodeMaskPng, encodeMaskPng } from '../core/png';
 import {
   DocumentManifest,
+  MAX_COVER_CODE,
   MapDocument,
   SCHEMA_VERSION,
   isCoverCode,
@@ -10,11 +11,11 @@ import {
   safeRandomUUID,
   validateDocumentManifest
 } from '../model/document';
-import { MapTheme, V1_FLAT_THEME, cloneTheme } from '../theme/theme';
+import { MapTheme, V1_FLAT_THEME, normalizeTheme } from '../theme/theme';
 import {
   assertSupportedSchemaVersion,
   initializeV1TerrainBuffers,
-  migrateManifestV1ToV2
+  migrateManifestToV3
 } from './migration';
 import { ArchiveImportResult } from './types';
 
@@ -47,24 +48,32 @@ function isSafeDirectoryPlaceholder(file: UnzipFileInfo): boolean {
   return trimmed.length > 0 && isValidArchivePath(trimmed);
 }
 
-function validateMapTheme(raw: unknown): MapTheme {
-  if (!raw || typeof raw !== 'object') {
+/**
+ * Validates theme structural fields (id, mode, 16 required base colors, and any
+ * optional geometry/typography blocks) and enriches missing v3 palette entries
+ * via `normalizeTheme`.
+ */
+export function validateMapTheme(raw: unknown): MapTheme {
+  if (!raw || typeof raw !== 'object' || Array.isArray(raw)) {
     throw new Error('File tema non valido: atteso oggetto JSON.');
   }
   const t = raw as Record<string, unknown>;
   if (typeof t.id !== 'string' || !t.id.trim()) {
     throw new Error('Identificativo del tema mancante o non valido.');
   }
-  if (typeof t.version !== 'number' || !Number.isInteger(t.version) || t.version < 1) {
+  if (
+    t.version !== undefined &&
+    (typeof t.version !== 'number' || !Number.isInteger(t.version) || t.version < 1)
+  ) {
     throw new Error('Versione del tema non valida.');
   }
-  if (typeof t.name !== 'string') {
+  if (t.name !== undefined && typeof t.name !== 'string') {
     throw new Error('Nome del tema mancante o non valido.');
   }
   if (t.mode !== 'reactive' && t.mode !== 'flat') {
     throw new Error(`Modalità tema non supportata: ${String(t.mode)}.`);
   }
-  if (!t.colors || typeof t.colors !== 'object') {
+  if (!t.colors || typeof t.colors !== 'object' || Array.isArray(t.colors)) {
     throw new Error('Tavolozza colori del tema mancante.');
   }
   const requiredColorKeys = [
@@ -91,44 +100,70 @@ function validateMapTheme(raw: unknown): MapTheme {
       throw new Error(`Colore tema "${key}" mancante o non valido.`);
     }
   }
-  if (!t.coast || typeof t.coast !== 'object') {
-    throw new Error('Parametri costa del tema mancanti.');
+  const sanitizedColors: Record<string, string> = {};
+  for (const [key, value] of Object.entries(colors)) {
+    if (value === undefined) continue;
+    if (typeof value !== 'string' || !value) {
+      throw new Error(`Colore tema "${key}" mancante o non valido.`);
+    }
+    sanitizedColors[key] = value;
   }
-  const coast = t.coast as Record<string, unknown>;
-  if (
-    typeof coast.strokeWidthDoc !== 'number' ||
-    !Number.isFinite(coast.strokeWidthDoc) ||
-    coast.strokeWidthDoc < 0 ||
-    typeof coast.bathymetryOffsetDoc !== 'number' ||
-    !Number.isFinite(coast.bathymetryOffsetDoc) ||
-    coast.bathymetryOffsetDoc < 0
-  ) {
-    throw new Error('Valori costa del tema non validi.');
-  }
-  if (!t.elevation || typeof t.elevation !== 'object') {
-    throw new Error('Soglie di elevazione del tema mancanti.');
-  }
-  const elev = t.elevation as Record<string, unknown>;
-  for (const k of [
-    'beachMaxHeight',
-    'beachMaxCoastDistDoc',
-    'plainMaxHeight',
-    'hillMaxHeight',
-    'mountainMaxHeight',
-    'blendWidth'
-  ]) {
-    if (typeof elev[k] !== 'number' || !Number.isFinite(elev[k])) {
-      throw new Error(`Soglia elevazione "${k}" non valida nel tema.`);
+
+  if (t.coast !== undefined) {
+    if (!t.coast || typeof t.coast !== 'object' || Array.isArray(t.coast)) {
+      throw new Error('Parametri costa del tema mancanti.');
+    }
+    const coast = t.coast as Record<string, unknown>;
+    if (
+      typeof coast.strokeWidthDoc !== 'number' ||
+      !Number.isFinite(coast.strokeWidthDoc) ||
+      coast.strokeWidthDoc < 0 ||
+      typeof coast.bathymetryOffsetDoc !== 'number' ||
+      !Number.isFinite(coast.bathymetryOffsetDoc) ||
+      coast.bathymetryOffsetDoc < 0
+    ) {
+      throw new Error('Valori costa del tema non validi.');
     }
   }
-  if (!t.fonts || typeof t.fonts !== 'object') {
-    throw new Error('Configurazione font del tema mancante.');
+
+  if (t.elevation !== undefined) {
+    if (!t.elevation || typeof t.elevation !== 'object' || Array.isArray(t.elevation)) {
+      throw new Error('Soglie di elevazione del tema mancanti.');
+    }
+    const elev = t.elevation as Record<string, unknown>;
+    for (const k of [
+      'beachMaxHeight',
+      'beachMaxCoastDistDoc',
+      'plainMaxHeight',
+      'hillMaxHeight',
+      'mountainMaxHeight',
+      'blendWidth'
+    ]) {
+      if (typeof elev[k] !== 'number' || !Number.isFinite(elev[k])) {
+        throw new Error(`Soglia elevazione "${k}" non valida nel tema.`);
+      }
+    }
   }
-  const fonts = t.fonts as Record<string, unknown>;
-  if (typeof fonts.defaultFontId !== 'string' || !fonts.presets || typeof fonts.presets !== 'object') {
-    throw new Error('Preset tipografici del tema non validi.');
+
+  if (t.fonts !== undefined) {
+    if (!t.fonts || typeof t.fonts !== 'object' || Array.isArray(t.fonts)) {
+      throw new Error('Configurazione font del tema mancante.');
+    }
+    const fonts = t.fonts as Record<string, unknown>;
+    if (
+      typeof fonts.defaultFontId !== 'string' ||
+      !fonts.presets ||
+      typeof fonts.presets !== 'object' ||
+      Array.isArray(fonts.presets)
+    ) {
+      throw new Error('Preset tipografici del tema non validi.');
+    }
   }
-  return cloneTheme(raw as MapTheme);
+
+  return normalizeTheme({
+    ...t,
+    colors: sanitizedColors
+  });
 }
 
 /**
@@ -265,7 +300,7 @@ function resolveRawMaskPath(rawManifest: Record<string, unknown>): string {
 
 /**
  * Validates and imports a portable ZIP archive completely in memory before returning.
- * Supports v2 documents and ordered migration of v1 documents.
+ * Supports v3 documents and ordered migration of v1 and v2 documents.
  */
 export async function importProjectArchive(
   bytes: Uint8Array,
@@ -362,15 +397,10 @@ export async function importProjectArchive(
   }
   const decodedMask = decodeMaskPng(maskBytes);
 
-  let manifest: DocumentManifest;
-  if (wasMigratedFromV1) {
-    manifest = migrateManifestV1ToV2(rawManifest, {
-      widthPx: decodedMask.width,
-      heightPx: decodedMask.height
-    });
-  } else {
-    manifest = validateDocumentManifest(structuredClone(rawManifest));
-  }
+  const manifest: DocumentManifest = migrateManifestToV3(rawManifest, {
+    widthPx: decodedMask.width,
+    heightPx: decodedMask.height
+  });
 
   if (
     decodedMask.width !== manifest.terrain.widthPx ||
@@ -387,7 +417,7 @@ export async function importProjectArchive(
   }
   const parsedTheme = parseJsonEntry(themeBytes, manifest.theme.file);
   const theme = wasMigratedFromV1
-    ? cloneTheme(V1_FLAT_THEME)
+    ? normalizeTheme(V1_FLAT_THEME)
     : validateMapTheme(parsedTheme);
 
   const expectedCells = manifest.terrain.widthPx * manifest.terrain.heightPx;
@@ -430,7 +460,7 @@ export async function importProjectArchive(
     for (let i = 0; i < coverBytes.length; i += 1) {
       if (!isCoverCode(coverBytes[i])) {
         throw new Error(
-          `Codice copertura non valido (${coverBytes[i]}) in "${manifest.terrain.cover}" alla cella ${i}: ammessi solo 0, 1 o 2.`
+          `Codice copertura non valido (${coverBytes[i]}) in "${manifest.terrain.cover}" alla cella ${i}: ammessi solo 0–${MAX_COVER_CODE}.`
         );
       }
     }
@@ -468,7 +498,7 @@ export async function importProjectArchive(
     wasIdRemapped = true;
   }
 
-  // Imported archives start cleanly with schemaVersion 2
+  // Imported archives start cleanly with schemaVersion 3
   manifest.schemaVersion = SCHEMA_VERSION;
 
   const document: MapDocument = {

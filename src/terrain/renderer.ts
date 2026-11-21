@@ -1,5 +1,17 @@
 import { DirtyRectPx } from '../model/commands';
-import { COVER_FIELDS, COVER_FOREST, MapDocument } from '../model/document';
+import {
+  COVER_BRICK,
+  COVER_FIELDS,
+  COVER_FOREST,
+  COVER_LAVA,
+  COVER_MEADOW,
+  COVER_NATURAL,
+  COVER_ROCK,
+  COVER_SAND,
+  COVER_SNOW,
+  COVER_SWAMP,
+  MapDocument
+} from '../model/document';
 import { MapTheme } from '../theme/theme';
 import {
   BiomeWeights,
@@ -94,6 +106,20 @@ interface ParsedThemePalette {
   fields: RgbColor;
   fieldsFurrow: RgbColor;
   stone: RgbColor;
+  sand: RgbColor;
+  sandShadow: RgbColor;
+  brick: RgbColor;
+  brickMortar: RgbColor;
+  snow: RgbColor;
+  snowShadow: RgbColor;
+  swamp: RgbColor;
+  swampWater: RgbColor;
+  rock: RgbColor;
+  rockShadow: RgbColor;
+  meadow: RgbColor;
+  meadowAccent: RgbColor;
+  lava: RgbColor;
+  lavaGlow: RgbColor;
 }
 
 function parseHexRgb(hex: string): RgbColor {
@@ -131,7 +157,21 @@ function parsePalette(theme: MapTheme): ParsedThemePalette {
     forestShadow: parseHexRgb(c.forestShadow),
     fields: parseHexRgb(c.fields),
     fieldsFurrow: parseHexRgb(c.fieldsFurrow),
-    stone: parseHexRgb(c.stone)
+    stone: parseHexRgb(c.stone),
+    sand: parseHexRgb(c.sand),
+    sandShadow: parseHexRgb(c.sandShadow),
+    brick: parseHexRgb(c.brick),
+    brickMortar: parseHexRgb(c.brickMortar),
+    snow: parseHexRgb(c.snow),
+    snowShadow: parseHexRgb(c.snowShadow),
+    swamp: parseHexRgb(c.swamp),
+    swampWater: parseHexRgb(c.swampWater),
+    rock: parseHexRgb(c.rock),
+    rockShadow: parseHexRgb(c.rockShadow),
+    meadow: parseHexRgb(c.meadow),
+    meadowAccent: parseHexRgb(c.meadowAccent),
+    lava: parseHexRgb(c.lava),
+    lavaGlow: parseHexRgb(c.lavaGlow)
   };
 }
 
@@ -162,6 +202,20 @@ function buildThemeSignature(theme: MapTheme): string {
     c.fields,
     c.fieldsFurrow,
     c.stone,
+    c.sand,
+    c.sandShadow,
+    c.brick,
+    c.brickMortar,
+    c.snow,
+    c.snowShadow,
+    c.swamp,
+    c.swampWater,
+    c.rock,
+    c.rockShadow,
+    c.meadow,
+    c.meadowAccent,
+    c.lava,
+    c.lavaGlow,
     theme.coast.strokeWidthDoc,
     theme.coast.bathymetryOffsetDoc,
     e.beachMaxHeight,
@@ -211,6 +265,7 @@ export class TerrainRenderer implements ITerrainRenderer {
   };
   private readonly tmpFieldOut: FieldShadeOut = { r: 0, g: 0, b: 0, alpha: 0 };
   private readonly tmpPlainRgb: RgbColor = { r: 0, g: 0, b: 0 };
+  private readonly tmpMaterialRgb: RgbColor = { r: 0, g: 0, b: 0 };
   private readonly elevLut: ElevationLut = {
     low: new Float32Array(256),
     plain: new Float32Array(256),
@@ -414,6 +469,7 @@ export class TerrainRenderer implements ITerrainRenderer {
     if (this.disposed) return;
 
     const { widthPx, heightPx, mask } = doc.terrain;
+    if (widthPx <= 0 || heightPx <= 0) return;
     this.ensureBackingBuffers(widthPx, heightPx);
 
     const palette = parsePalette(doc.theme);
@@ -519,6 +575,11 @@ export class TerrainRenderer implements ITerrainRenderer {
       this.disposeTileCanvases();
       this.disposeFullCanvas();
       this.tileImageData = null;
+      this.distWaterBuf = new Float32Array(0);
+      this.distLandBuf = new Float32Array(0);
+      this.renderedDocId = null;
+      this.renderedTerrainVersion = -1;
+      this.renderedThemeKey = '';
 
       this.widthPx = widthPx;
       this.heightPx = heightPx;
@@ -965,18 +1026,37 @@ export class TerrainRenderer implements ITerrainRenderer {
             lg += grain;
             lb += grain;
 
-            if (cVal === COVER_FIELDS && maskVal >= LAND_MASK_THRESHOLD) {
-              evaluatePlainFieldsInto(
-                docX,
-                docY,
-                parcelSeed,
-                warpSeed,
-                palette,
-                this.tmpPlainRgb
-              );
-              lr += (this.tmpPlainRgb.r - lr) * 0.86;
-              lg += (this.tmpPlainRgb.g - lg) * 0.86;
-              lb += (this.tmpPlainRgb.b - lb) * 0.86;
+            if (maskVal >= LAND_MASK_THRESHOLD) {
+              if (cVal === COVER_FIELDS) {
+                evaluatePlainFieldsInto(
+                  docX,
+                  docY,
+                  parcelSeed,
+                  warpSeed,
+                  palette,
+                  this.tmpPlainRgb
+                );
+                lr += (this.tmpPlainRgb.r - lr) * 0.86;
+                lg += (this.tmpPlainRgb.g - lg) * 0.86;
+                lb += (this.tmpPlainRgb.b - lb) * 0.86;
+              } else if (
+                evaluateSurfaceCoverInto(
+                  cVal,
+                  px,
+                  py,
+                  docX,
+                  docY,
+                  avgDocPerPx,
+                  0,
+                  seed,
+                  palette,
+                  this.tmpMaterialRgb
+                )
+              ) {
+                lr = this.tmpMaterialRgb.r;
+                lg = this.tmpMaterialRgb.g;
+                lb = this.tmpMaterialRgb.b;
+              }
             }
           } else {
             const lowW = lutLow[hVal];
@@ -1081,41 +1161,67 @@ export class TerrainRenderer implements ITerrainRenderer {
               lb += (palette.mountainCrest.b - lb) * crestT;
             }
 
-            // Contextual fields cover (plain parcels, hill contour furrows, mountain terraces)
-            if (cVal === COVER_FIELDS && maskVal >= LAND_MASK_THRESHOLD) {
-              const w = this.tmpWeights;
-              w.beach = wBeach;
-              w.plain = wPlain;
-              w.hill = wHill;
-              w.mountain = wMtn;
-              evaluateReactiveFieldsInto(
-                docX,
-                docY,
-                hVal,
-                distWaterDoc,
-                slope,
-                w,
-                parcelSeed,
-                warpSeed,
-                terraceSeed,
-                palette,
-                this.tmpPlainRgb,
-                this.tmpFieldOut
-              );
-              const fieldAlpha = this.tmpFieldOut.alpha;
-              if (fieldAlpha > 0) {
-                const shadeMul = 1 + shade * 0.12;
-                const fr = this.tmpFieldOut.r * shadeMul;
-                const fg = this.tmpFieldOut.g * shadeMul;
-                const fb = this.tmpFieldOut.b * shadeMul;
-                lr += (fr - lr) * fieldAlpha;
-                lg += (fg - lg) * fieldAlpha;
-                lb += (fb - lb) * fieldAlpha;
+            let handledSurfaceCover = false;
+            if (maskVal >= LAND_MASK_THRESHOLD) {
+              if (cVal === COVER_FIELDS) {
+                // Contextual fields cover (plain parcels, hill contour furrows, mountain terraces)
+                const w = this.tmpWeights;
+                w.beach = wBeach;
+                w.plain = wPlain;
+                w.hill = wHill;
+                w.mountain = wMtn;
+                evaluateReactiveFieldsInto(
+                  docX,
+                  docY,
+                  hVal,
+                  distWaterDoc,
+                  slope,
+                  w,
+                  parcelSeed,
+                  warpSeed,
+                  terraceSeed,
+                  palette,
+                  this.tmpPlainRgb,
+                  this.tmpFieldOut
+                );
+                const fieldAlpha = this.tmpFieldOut.alpha;
+                if (fieldAlpha > 0) {
+                  const shadeMul = 1 + shade * 0.12;
+                  const fr = this.tmpFieldOut.r * shadeMul;
+                  const fg = this.tmpFieldOut.g * shadeMul;
+                  const fb = this.tmpFieldOut.b * shadeMul;
+                  lr += (fr - lr) * fieldAlpha;
+                  lg += (fg - lg) * fieldAlpha;
+                  lb += (fb - lb) * fieldAlpha;
+                }
+              } else if (
+                evaluateSurfaceCoverInto(
+                  cVal,
+                  px,
+                  py,
+                  docX,
+                  docY,
+                  avgDocPerPx,
+                  shade,
+                  seed,
+                  palette,
+                  this.tmpMaterialRgb
+                )
+              ) {
+                lr = this.tmpMaterialRgb.r;
+                lg = this.tmpMaterialRgb.g;
+                lb = this.tmpMaterialRgb.b;
+                handledSurfaceCover = true;
               }
             }
 
             // Coastal cliff detection & rocky headland rendering
-            if (distWaterDoc <= 5.5 && hVal >= 40) {
+            if (
+              !handledSurfaceCover &&
+              (cVal === COVER_NATURAL || cVal === COVER_FOREST || cVal === COVER_FIELDS) &&
+              distWaterDoc <= 5.5 &&
+              hVal >= 40
+            ) {
               const cliff = computeCliffFactor(hVal, distWaterDoc, slope);
               if (cliff > 0.02) {
                 const striation = valueNoise2D(cliffSeed, docX * 0.35, docY * 0.35);
@@ -1543,4 +1649,382 @@ function evaluateReactiveFieldsInto(
     totalW > 0
       ? ((plainRgb.b * w.plain + hillB * w.hill + plainRgb.b * w.beach) + mtnB * w.mountain) / totalW
       : plainRgb.b;
+}
+
+const BRICK_W_DOC = 14.0;
+const BRICK_H_DOC = 8.0;
+const REED_CELL_DOC = 8.0;
+const MEADOW_CELL_DOC = 10.0;
+
+/**
+ * Evaluates procedural surface materials (cover codes 3..9) strictly from global
+ * image/document coordinates so 256px chunk boundaries remain completely seamless.
+ */
+function evaluateSurfaceCoverInto(
+  cVal: number,
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  avgDocPerPx: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): boolean {
+  switch (cVal) {
+    case COVER_SAND:
+      evaluateSandInto(worldX, worldY, docX, docY, shade, seed, palette, out);
+      return true;
+    case COVER_BRICK:
+      evaluateBrickInto(worldX, worldY, docX, docY, avgDocPerPx, shade, seed, palette, out);
+      return true;
+    case COVER_SNOW:
+      evaluateSnowInto(worldX, worldY, docX, docY, shade, seed, palette, out);
+      return true;
+    case COVER_SWAMP:
+      evaluateSwampInto(worldX, worldY, docX, docY, avgDocPerPx, shade, seed, palette, out);
+      return true;
+    case COVER_ROCK:
+      evaluateRockInto(worldX, worldY, docX, docY, shade, seed, palette, out);
+      return true;
+    case COVER_MEADOW:
+      evaluateMeadowInto(worldX, worldY, docX, docY, avgDocPerPx, shade, seed, palette, out);
+      return true;
+    case COVER_LAVA:
+      evaluateLavaInto(worldX, worldY, docX, docY, shade, seed, palette, out);
+      return true;
+    default:
+      return false;
+  }
+}
+
+function evaluateSandInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const warp1 = valueNoise2D((seed ^ 0x53414e) >>> 0, docX * 0.028, docY * 0.028) - 0.5;
+  const warp2 = valueNoise2D((seed ^ 0x53414f) >>> 0, docX * 0.07, docY * 0.07) - 0.5;
+  const windAxis = docX * 0.72 + docY * 0.69;
+  const u = windAxis / 16.0 + warp1 * 1.65 + warp2 * 0.45;
+  const phase = u - Math.floor(u);
+
+  let shadowT: number;
+  let crestHi = 0;
+  if (phase < 0.72) {
+    const t = phase / 0.72;
+    shadowT = (1 - t) * 0.18;
+    crestHi = smoothstepRange(0.45, 0.72, phase) * 10;
+  } else {
+    const t = (phase - 0.72) / 0.28;
+    shadowT = smoothstepRange(0, 0.42, t) * (1 - smoothstepRange(0.75, 1.0, t) * 0.35) * 0.82;
+  }
+
+  const ripple = 0.5 + 0.5 * Math.sin(windAxis * 1.4 + warp2 * 5.0);
+  shadowT = Math.min(1, shadowT + ripple * 0.08);
+  if (shade < 0) {
+    shadowT = Math.min(1, shadowT + (-shade) * 0.35);
+  }
+
+  const grain = hash2DBipolar((seed ^ 0x53414d) >>> 0, worldX, worldY) * 4.0;
+  const litBoost = shade > 0 ? shade * 10 : 0;
+
+  out.r = palette.sand.r + (palette.sandShadow.r - palette.sand.r) * shadowT + crestHi + litBoost + grain;
+  out.g =
+    palette.sand.g +
+    (palette.sandShadow.g - palette.sand.g) * shadowT +
+    crestHi * 0.9 +
+    litBoost * 0.9 +
+    grain * 0.9;
+  out.b =
+    palette.sand.b +
+    (palette.sandShadow.b - palette.sand.b) * shadowT +
+    crestHi * 0.75 +
+    litBoost * 0.75 +
+    grain * 0.75;
+}
+
+function evaluateBrickInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  avgDocPerPx: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const mortarHalf = Math.max(0.68, avgDocPerPx * 0.38);
+  const row = Math.floor(docY / BRICK_H_DOC);
+  const rowOffset = (row & 1) !== 0 ? BRICK_W_DOC * 0.5 : 0;
+  const sx = docX + rowOffset;
+  const col = Math.floor(sx / BRICK_W_DOC);
+  const lx = sx - col * BRICK_W_DOC;
+  const ly = docY - row * BRICK_H_DOC;
+
+  const edgeX = Math.min(lx, BRICK_W_DOC - lx);
+  const edgeY = Math.min(ly, BRICK_H_DOC - ly);
+  const edgeDist = Math.min(edgeX, edgeY);
+  const mortarT = 1 - smoothstepRange(mortarHalf * 0.4, mortarHalf * 1.25, edgeDist);
+
+  const h = hash2D((seed ^ 0x42524b) >>> 0, col, row);
+  const tone = (((h & 0xff) / 255) - 0.5) * 20;
+  const grain =
+    (valueNoise2D((seed ^ 0x42524d) >>> 0, docX * 0.32, docY * 0.32) - 0.5) * 10 +
+    hash2DBipolar((seed ^ 0x42524e) >>> 0, worldX, worldY) * 3.5;
+
+  const bevel = Math.max(1.0, mortarHalf * 1.4);
+  const nwLit = mortarT < 0.5 && (lx < mortarHalf + bevel || ly < mortarHalf + bevel) ? 8 : 0;
+  const seShade =
+    mortarT < 0.5 && (BRICK_W_DOC - lx < mortarHalf + bevel || BRICK_H_DOC - ly < mortarHalf + bevel)
+      ? -8
+      : 0;
+
+  const br = palette.brick.r + tone + grain + nwLit + seShade;
+  const bg = palette.brick.g + tone * 0.8 + grain * 0.85 + nwLit + seShade;
+  const bb = palette.brick.b + tone * 0.65 + grain * 0.75 + nwLit + seShade;
+
+  const shadeMul = 1 + shade * 0.14;
+  out.r = (br + (palette.brickMortar.r - br) * mortarT) * shadeMul;
+  out.g = (bg + (palette.brickMortar.g - bg) * mortarT) * shadeMul;
+  out.b = (bb + (palette.brickMortar.b - bb) * mortarT) * shadeMul;
+}
+
+function evaluateSnowInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const driftWarp = valueNoise2D((seed ^ 0x534e57) >>> 0, docX * 0.038, docY * 0.038);
+  const driftWave = 0.5 + 0.5 * Math.sin((docX * 0.65 + docY * 0.76) * 0.085 + driftWarp * 4.8);
+  const fineDrift = valueNoise2D((seed ^ 0x534e58) >>> 0, docX * 0.14, docY * 0.14);
+
+  const driftShadow = smoothstepRange(0.25, 0.85, driftWave) * 0.4 + (1 - fineDrift) * 0.18;
+  const slopeShadow = shade < 0 ? Math.min(0.82, -shade * 0.85) : 0;
+  const shadowT = Math.min(0.88, driftShadow + slopeShadow * (1 - driftShadow * 0.4));
+
+  const sparkle = hash2DFloat((seed ^ 0x534e59) >>> 0, worldX, worldY) > 0.96 ? 10 : 0;
+  const litBoost = shade > 0 ? shade * 8 : 0;
+
+  out.r = palette.snow.r + (palette.snowShadow.r - palette.snow.r) * shadowT + sparkle + litBoost;
+  out.g = palette.snow.g + (palette.snowShadow.g - palette.snow.g) * shadowT + sparkle + litBoost;
+  out.b = palette.snow.b + (palette.snowShadow.b - palette.snow.b) * shadowT + sparkle + litBoost;
+}
+
+function evaluateSwampInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  avgDocPerPx: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const wx = docX + (valueNoise2D((seed ^ 0x535731) >>> 0, docX * 0.04, docY * 0.04) - 0.5) * 8.0;
+  const wy = docY + (valueNoise2D((seed ^ 0x535732) >>> 0, docX * 0.04, docY * 0.04) - 0.5) * 8.0;
+  const poolN =
+    valueNoise2D((seed ^ 0x535733) >>> 0, wx * 0.065, wy * 0.065) * 0.68 +
+    valueNoise2D((seed ^ 0x535734) >>> 0, wx * 0.15, wy * 0.15) * 0.32;
+
+  const waterT = 1 - smoothstepRange(0.39, 0.48, poolN);
+  const rimT = smoothstepRange(0.36, 0.44, poolN) * (1 - smoothstepRange(0.44, 0.52, poolN));
+  const moss = (valueNoise2D((seed ^ 0x535735) >>> 0, docX * 0.18, docY * 0.18) - 0.5) * 16;
+  const grain = hash2DBipolar((seed ^ 0x535736) >>> 0, worldX, worldY) * 3.5;
+
+  const turfR = palette.swamp.r + moss + shade * 12 + grain;
+  const turfG = palette.swamp.g + moss * 1.05 + shade * 12 + grain;
+  const turfB = palette.swamp.b + moss * 0.75 + shade * 10 + grain;
+
+  const deepPool = smoothstepRange(0.39, 0.14, poolN) * 10;
+  const poolR = palette.swampWater.r - deepPool;
+  const poolG = palette.swampWater.g - deepPool * 0.85;
+  const poolB = palette.swampWater.b - deepPool * 0.65;
+
+  let r = turfR + (poolR - turfR) * waterT;
+  let g = turfG + (poolG - turfG) * waterT;
+  let b = turfB + (poolB - turfB) * waterT;
+
+  if (rimT > 0.01) {
+    const rimMix = rimT * 0.24;
+    r += (palette.ink.r - r) * rimMix;
+    g += (palette.ink.g - g) * rimMix;
+    b += (palette.ink.b - b) * rimMix;
+  }
+
+  // Deterministic reed tufts inside global cells (never crossing cell borders)
+  if (waterT < 0.35) {
+    const gx = Math.floor(docX / REED_CELL_DOC);
+    const gy = Math.floor(docY / REED_CELL_DOC);
+    const j = cellJitter(seed, gx, gy, 0x524545);
+    if (j.v < 0.46) {
+      const cx = (gx + 0.3 + j.dx * 0.4) * REED_CELL_DOC;
+      const cy = (gy + 0.3 + j.dy * 0.4) * REED_CELL_DOC;
+      const dx = docX - cx;
+      const dy = docY - cy;
+      if (Math.abs(dx) <= 2.1 && dy >= -2.1 && dy <= 1.2) {
+        const bladeHalfW = Math.min(1.4, Math.max(0.45, avgDocPerPx * 0.32));
+        if (
+          Math.abs(dx - dy * 0.32) <= bladeHalfW ||
+          Math.abs(dx + dy * 0.32) <= bladeHalfW ||
+          (Math.abs(dx) <= bladeHalfW && dy >= -1.8)
+        ) {
+          r += (palette.forestShadow.r - r) * 0.65;
+          g += (palette.forestShadow.g - g) * 0.65;
+          b += (palette.forestShadow.b - b) * 0.65;
+        }
+      }
+    }
+  }
+
+  out.r = r;
+  out.g = g;
+  out.b = b;
+}
+
+function evaluateRockInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const wx = docX + (valueNoise2D((seed ^ 0x524f31) >>> 0, docX * 0.05, docY * 0.05) - 0.5) * 6.0;
+  const wy = docY + (valueNoise2D((seed ^ 0x524f32) >>> 0, docX * 0.05, docY * 0.05) - 0.5) * 6.0;
+  const n1 = valueNoise2D((seed ^ 0x524f33) >>> 0, wx * 0.09, wy * 0.09);
+  const n2 = valueNoise2D((seed ^ 0x524f34) >>> 0, wx * 0.22, wy * 0.22);
+
+  const ridge1 = Math.abs(n1 - 0.5) * 2.0;
+  const ridge2 = Math.abs(n2 - 0.5) * 2.0;
+  const crackT = Math.max(
+    1 - smoothstepRange(0.02, 0.16, ridge1),
+    (1 - smoothstepRange(0.02, 0.14, ridge2)) * 0.65
+  );
+
+  const facetShift = (n1 - 0.5) * 22 + (n2 - 0.5) * 14;
+  const scree = hash2DBipolar((seed ^ 0x524f35) >>> 0, worldX, worldY) * 7.0;
+  const litBoost = shade > 0 ? shade * 18 : 0;
+
+  const baseR = palette.rock.r + facetShift + scree + litBoost;
+  const baseG = palette.rock.g + facetShift * 0.96 + scree + litBoost;
+  const baseB = palette.rock.b + facetShift * 0.92 + scree + litBoost;
+
+  const slopeSh = shade < 0 ? Math.min(0.7, -shade * 0.65) : 0;
+  const shadowT = Math.min(0.92, Math.max(crackT * 0.8, slopeSh));
+
+  out.r = baseR + (palette.rockShadow.r - baseR) * shadowT;
+  out.g = baseG + (palette.rockShadow.g - baseG) * shadowT;
+  out.b = baseB + (palette.rockShadow.b - baseB) * shadowT;
+}
+
+function evaluateMeadowInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  avgDocPerPx: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const fieldVar = valueNoise2D((seed ^ 0x4d4541) >>> 0, docX * 0.035, docY * 0.035) - 0.5;
+  const microVar = valueNoise2D((seed ^ 0x4d4542) >>> 0, docX * 0.16, docY * 0.16) - 0.5;
+  const grain = hash2DBipolar((seed ^ 0x4d4543) >>> 0, worldX, worldY) * 3.0;
+
+  let r = palette.meadow.r + fieldVar * 14 + microVar * 8 + shade * 12 + grain;
+  let g = palette.meadow.g + fieldVar * 16 + microVar * 9 + shade * 12 + grain;
+  let b = palette.meadow.b + fieldVar * 10 + microVar * 6 + shade * 9 + grain;
+
+  // Cartographic 3-blade grass tufts inside global grid cells
+  const gx = Math.floor(docX / MEADOW_CELL_DOC);
+  const gy = Math.floor(docY / MEADOW_CELL_DOC);
+  const j = cellJitter(seed, gx, gy, 0x475253);
+  if (j.v < 0.62) {
+    const cx = (gx + 0.28 + j.dx * 0.44) * MEADOW_CELL_DOC;
+    const cy = (gy + 0.28 + j.dy * 0.44) * MEADOW_CELL_DOC;
+    const dx = docX - cx;
+    const dy = docY - cy;
+    if (Math.abs(dx) <= 2.3 && dy >= -2.1 && dy <= 1.2) {
+      const bladeHalfW = Math.min(1.1, Math.max(0.45, avgDocPerPx * 0.3));
+      const inCenter = Math.abs(dx) <= bladeHalfW && dy >= -2.0 && dy <= 1.0;
+      const inLeft = Math.abs(dx - dy * 0.55 + 0.65) <= bladeHalfW && dy >= -1.6 && dy <= 1.0;
+      const inRight = Math.abs(dx + dy * 0.55 - 0.65) <= bladeHalfW && dy >= -1.6 && dy <= 1.0;
+      if (inCenter || inLeft || inRight) {
+        const tuftMix = 0.78;
+        r += (palette.meadowAccent.r - r) * tuftMix;
+        g += (palette.meadowAccent.g - g) * tuftMix;
+        b += (palette.meadowAccent.b - b) * tuftMix;
+      }
+    }
+  }
+
+  out.r = r;
+  out.g = g;
+  out.b = b;
+}
+
+function evaluateLavaInto(
+  worldX: number,
+  worldY: number,
+  docX: number,
+  docY: number,
+  shade: number,
+  seed: number,
+  palette: ParsedThemePalette,
+  out: RgbColor
+): void {
+  const wx = docX + (valueNoise2D((seed ^ 0x4c4156) >>> 0, docX * 0.045, docY * 0.045) - 0.5) * 9.0;
+  const wy = docY + (valueNoise2D((seed ^ 0x4c4157) >>> 0, docX * 0.045, docY * 0.045) - 0.5) * 9.0;
+  const n1 = valueNoise2D((seed ^ 0x4c4158) >>> 0, wx * 0.075, wy * 0.075);
+  const n2 = valueNoise2D((seed ^ 0x4c4159) >>> 0, wx * 0.145, wy * 0.145);
+  const f1 = Math.abs(n1 - 0.5) * 2.0;
+  const f2 = Math.abs(n2 - 0.5) * 2.0;
+  let fissure = Math.min(f1, f2 * 1.15 + 0.03);
+
+  const caldera = valueNoise2D((seed ^ 0x4c415a) >>> 0, docX * 0.035, docY * 0.035);
+  if (caldera > 0.72) {
+    const poolFade = smoothstepRange(0.72, 0.88, caldera);
+    fissure *= 1 - poolFade * 0.75;
+  }
+
+  const grain = hash2DBipolar((seed ^ 0x4c415b) >>> 0, worldX, worldY) * 5.0;
+  const relief = shade * 14;
+  let r = palette.rockShadow.r * 0.54 + palette.ink.r * 0.24 + relief + grain;
+  let g = palette.rockShadow.g * 0.5 + palette.ink.g * 0.22 + relief * 0.8 + grain * 0.85;
+  let b = palette.rockShadow.b * 0.5 + palette.ink.b * 0.22 + relief * 0.8 + grain * 0.85;
+
+  const lavaT = 1 - smoothstepRange(0.08, 0.28, fissure);
+  if (lavaT > 0) {
+    r += (palette.lava.r - r) * lavaT;
+    g += (palette.lava.g - g) * lavaT;
+    b += (palette.lava.b - b) * lavaT;
+  }
+
+  const glowT = 1 - smoothstepRange(0.0, 0.11, fissure);
+  if (glowT > 0) {
+    r += (palette.lavaGlow.r - r) * glowT;
+    g += (palette.lavaGlow.g - g) * glowT;
+    b += (palette.lavaGlow.b - b) * glowT;
+  }
+
+  out.r = r;
+  out.g = g;
+  out.b = b;
 }

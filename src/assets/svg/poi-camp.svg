@@ -1,0 +1,52 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Accampamento">
+  <!-- Ombra a terra -->
+  <ellipse cx="64" cy="98" rx="48" ry="11" fill="#263C40" opacity="0.22"/>
+
+  <!-- Radura erbosa del campo -->
+  <ellipse cx="64" cy="94" rx="46" ry="9" fill="#D9C598" stroke="#263C40" stroke-width="2.4"/>
+  <path d="M18 92 Q24 85 32 91 M97 92 Q104 85 110 92" fill="none" stroke="#486953" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Lancia e stendardo piantati al centro -->
+  <path d="M71 76 L71 20" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <polygon points="71,21 86,25 71,30" fill="#E0BB79" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+
+  <!-- Grande padiglione conico a sinistra -->
+  <path d="M44 26 L44 15" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <polygon points="44,15 58,18.5 44,22" fill="#8B493D" stroke="#263C40" stroke-width="1.6" stroke-linejoin="round"/>
+  <!-- Falda del padiglione -->
+  <polygon points="20,56 44,25 68,56" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="36,56 44,25 53,56" fill="#8B493D"/>
+  <polygon points="53,56 44,25 68,56" fill="#D9C598"/>
+  <polygon points="20,56 44,25 68,56" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- Pareti verticali e ingresso scuro del padiglione -->
+  <polygon points="22,56 66,56 65,86 23,86" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="52,56 66,56 65,86 52,86" fill="#D9C598"/>
+  <path d="M22 56 L66 56 L65 86 L23 86 Z" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M22 56 L26 61 L30 56 L34 61 L38 56 L42 61 L46 56 L50 61 L54 56 L58 61 L62 56 L66 61" fill="none" stroke="#8B493D" stroke-width="2.2" stroke-linejoin="round"/>
+  <!-- Ingresso aperto -->
+  <polygon points="44,58 37,86 51,86" fill="#263C40"/>
+
+  <!-- Tenda minore a destra -->
+  <polygon points="74,87 88,52 108,56 107,85" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="88,52 108,56 107,85 95,86" fill="#D9C598"/>
+  <polygon points="74,87 88,52 98,87" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="88,54 82,87 92,87" fill="#263C40"/>
+  <path d="M88 52 L108 56" stroke="#6E372D" stroke-width="2.4" stroke-linecap="round"/>
+
+  <!-- Sbuffo di fumo dal falò -->
+  <path d="M62 67 Q59 59 64 53 Q68 48 65 42" fill="none" stroke="#F3EEDF" stroke-width="2.6" stroke-linecap="round" opacity="0.8"/>
+
+  <!-- Fuoco da campo in primo piano -->
+  <!-- Ciocchi di legna incrociati -->
+  <path d="M51 94 L73 87 M52 87 L72 94" stroke="#6E372D" stroke-width="4" stroke-linecap="round"/>
+  <path d="M51 94 L73 87 M52 87 L72 94" stroke="#263C40" stroke-width="1.6" stroke-linecap="round"/>
+  <!-- Fiamma viva -->
+  <path d="M55 89 Q53 77 62 70 Q64 76 66 73 Q71 80 69 89 Z" fill="#C94A28" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M58 89 Q58 80 62 76 Q66 81 66 89 Z" fill="#F4A236"/>
+  <path d="M60 89 Q62 83 64 89 Z" fill="#E0BB79"/>
+  <!-- Anello di sassi attorno al fuoco -->
+  <circle cx="51" cy="94" r="3" fill="#B9B1AA" stroke="#263C40" stroke-width="1.8"/>
+  <circle cx="59" cy="96" r="3" fill="#E8D8AF" stroke="#263C40" stroke-width="1.8"/>
+  <circle cx="67" cy="96" r="3" fill="#7B7880" stroke="#263C40" stroke-width="1.8"/>
+  <circle cx="74" cy="93" r="3" fill="#7B7880" stroke="#263C40" stroke-width="1.8"/>
+</svg>

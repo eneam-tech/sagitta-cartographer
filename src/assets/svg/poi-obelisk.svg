@@ -1,0 +1,45 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Obelisco runico">
+  <!-- Ombra a terra -->
+  <ellipse cx="67" cy="99" rx="38" ry="9" fill="#263C40" opacity="0.24"/>
+
+  <!-- Terrazzo circolare in arenaria -->
+  <ellipse cx="64" cy="95" rx="37" ry="8" fill="#D9C598" stroke="#263C40" stroke-width="2.4"/>
+
+  <!-- Piedistallo gradonato in arenaria scolpita -->
+  <polygon points="36,96 42,84 86,84 92,96 64,99" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="69,84 86,84 92,96 69,99" fill="#7B7880"/>
+  <polygon points="36,96 42,84 86,84 92,96 64,99" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <polygon points="44,85 48,74 80,74 84,85 64,87" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="69,74 80,74 84,85 69,87" fill="#B9B1AA"/>
+  <polygon points="44,85 48,74 80,74 84,85 64,87" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Fusto snello sfaccettato dell'obelisco -->
+  <polygon points="51,75 56,28 64,13 72,28 77,75 64,77" fill="#E8D8AF"/>
+  <!-- Sfaccettatura sinistra illuminata NW -->
+  <polygon points="51,75 56,28 59,28 56,76" fill="#F3EEDF"/>
+  <!-- Sfaccettatura destra in ombra SE -->
+  <polygon points="69,28 72,28 77,75 71,76" fill="#7B7880"/>
+  <!-- Punta piramidale dorata (pyramidion) -->
+  <polygon points="56,28 64,13 72,28 64,29" fill="#E0BB79"/>
+  <polygon points="64,13 72,28 68,28" fill="#D9C598"/>
+  <polygon points="56,28 64,13 60,28" fill="#F3EEDF" opacity="0.8"/>
+
+  <!-- Spigoli cesellati e contorno -->
+  <path d="M56 76 L59 28 M71 76 L69 28 M56 28 L72 28" fill="none" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+  <polygon points="51,75 56,28 64,13 72,28 77,75 64,77" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Colonna di glifi runici turchesi e oro -->
+  <path d="M64 33 L64 69" stroke="#5E95A0" stroke-width="3.2" stroke-linecap="round" opacity="0.4"/>
+  <path d="M61 36 L64 33 L67 36 L64 41 Z M60 46 L68 46 M64 43 L64 53 M61 56 L67 60 L61 64 L67 68" fill="none" stroke="#5E95A0" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <circle cx="64" cy="23" r="1.8" fill="#F3EEDF" stroke="#263C40" stroke-width="1.2"/>
+
+  <!-- Cippi minori gemelli alla base -->
+  <polygon points="27,95 29,76 36,72 41,76 41,95" fill="#E8D8AF" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="36,72 41,76 41,95 36,95" fill="#7B7880"/>
+  <polygon points="27,95 29,76 36,72 41,76 41,95" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <polygon points="87,95 87,76 92,72 99,76 101,95" fill="#B9B1AA" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="94,74 99,76 101,95 94,95" fill="#5F5D65"/>
+  <polygon points="87,95 87,76 92,72 99,76 101,95" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+</svg>

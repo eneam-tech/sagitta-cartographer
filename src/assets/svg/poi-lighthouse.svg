@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Faro isolato">
+  <!-- Specchio d'acqua e riflesso del faro -->
+  <ellipse cx="64" cy="99" rx="49" ry="11" fill="#A8C8C6" opacity="0.72"/>
+  <ellipse cx="64" cy="95" rx="34" ry="7" fill="#5E95A0" opacity="0.45"/>
+
+  <!-- Fasci di luce dorata del faro -->
+  <polygon points="56,28 11,17 11,41 56,36" fill="#E0BB79" opacity="0.32"/>
+  <polygon points="72,28 117,17 117,41 72,36" fill="#E0BB79" opacity="0.32"/>
+  <path d="M51 28 L16 20 M51 35 L16 39 M77 28 L112 20 M77 35 L112 39" stroke="#E0BB79" stroke-width="2.2" stroke-linecap="round"/>
+
+  <!-- Scoglio isolato battuto dalle onde -->
+  <polygon points="24,95 36,78 52,74 78,75 94,81 104,95 82,99 42,99" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="66,75 78,75 94,81 104,95 82,99 66,99" fill="#7B7880"/>
+  <polygon points="30,93 40,81 53,80 51,95" fill="#E8D8AF"/>
+  <polygon points="24,95 36,78 52,74 78,75 94,81 104,95 82,99 42,99" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Fusto slanciato del faro a bande rosse e avorio -->
+  <polygon points="50,82 55,39 73,39 78,82 64,84" fill="#F3EEDF"/>
+  <!-- Bande rosse -->
+  <polygon points="53,51 75,51 76,61 52,61" fill="#8B493D"/>
+  <polygon points="51,70 77,70 78,82 50,82" fill="#8B493D"/>
+  <!-- Ombra sul lato SE -->
+  <polygon points="66,39 73,39 78,82 66,84" fill="#263C40" opacity="0.24"/>
+  <polygon points="50,82 55,39 73,39 78,82 64,84" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M54 51 L74 51 M53 61 L75 61 M51 70 L77 70" stroke="#263C40" stroke-width="1.8"/>
+  <!-- Feritoia e porticina -->
+  <rect x="61.5" y="43" width="4" height="6" rx="1.5" fill="#263C40"/>
+  <path d="M60 83 L60 76 Q64 73 68 76 L68 83 Z" fill="#263C40"/>
+
+  <!-- Galleria panoramica -->
+  <rect x="49" y="36" width="30" height="5" rx="1.5" fill="#E8D8AF" stroke="#263C40" stroke-width="2.4"/>
+  <path d="M52 36 L52 33 M58 36 L58 33 M70 36 L70 33 M76 36 L76 33 M51 33 L77 33" stroke="#263C40" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Lanterna luminosa -->
+  <rect x="54" y="25" width="20" height="11" fill="#E0BB79" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <circle cx="64" cy="30.5" r="4" fill="#F3EEDF"/>
+  <path d="M59 25 L59 36 M69 25 L69 36" stroke="#263C40" stroke-width="1.6"/>
+
+  <!-- Cupola conica rossa -->
+  <path d="M51 25 Q64 11 77 25 Z" fill="#8B493D" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M64 15 Q72 17 77 25 L66 25 Z" fill="#6E372D"/>
+  <path d="M51 25 Q64 11 77 25 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M64 15 L64 10" stroke="#263C40" stroke-width="2.2" stroke-linecap="round"/>
+  <circle cx="64" cy="10" r="2" fill="#E0BB79" stroke="#263C40" stroke-width="1.4"/>
+
+  <!-- Spruzzi di schiuma e onde increspate -->
+  <path d="M18 96 Q25 89 33 95 Q39 90 46 97" fill="none" stroke="#F3EEDF" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M84 96 Q91 89 99 95 Q105 90 111 96" fill="none" stroke="#F3EEDF" stroke-width="2.6" stroke-linecap="round"/>
+  <path d="M16 101 Q30 97 44 101 T72 101 T100 101 T114 100" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M28 107 Q46 104 64 107 T102 106" fill="none" stroke="#7BA1A1" stroke-width="2.2" stroke-linecap="round"/>
+</svg>

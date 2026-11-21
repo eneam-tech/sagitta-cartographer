@@ -1,8 +1,17 @@
 import { afterEach, describe, expect, it, vi } from 'vitest';
+import { ResizeCanvasCommand } from '../../src/model/commands';
 import {
+  COVER_BRICK,
   COVER_FIELDS,
   COVER_FOREST,
+  COVER_LAVA,
+  COVER_MEADOW,
   COVER_NATURAL,
+  COVER_ROCK,
+  COVER_SAND,
+  COVER_SNOW,
+  COVER_SWAMP,
+  CoverCode,
   MapDocument,
   createEmptyDocument
 } from '../../src/model/document';
@@ -10,12 +19,14 @@ import { HistoryManager } from '../../src/model/history';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
 import { DEFAULT_THEME, V1_FLAT_THEME, cloneTheme } from '../../src/theme/theme';
 import {
+  TerrainBrushTool,
   TerrainRenderer,
   TerrainStrokeSession,
   classifyCell,
   computeLocalWaterDistancePx,
   inspectCellAtDoc,
-  isPointOnLand
+  isPointOnLand,
+  resizeTerrainBuffers
 } from '../../src/terrain';
 
 function snapshotTerrain(doc: MapDocument) {
@@ -758,5 +769,527 @@ describe('Terrain engine & reactive rendering', () => {
     const flatRgba = renderer.getPixelData().rgba;
     expect(countByteMismatches(reactiveRgba, flatRgba)).toBeGreaterThan(1000);
     renderer.dispose();
+  });
+
+  it('supports flatten (auto-sampled & explicit target), smooth (3x3 land-only minimal patches), and land mask >= 128 guard', () => {
+    const doc = createEmptyDocument({ widthPx: 297, heightPx: 210, seed: 11 });
+    const { widthPx, mask, height, cover } = doc.terrain;
+    const session = new TerrainStrokeSession();
+
+    // Sea on x < 60, fractional AA water edge at x = 60..64 (mask = 100 < 128), land at x >= 65
+    for (let y = 20; y < 190; y += 1) {
+      for (let x = 60; x < 260; x += 1) {
+        const idx = y * widthPx + x;
+        if (x < 65) {
+          mask[idx] = 100; // < LAND_MASK_THRESHOLD (128)
+          height[idx] = 10;
+        } else {
+          mask[idx] = 255;
+          height[idx] = x < 120 ? 150 : x < 180 ? 40 : 230;
+        }
+      }
+    }
+
+    // 1) All elevation & cover tools must ignore mask < 128 (sea & sub-threshold edge)
+    session.beginStroke(doc, { tool: 'raise', diameterDoc: 80, intensity: 1.0 }, 620, 1050);
+    session.commit(doc);
+    session.beginStroke(doc, { tool: 'brick', diameterDoc: 80, intensity: 1.0 }, 620, 1050);
+    session.commit(doc);
+    for (let y = 20; y < 190; y += 1) {
+      const edgeIdx = y * widthPx + 62;
+      expect(height[edgeIdx]).toBe(10);
+      expect(cover[edgeIdx]).toBe(COVER_NATURAL);
+      expect(height[y * widthPx + 30]).toBe(0);
+      expect(cover[y * widthPx + 30]).toBe(COVER_NATURAL);
+    }
+
+    // 2) Flatten without targetHeight samples height at start point (x=100 px -> 1000 u, h=150)
+    // and flattens valley (40) & peak (230) toward 150 while keeping sea untouched
+    session.beginStroke(doc, { tool: 'flatten', diameterDoc: 160, intensity: 1.0 }, 1000, 1050);
+    session.addPoint(doc, 2150, 1050);
+    const flattenRes = session.commit(doc)!;
+    expect(flattenRes).not.toBeNull();
+    expect(height[105 * widthPx + 150]).toBe(150);
+    expect(height[105 * widthPx + 200]).toBe(150);
+    expect(height[105 * widthPx + 30]).toBe(0);
+
+    // Flatten with explicit targetHeight when starting on coastal water near land
+    session.beginStroke(
+      doc,
+      { tool: 'flatten', diameterDoc: 100, intensity: 1.0, targetHeight: 92 },
+      640,
+      1050
+    );
+    session.addPoint(doc, 720, 1050);
+    const explicitFlattenRes = session.commit(doc)!;
+    expect(explicitFlattenRes).not.toBeNull();
+    expect(height[105 * widthPx + 66]).toBe(92);
+    expect(height[105 * widthPx + 62]).toBe(10); // mask=100 untouched
+
+    // Flatten starting on water adjacent to land samples nearest land height when targetHeight omitted
+    const coastalSampleDoc = createEmptyDocument({ widthPx: 297, heightPx: 210, seed: 12 });
+    for (let y = 40; y < 160; y += 1) {
+      for (let x = 100; x < 220; x += 1) {
+        coastalSampleDoc.terrain.mask[y * 297 + x] = 255;
+        coastalSampleDoc.terrain.height[y * 297 + x] = x < 110 ? 120 : 40;
+      }
+    }
+    session.beginStroke(
+      coastalSampleDoc,
+      { tool: 'flatten', diameterDoc: 240, intensity: 1.0 },
+      950,
+      1000
+    );
+    session.addPoint(coastalSampleDoc, 1450, 1000);
+    session.commit(coastalSampleDoc);
+    expect(coastalSampleDoc.terrain.height[100 * 297 + 130]).toBe(120);
+
+    // 3) Smooth: flat terrain yields null (minimal patch skipping), spike smooths isotropically without dragging coast down
+    const smoothDoc = createEmptyDocument({ widthPx: 297, heightPx: 210, seed: 13 });
+    for (let y = 40; y < 170; y += 1) {
+      for (let x = 40; x < 250; x += 1) {
+        smoothDoc.terrain.mask[y * 297 + x] = 255;
+        smoothDoc.terrain.height[y * 297 + x] = 80;
+      }
+    }
+    // Flat interior + flat coastline (3x3 excludes water, so coast stays 80!) -> must produce null commit
+    session.beginStroke(smoothDoc, { tool: 'smooth', diameterDoc: 120, intensity: 1.0 }, 1500, 1050);
+    expect(session.commit(smoothDoc)).toBeNull();
+    session.beginStroke(smoothDoc, { tool: 'smooth', diameterDoc: 120, intensity: 1.0 }, 410, 1050);
+    expect(session.commit(smoothDoc)).toBeNull();
+
+    // Introduce isolated spike at (150, 105) -> 240; click exact pixel center (1505, 1055)
+    smoothDoc.terrain.height[105 * 297 + 150] = 240;
+    const smoothDirty = session.beginStroke(
+      smoothDoc,
+      { tool: 'smooth', diameterDoc: 120, intensity: 1.0 },
+      1505,
+      1055
+    );
+    expect(smoothDirty).not.toBeNull();
+    const smoothCommit = session.commit(smoothDoc)!;
+    expect(smoothCommit).not.toBeNull();
+    // Minimal dirtyRect tightly encloses only the 3x3 region around the spike (149..151 x 104..106)
+    expect(smoothCommit.dirtyRect).toEqual({ x: 149, y: 104, width: 3, height: 3 });
+    // Center: dist=0 => exact (4*240 + 12*80)/16 = 120; isotropic 4-way symmetry on cardinal & diagonal neighbors
+    expect(smoothDoc.terrain.height[105 * 297 + 150]).toBe(120);
+    const cLeft = smoothDoc.terrain.height[105 * 297 + 149];
+    const cRight = smoothDoc.terrain.height[105 * 297 + 151];
+    const cTop = smoothDoc.terrain.height[104 * 297 + 150];
+    const cBot = smoothDoc.terrain.height[106 * 297 + 150];
+    expect(cLeft).toBe(99);
+    expect(cRight).toBe(cLeft);
+    expect(cTop).toBe(cLeft);
+    expect(cBot).toBe(cLeft);
+    const dNW = smoothDoc.terrain.height[104 * 297 + 149];
+    const dSE = smoothDoc.terrain.height[106 * 297 + 151];
+    expect(dNW).toBe(89);
+    expect(dSE).toBe(dNW);
+  });
+
+  it('responds distinctly to brush intensity (0.2 vs 0.85) across raise, lower, flatten, and smooth', () => {
+    const makeIsland = (initialH: number) => {
+      const d = createEmptyDocument({ widthPx: 297, heightPx: 210, seed: 21 });
+      for (let y = 30; y < 180; y += 1) {
+        for (let x = 30; x < 267; x += 1) {
+          const idx = y * 297 + x;
+          d.terrain.mask[idx] = 255;
+          d.terrain.height[idx] = initialH;
+        }
+      }
+      return d;
+    };
+
+    const runPass = (
+      doc: MapDocument,
+      tool: 'raise' | 'lower' | 'flatten' | 'smooth',
+      intensity: number,
+      targetHeight?: number
+    ) => {
+      const s = new TerrainStrokeSession();
+      s.beginStroke(doc, { tool, diameterDoc: 120, intensity, targetHeight }, 900, 1050);
+      s.addPoint(doc, 1800, 1050);
+      s.commit(doc);
+      return doc.terrain.height[105 * 297 + 135];
+    };
+
+    // Raise: 0.85 raises substantially more than 0.2
+    const raiseLow = runPass(makeIsland(20), 'raise', 0.2);
+    const raiseHigh = runPass(makeIsland(20), 'raise', 0.85);
+    expect(raiseLow).toBeGreaterThan(20);
+    expect(raiseHigh).toBeGreaterThan(raiseLow + 40);
+
+    // Lower: 0.85 lowers substantially more than 0.2
+    const lowerLow = runPass(makeIsland(220), 'lower', 0.2);
+    const lowerHigh = runPass(makeIsland(220), 'lower', 0.85);
+    expect(lowerLow).toBeLessThan(220);
+    expect(lowerHigh).toBeLessThan(lowerLow - 40);
+
+    // Flatten: 0.85 converges substantially closer to targetHeight than 0.2
+    const flatLow = runPass(makeIsland(40), 'flatten', 0.2, 200);
+    const flatHigh = runPass(makeIsland(40), 'flatten', 0.85, 200);
+    expect(flatLow).toBeGreaterThan(40);
+    expect(flatHigh).toBeGreaterThan(flatLow + 30);
+
+    // Smooth: 0.85 pulls spike down closer to neighborhood than 0.2
+    const spikeLowDoc = makeIsland(60);
+    spikeLowDoc.terrain.height[105 * 297 + 135] = 240;
+    const spikeHighDoc = makeIsland(60);
+    spikeHighDoc.terrain.height[105 * 297 + 135] = 240;
+    const s = new TerrainStrokeSession();
+    s.beginStroke(spikeLowDoc, { tool: 'smooth', diameterDoc: 80, intensity: 0.2 }, 1350, 1050);
+    s.commit(spikeLowDoc);
+    s.beginStroke(spikeHighDoc, { tool: 'smooth', diameterDoc: 80, intensity: 0.85 }, 1350, 1050);
+    s.commit(spikeHighDoc);
+    expect(spikeLowDoc.terrain.height[105 * 297 + 135]).toBeLessThan(240);
+    expect(spikeHighDoc.terrain.height[105 * 297 + 135]).toBeLessThan(
+      spikeLowDoc.terrain.height[105 * 297 + 135] - 40
+    );
+  });
+
+  it('paints and renders all 10 cover materials (0..9) distinctly and seamlessly across the 256px chunk boundary (x=255..257)', () => {
+    const coverCases: ReadonlyArray<{ tool: TerrainBrushTool; code: CoverCode }> = [
+      { tool: 'natural', code: COVER_NATURAL },
+      { tool: 'forest', code: COVER_FOREST },
+      { tool: 'fields', code: COVER_FIELDS },
+      { tool: 'sand', code: COVER_SAND },
+      { tool: 'brick', code: COVER_BRICK },
+      { tool: 'snow', code: COVER_SNOW },
+      { tool: 'swamp', code: COVER_SWAMP },
+      { tool: 'rock', code: COVER_ROCK },
+      { tool: 'meadow', code: COVER_MEADOW },
+      { tool: 'lava', code: COVER_LAVA }
+    ];
+
+    const widthPx = 512;
+    const heightPx = 320;
+    const doc = createEmptyDocument({ widthPx, heightPx, seed: 314 });
+    const session = new TerrainStrokeSession();
+
+    // Land patch straddling both x=255..257 and y=255..257 chunk boundaries
+    for (let y = 160; y < 300; y += 1) {
+      for (let x = 180; x < 340; x += 1) {
+        const idx = y * widthPx + x;
+        doc.terrain.mask[idx] = 255;
+        doc.terrain.height[idx] = 72;
+      }
+    }
+
+    const patchSamples = new Map<CoverCode, Uint8ClampedArray>();
+    const fullRenderer = new TerrainRenderer();
+    const regionRenderer = new TerrainRenderer();
+    const docPerPxX = doc.manifest.space.width / widthPx;
+    const docPerPxY = doc.manifest.space.height / heightPx;
+
+    for (const { tool, code } of coverCases) {
+      // Pre-fill with another cover when testing 'natural' so stroke actively writes 0
+      if (code === COVER_NATURAL) {
+        session.beginStroke(doc, { tool: 'lava', diameterDoc: 700, intensity: 1.0 }, 256 * docPerPxX, 240 * docPerPxY);
+        session.commit(doc);
+      }
+
+      session.beginStroke(
+        doc,
+        { tool, diameterDoc: 700, intensity: 1.0 },
+        256 * docPerPxX,
+        240 * docPerPxY
+      );
+      const res = session.commit(doc)!;
+      expect(res).not.toBeNull();
+      expect(doc.terrain.cover[240 * widthPx + 255]).toBe(code);
+      expect(doc.terrain.cover[240 * widthPx + 256]).toBe(code);
+      expect(doc.terrain.cover[240 * widthPx + 257]).toBe(code);
+      expect(doc.terrain.cover[10 * widthPx + 10]).toBe(COVER_NATURAL); // sea untouched
+
+      // 1) renderFull splits chunks at x=256 and y=256
+      fullRenderer.renderFull(doc);
+      const fullRgba = new Uint8ClampedArray(fullRenderer.getPixelData().rgba);
+      patchSamples.set(code, fullRgba);
+
+      // 2) Render regionRenderer with a different cover inside [240..272)x[240..272), then restore and renderRegion across both 256px seams
+      const sentinelCode: CoverCode = code === COVER_LAVA ? COVER_SNOW : COVER_LAVA;
+      for (let py = 240; py < 272; py += 1) {
+        for (let px = 240; px < 272; px += 1) {
+          doc.terrain.cover[py * widthPx + px] = sentinelCode;
+        }
+      }
+      regionRenderer.renderFull(doc);
+      expect(
+        countRgbDiffs(fullRgba, regionRenderer.getPixelData().rgba, widthPx, 244, 244, 268, 268)
+      ).toBeGreaterThan(100);
+
+      for (let py = 240; py < 272; py += 1) {
+        for (let px = 240; px < 272; px += 1) {
+          doc.terrain.cover[py * widthPx + px] = code;
+        }
+      }
+      regionRenderer.renderRegion(doc, { x: 240, y: 240, width: 32, height: 32 });
+      const regionRgba = regionRenderer.getPixelData().rgba;
+
+      const seamMismatches = countRgbDiffs(
+        fullRgba,
+        regionRgba,
+        widthPx,
+        240,
+        240,
+        272,
+        272
+      );
+      expect(seamMismatches).toBe(0);
+    }
+
+    // Verify every pair of materials among 0..9 renders distinctly
+    for (let i = 0; i < coverCases.length; i += 1) {
+      for (let j = i + 1; j < coverCases.length; j += 1) {
+        const a = patchSamples.get(coverCases[i].code)!;
+        const b = patchSamples.get(coverCases[j].code)!;
+        const diffs = countRgbDiffs(a, b, widthPx, 210, 180, 310, 280);
+        expect(diffs).toBeGreaterThan(2000);
+      }
+    }
+
+    fullRenderer.dispose();
+    regionRenderer.dispose();
+  });
+
+  it('reallocates TerrainRenderer tile grid and caches cleanly on resize and undo', () => {
+    const createdCanvases: Array<{ width: number; height: number; canvas: HTMLCanvasElement }> = [];
+    const makeMockCanvas = () => {
+      const rec = {
+        width: 0,
+        height: 0,
+        rgba: new Uint8ClampedArray(0),
+        canvas: null as unknown as HTMLCanvasElement
+      };
+      const ctx = {
+        createImageData: (w: number, h: number) => ({
+          width: w,
+          height: h,
+          data: new Uint8ClampedArray(w * h * 4)
+        }),
+        putImageData: (
+          imgData: ImageData,
+          dx: number,
+          dy: number,
+          dirtyX = 0,
+          dirtyY = 0,
+          dirtyW = imgData.width,
+          dirtyH = imgData.height
+        ) => {
+          for (let sy = dirtyY; sy < dirtyY + dirtyH; sy += 1) {
+            const dstY = dy + sy;
+            if (dstY < 0 || dstY >= rec.height) continue;
+            for (let sx = dirtyX; sx < dirtyX + dirtyW; sx += 1) {
+              const dstX = dx + sx;
+              if (dstX < 0 || dstX >= rec.width) continue;
+              const sOff = (sy * imgData.width + sx) * 4;
+              const dOff = (dstY * rec.width + dstX) * 4;
+              rec.rgba[dOff] = imgData.data[sOff];
+              rec.rgba[dOff + 1] = imgData.data[sOff + 1];
+              rec.rgba[dOff + 2] = imgData.data[sOff + 2];
+              rec.rgba[dOff + 3] = imgData.data[sOff + 3];
+            }
+          }
+        },
+        drawImage: () => {}
+      } as unknown as CanvasRenderingContext2D;
+
+      rec.canvas = {
+        get width() {
+          return rec.width;
+        },
+        set width(v: number) {
+          rec.width = v;
+          rec.rgba = new Uint8ClampedArray(Math.max(0, rec.width) * Math.max(0, rec.height) * 4);
+        },
+        get height() {
+          return rec.height;
+        },
+        set height(v: number) {
+          rec.height = v;
+          rec.rgba = new Uint8ClampedArray(Math.max(0, rec.width) * Math.max(0, rec.height) * 4);
+        },
+        getContext: (kind: string) => (kind === '2d' ? ctx : null)
+      } as unknown as HTMLCanvasElement;
+      createdCanvases.push(rec);
+      return rec;
+    };
+
+    vi.stubGlobal('document', {
+      createElement: () => makeMockCanvas().canvas
+    });
+
+    const doc = createEmptyDocument({ widthPx: 600, heightPx: 400, seed: 55 });
+    const session = new TerrainStrokeSession();
+    session.beginStroke(doc, { tool: 'land', diameterDoc: 300, intensity: 1.0 }, 1485, 1050);
+    session.commit(doc);
+
+    const renderer = new TerrainRenderer();
+    renderer.renderFull(doc);
+    const vpCtx = makeMockCanvas().canvas.getContext('2d')!;
+    renderer.drawToCanvasContext(vpCtx, doc.manifest.space);
+    const initialFullCanvas = renderer.getCanvas()!;
+    const initialCanvasesSnapshot = createdCanvases.filter((c) => c.canvas !== vpCtx.canvas);
+    expect(initialFullCanvas.width).toBe(600);
+    expect(initialFullCanvas.height).toBe(400);
+    const initialRgba = new Uint8ClampedArray(renderer.getPixelData().rgba);
+
+    // Resize smaller via ResizeCanvasCommand (300x200) and re-render
+    const history = new HistoryManager();
+    const newSpace = { width: 1485, height: 1050 };
+    const resizedTerrain = resizeTerrainBuffers(
+      doc.terrain,
+      doc.manifest.space,
+      newSpace,
+      300,
+      200,
+      'expand-crop',
+      'center'
+    );
+    history.execute(
+      doc,
+      new ResizeCanvasCommand(
+        {
+          page: doc.manifest.page,
+          space: doc.manifest.space,
+          terrain: doc.terrain,
+          objects: doc.manifest.objects
+        },
+        {
+          page: { widthMm: 148.5, heightMm: 105 },
+          space: newSpace,
+          terrain: resizedTerrain,
+          objects: doc.manifest.objects
+        }
+      )
+    );
+
+    renderer.renderFull(doc);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+    expect(renderer.getPixelData().width).toBe(300);
+    expect(renderer.getPixelData().height).toBe(200);
+    expect(renderer.getPixelData().rgba.length).toBe(300 * 200 * 4);
+    for (const oldRec of initialCanvasesSnapshot) {
+      expect(oldRec.width).toBe(0);
+      expect(oldRec.height).toBe(0);
+    }
+
+    const resizedFullCanvas = renderer.getCanvas()!;
+    expect(resizedFullCanvas).not.toBe(initialFullCanvas);
+    expect(resizedFullCanvas.width).toBe(300);
+    expect(resizedFullCanvas.height).toBe(200);
+    renderer.drawToCanvasContext(vpCtx, doc.manifest.space);
+
+    // Undo resize back to 600x400 and verify exact recovery
+    history.undo(doc);
+    renderer.renderFull(doc);
+    expect(renderer.getPixelData().width).toBe(600);
+    expect(renderer.getPixelData().height).toBe(400);
+    expect(countByteMismatches(renderer.getPixelData().rgba, initialRgba)).toBe(0);
+    expect(renderer.getCanvas()!.width).toBe(600);
+    expect(renderer.getCanvas()!.height).toBe(400);
+    renderer.dispose();
+  });
+
+  it('resizes terrain buffers via expand-crop and scale-content (nearest-neighbor cover, clean mask/height)', () => {
+    const beforeSpace = { width: 1000, height: 800 };
+    const before = {
+      widthPx: 100,
+      heightPx: 80,
+      mask: new Uint8Array(100 * 80),
+      height: new Uint8Array(100 * 80),
+      cover: new Uint8Array(100 * 80)
+    };
+
+    // Left land patch has COVER_FOREST (1), right land patch has COVER_LAVA (9)
+    for (let y = 20; y < 60; y += 1) {
+      for (let x = 20; x < 80; x += 1) {
+        const idx = y * 100 + x;
+        before.mask[idx] = 255;
+        before.height[idx] = x < 50 ? 80 : 180;
+        before.cover[idx] = x < 50 ? COVER_FOREST : COVER_LAVA;
+      }
+    }
+
+    // 1) expand-crop with 'center' anchor
+    const expanded = resizeTerrainBuffers(
+      before,
+      beforeSpace,
+      { width: 2000, height: 1600 },
+      200,
+      160,
+      'expand-crop',
+      'center'
+    );
+    expect(expanded.widthPx).toBe(200);
+    expect(expanded.heightPx).toBe(160);
+    // Old (0,0) shifts to (50, 40) -> old (20,20) lands at (70, 60)
+    expect(expanded.mask[60 * 200 + 70]).toBe(255);
+    expect(expanded.height[60 * 200 + 70]).toBe(80);
+    expect(expanded.cover[60 * 200 + 70]).toBe(COVER_FOREST);
+    expect(expanded.cover[60 * 200 + 100]).toBe(COVER_LAVA);
+    // Margin filled with sea (0)
+    expect(expanded.mask[10 * 200 + 10]).toBe(0);
+    expect(expanded.height[10 * 200 + 10]).toBe(0);
+    expect(expanded.cover[10 * 200 + 10]).toBe(COVER_NATURAL);
+
+    // expand-crop with 'bottom-right' anchor
+    const brExpanded = resizeTerrainBuffers(
+      before,
+      beforeSpace,
+      { width: 1500, height: 1200 },
+      150,
+      120,
+      'expand-crop',
+      'bottom-right'
+    );
+    // Old (20,20) shifts by (+50, +40) -> (70, 60)
+    expect(brExpanded.mask[60 * 150 + 70]).toBe(255);
+    expect(brExpanded.cover[60 * 150 + 129]).toBe(COVER_LAVA);
+    expect(brExpanded.mask[10 * 150 + 10]).toBe(0);
+
+    // 2) scale-content upscale (2x)
+    const upscaled = resizeTerrainBuffers(
+      before,
+      beforeSpace,
+      { width: 2000, height: 1600 },
+      200,
+      160,
+      'scale-content',
+      'center'
+    );
+    for (let i = 0; i < upscaled.cover.length; i += 1) {
+      const c = upscaled.cover[i];
+      // Nearest-neighbor MUST NEVER blend COVER_FOREST (1) and COVER_LAVA (9) into intermediate codes (e.g. 5)
+      expect(c === COVER_NATURAL || c === COVER_FOREST || c === COVER_LAVA).toBe(true);
+    }
+    expect(upscaled.mask[80 * 200 + 60]).toBe(255);
+    expect(upscaled.height[80 * 200 + 60]).toBe(80);
+    expect(upscaled.cover[80 * 200 + 60]).toBe(COVER_FOREST);
+    expect(upscaled.height[80 * 200 + 130]).toBe(180);
+    expect(upscaled.cover[80 * 200 + 130]).toBe(COVER_LAVA);
+    expect(upscaled.mask[10 * 200 + 10]).toBe(0);
+
+    // 3) scale-content >2x downscale (100x80 -> 25x20)
+    const downscaled = resizeTerrainBuffers(
+      before,
+      beforeSpace,
+      { width: 250, height: 200 },
+      25,
+      20,
+      'scale-content',
+      'top-left'
+    );
+    for (let i = 0; i < downscaled.cover.length; i += 1) {
+      const c = downscaled.cover[i];
+      expect(c === COVER_NATURAL || c === COVER_FOREST || c === COVER_LAVA).toBe(true);
+    }
+    expect(downscaled.mask[10 * 25 + 8]).toBe(255);
+    expect(downscaled.height[10 * 25 + 8]).toBe(80);
+    expect(downscaled.cover[10 * 25 + 8]).toBe(COVER_FOREST);
+    expect(downscaled.mask[10 * 25 + 16]).toBe(255);
+    expect(downscaled.height[10 * 25 + 16]).toBe(180);
+    expect(downscaled.cover[10 * 25 + 16]).toBe(COVER_LAVA);
+    expect(downscaled.mask[2 * 25 + 2]).toBe(0);
   });
 });

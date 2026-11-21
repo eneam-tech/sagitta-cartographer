@@ -6,12 +6,57 @@ import {
   docToMaskX,
   docToMaskY
 } from '../model/coordinates';
-import { COVER_FIELDS, COVER_FOREST, COVER_NATURAL, CoverCode, MapDocument } from '../model/document';
-import { smoothstepRange } from './classifier';
+import {
+  COVER_BRICK,
+  COVER_FIELDS,
+  COVER_FOREST,
+  COVER_LAVA,
+  COVER_MEADOW,
+  COVER_NATURAL,
+  COVER_ROCK,
+  COVER_SAND,
+  COVER_SNOW,
+  COVER_SWAMP,
+  CoverCode,
+  MapDocument
+} from '../model/document';
+import { LAND_MASK_THRESHOLD, smoothstepRange } from './classifier';
 import { BrushStrokeParams, ITerrainStrokeSession, StrokeCommitResult, TerrainBrushTool } from './types';
 
 export const BRUSH_TILE_SIZE_PX = 128;
 const BASE_ELEVATION_STEP = 16;
+const SMOOTH_KERNEL = [1, 2, 1, 2, 4, 2, 1, 2, 1] as const;
+
+function isElevationTool(tool: TerrainBrushTool): boolean {
+  return tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth';
+}
+
+function toolToCoverCode(tool: TerrainBrushTool): CoverCode | null {
+  switch (tool) {
+    case 'natural':
+      return COVER_NATURAL;
+    case 'forest':
+      return COVER_FOREST;
+    case 'fields':
+      return COVER_FIELDS;
+    case 'sand':
+      return COVER_SAND;
+    case 'brick':
+      return COVER_BRICK;
+    case 'snow':
+      return COVER_SNOW;
+    case 'swamp':
+      return COVER_SWAMP;
+    case 'rock':
+      return COVER_ROCK;
+    case 'meadow':
+      return COVER_MEADOW;
+    case 'lava':
+      return COVER_LAVA;
+    default:
+      return null;
+  }
+}
 
 interface CapturedTile {
   key: number;
@@ -88,6 +133,8 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
   private lastDocX = 0;
   private lastDocY = 0;
   private distSinceLastStamp = 0;
+  private flattenTargetHeight = 0;
+  private smoothSnapshot = new Float32Array(0);
   private capturedTiles = new Map<number, CapturedTile>();
 
   isActive(): boolean {
@@ -115,6 +162,13 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     this.lastDocY = startDocY;
     this.distSinceLastStamp = 0;
     this.active = true;
+
+    if (this.tool === 'flatten') {
+      this.flattenTargetHeight =
+        params.targetHeight !== undefined && Number.isFinite(params.targetHeight)
+          ? clampNumber(params.targetHeight, 0, 255)
+          : this.sampleTargetHeightAtStart(doc, startDocX, startDocY);
+    }
 
     return this.stampAt(doc, startDocX, startDocY);
   }
@@ -297,7 +351,109 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
 
   private reset(): void {
     this.active = false;
+    this.flattenTargetHeight = 0;
     this.capturedTiles.clear();
+    if (this.smoothSnapshot.length > 65536) {
+      this.smoothSnapshot = new Float32Array(0);
+    }
+  }
+
+  private sampleTargetHeightAtStart(doc: MapDocument, startDocX: number, startDocY: number): number {
+    const { space } = doc.manifest;
+    const { widthPx, heightPx, mask, height } = doc.terrain;
+    if (widthPx <= 0 || heightPx <= 0) return 0;
+
+    const cxPx = clampNumber(Math.floor(docToMaskX(startDocX, space, doc.terrain)), 0, widthPx - 1);
+    const cyPx = clampNumber(Math.floor(docToMaskY(startDocY, space, doc.terrain)), 0, heightPx - 1);
+    const centerIdx = cyPx * widthPx + cxPx;
+    if (mask[centerIdx] >= LAND_MASK_THRESHOLD) {
+      return height[centerIdx];
+    }
+
+    const rxPx = docDistToMaskPxX(this.radiusDoc, space, doc.terrain);
+    const ryPx = docDistToMaskPxY(this.radiusDoc, space, doc.terrain);
+    const minX = Math.max(0, Math.floor(cxPx - rxPx) - 1);
+    const maxX = Math.min(widthPx - 1, Math.ceil(cxPx + rxPx) + 1);
+    const minY = Math.max(0, Math.floor(cyPx - ryPx) - 1);
+    const maxY = Math.min(heightPx - 1, Math.ceil(cyPx + ryPx) + 1);
+    const docPerPxX = space.width / widthPx;
+    const docPerPxY = space.height / heightPx;
+    const radiusSq = this.radiusDoc * this.radiusDoc;
+
+    let bestDistSq = Number.POSITIVE_INFINITY;
+    let bestHeight = height[centerIdx];
+    for (let py = minY; py <= maxY; py += 1) {
+      const dyDoc = (py + 0.5) * docPerPxY - startDocY;
+      const dySq = dyDoc * dyDoc;
+      const rowOff = py * widthPx;
+      for (let px = minX; px <= maxX; px += 1) {
+        const idx = rowOff + px;
+        if (mask[idx] < LAND_MASK_THRESHOLD) continue;
+        const dxDoc = (px + 0.5) * docPerPxX - startDocX;
+        const distSq = dxDoc * dxDoc + dySq;
+        if (distSq <= radiusSq && distSq < bestDistSq) {
+          bestDistSq = distSq;
+          bestHeight = height[idx];
+        }
+      }
+    }
+    return bestHeight;
+  }
+
+  private populateSmoothSnapshot(
+    doc: MapDocument,
+    sMinX: number,
+    sMinY: number,
+    sMaxX: number,
+    sMaxY: number,
+    tilesX: number
+  ): number {
+    const snapW = sMaxX - sMinX + 1;
+    const snapH = sMaxY - sMinY + 1;
+    const needed = snapW * snapH;
+    if (this.smoothSnapshot.length < needed) {
+      this.smoothSnapshot = new Float32Array(needed);
+    }
+
+    const snap = this.smoothSnapshot;
+    const { widthPx, heightPx, height } = doc.terrain;
+    const stx0 = Math.floor(sMinX / BRUSH_TILE_SIZE_PX);
+    const stx1 = Math.floor(sMaxX / BRUSH_TILE_SIZE_PX);
+    const sty0 = Math.floor(sMinY / BRUSH_TILE_SIZE_PX);
+    const sty1 = Math.floor(sMaxY / BRUSH_TILE_SIZE_PX);
+
+    for (let sty = sty0; sty <= sty1; sty += 1) {
+      const tileY = sty * BRUSH_TILE_SIZE_PX;
+      const tileH = Math.min(BRUSH_TILE_SIZE_PX, heightPx - tileY);
+      const iy0 = Math.max(sMinY, tileY);
+      const iy1 = Math.min(sMaxY, tileY + tileH - 1);
+
+      for (let stx = stx0; stx <= stx1; stx += 1) {
+        const tileX = stx * BRUSH_TILE_SIZE_PX;
+        const tileW = Math.min(BRUSH_TILE_SIZE_PX, widthPx - tileX);
+        const ix0 = Math.max(sMinX, tileX);
+        const ix1 = Math.min(sMaxX, tileX + tileW - 1);
+        const len = ix1 - ix0 + 1;
+        const work = this.capturedTiles.get(sty * tilesX + stx)?.workHeight ?? null;
+
+        for (let py = iy0; py <= iy1; py += 1) {
+          const dstRow = (py - sMinY) * snapW + (ix0 - sMinX);
+          if (work) {
+            const srcRow = (py - tileY) * tileW + (ix0 - tileX);
+            for (let i = 0; i < len; i += 1) {
+              snap[dstRow + i] = work[srcRow + i];
+            }
+          } else {
+            const srcRow = py * widthPx + ix0;
+            for (let i = 0; i < len; i += 1) {
+              snap[dstRow + i] = height[srcRow + i];
+            }
+          }
+        }
+      }
+    }
+
+    return snapW;
   }
 
   private getOrCaptureTile(doc: MapDocument, tx: number, ty: number, tilesX: number): CapturedTile {
@@ -325,7 +481,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     }
 
     let workHeight: Float32Array | null = null;
-    if (this.tool === 'raise' || this.tool === 'lower') {
+    if (isElevationTool(this.tool)) {
       workHeight = new Float32Array(cellCount);
       for (let i = 0; i < cellCount; i += 1) {
         workHeight[i] = beforeHeight[i];
@@ -388,8 +544,20 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
 
     const tool = this.tool;
     const intensity = this.intensity;
-    const targetCover: CoverCode =
-      tool === 'forest' ? COVER_FOREST : tool === 'fields' ? COVER_FIELDS : COVER_NATURAL;
+    const targetCover = toolToCoverCode(tool);
+    const flattenTarget = this.flattenTargetHeight;
+
+    let sMinX = 0;
+    let sMinY = 0;
+    let snapW = 0;
+    if (tool === 'smooth') {
+      sMinX = Math.max(0, minX - 1);
+      sMinY = Math.max(0, minY - 1);
+      const sMaxX = Math.min(widthPx - 1, maxX + 1);
+      const sMaxY = Math.min(heightPx - 1, maxY + 1);
+      snapW = this.populateSmoothSnapshot(doc, sMinX, sMinY, sMaxX, sMaxY, tilesX);
+    }
+    const snap = this.smoothSnapshot;
 
     for (let ty = ty0; ty <= ty1; ty += 1) {
       for (let tx = tx0; tx <= tx1; tx += 1) {
@@ -452,7 +620,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
                 }
               }
             } else if (tool === 'raise' || tool === 'lower') {
-              if (mask[idx] > 0) {
+              if (mask[idx] >= LAND_MASK_THRESHOLD) {
                 const normDist = distDoc * invRadiusDoc;
                 const falloff = 1 - smoothstepRange(0, 1, normDist);
                 const delta = BASE_ELEVATION_STEP * intensity * falloff;
@@ -472,9 +640,69 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
                   }
                 }
               }
-            } else {
-              // forest | fields | natural
-              if (mask[idx] > 0 && cover[idx] !== targetCover) {
+            } else if (tool === 'flatten') {
+              if (mask[idx] >= LAND_MASK_THRESHOLD) {
+                const normDist = distDoc * invRadiusDoc;
+                const falloff = 1 - smoothstepRange(0, 1, normDist);
+                const blend = clampNumber(falloff * intensity, 0, 1);
+                if (blend > 0) {
+                  const localIdx = tileRow + px;
+                  const work = tile.workHeight!;
+                  const prevFloat = work[localIdx];
+                  const nextFloat = prevFloat + (flattenTarget - prevFloat) * blend;
+                  work[localIdx] = nextFloat;
+                  const nextByte = Math.min(255, Math.max(0, Math.round(nextFloat)));
+                  if (nextByte !== height[idx]) {
+                    height[idx] = nextByte;
+                    modified = true;
+                  }
+                }
+              }
+            } else if (tool === 'smooth') {
+              if (mask[idx] >= LAND_MASK_THRESHOLD) {
+                const normDist = distDoc * invRadiusDoc;
+                const falloff = 1 - smoothstepRange(0, 1, normDist);
+                const blend = clampNumber(falloff * intensity, 0, 1);
+                if (blend > 0) {
+                  let sum = 0;
+                  let wSum = 0;
+                  let kIdx = 0;
+                  for (let ky = -1; ky <= 1; ky += 1) {
+                    const ny = py + ky;
+                    if (ny < 0 || ny >= heightPx) {
+                      kIdx += 3;
+                      continue;
+                    }
+                    const nMaskRow = ny * widthPx;
+                    const nSnapRow = (ny - sMinY) * snapW - sMinX;
+                    for (let kx = -1; kx <= 1; kx += 1) {
+                      const w = SMOOTH_KERNEL[kIdx];
+                      kIdx += 1;
+                      const nx = px + kx;
+                      if (nx < 0 || nx >= widthPx) continue;
+                      if (mask[nMaskRow + nx] < LAND_MASK_THRESHOLD) continue;
+                      sum += snap[nSnapRow + nx] * w;
+                      wSum += w;
+                    }
+                  }
+
+                  if (wSum > 0) {
+                    const avg = sum / wSum;
+                    const localIdx = tileRow + px;
+                    const work = tile.workHeight!;
+                    const prevFloat = work[localIdx];
+                    const nextFloat = prevFloat + (avg - prevFloat) * blend;
+                    work[localIdx] = nextFloat;
+                    const nextByte = Math.min(255, Math.max(0, Math.round(nextFloat)));
+                    if (nextByte !== height[idx]) {
+                      height[idx] = nextByte;
+                      modified = true;
+                    }
+                  }
+                }
+              }
+            } else if (targetCover !== null) {
+              if (mask[idx] >= LAND_MASK_THRESHOLD && cover[idx] !== targetCover) {
                 cover[idx] = targetCover;
                 modified = true;
               }

@@ -1,0 +1,56 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Miniera">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="99" rx="48" ry="10" fill="#263C40" opacity="0.24"/>
+
+  <!-- Fianco montuoso illuminato da NW -->
+  <polygon points="15,93 26,48 48,26 78,24 102,43 114,76 112,94 86,98 34,98" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="15,93 26,48 48,26 62,25 46,48 30,94" fill="#E8D8AF"/>
+  <polygon points="26,48 48,26 59,26 42,45" fill="#F3EEDF"/>
+  <polygon points="78,24 102,43 114,76 112,94 88,97 83,49" fill="#7B7880"/>
+  <polygon points="15,93 26,48 48,26 78,24 102,43 114,76 112,94 86,98 34,98" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Abete sulla cresta -->
+  <polygon points="94,43 100,25 106,43" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- Piazzale ghiaioso davanti alla galleria -->
+  <ellipse cx="64" cy="94" rx="34" ry="7" fill="#D9C598" stroke="#263C40" stroke-width="2"/>
+
+  <!-- Imbocco buio della galleria -->
+  <polygon points="43,88 47,47 81,47 85,88" fill="#263C40"/>
+
+  <!-- Armatura in travi di legno della miniera -->
+  <polygon points="41,89 45,45 52,45 49,89" fill="#8B493D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="79,89 76,45 83,45 87,89" fill="#6E372D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="41,42 87,42 85,50 43,50" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M48 59 L55 50 M80 59 L73 50" stroke="#7D5C43" stroke-width="3.6" stroke-linecap="round"/>
+  <path d="M48 59 L55 50 M80 59 L73 50" stroke="#263C40" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Lanterna da minatore appesa all'architrave -->
+  <path d="M64 50 L64 55" stroke="#263C40" stroke-width="2"/>
+  <polygon points="60,55 68,55 67,63 61,63" fill="#E0BB79" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <circle cx="64" cy="59" r="2" fill="#F3EEDF"/>
+
+  <!-- Binari in ferro che escono dalla galleria -->
+  <path d="M51 95 L80 95 M47 90 L79 90 M54 85 L74 85" stroke="#6E372D" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M57 82 L49 101 M71 82 L79 101" stroke="#263C40" stroke-width="2.8" stroke-linecap="round"/>
+  <path d="M57 82 L49 101 M71 82 L79 101" stroke="#B9B1AA" stroke-width="1.2" stroke-linecap="round"/>
+
+  <!-- Carrello da miniera colmo di pepite d'oro e gemme -->
+  <!-- Cumulo di minerale -->
+  <path d="M52 80 Q57 70 64 73 Q71 69 76 80 Z" fill="#E0BB79" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="61,76 64,71 67,76" fill="#5E95A0" stroke="#263C40" stroke-width="1.5" stroke-linejoin="round"/>
+  <circle cx="58" cy="77" r="2.2" fill="#F4A236"/>
+  <!-- Cassone del carrello -->
+  <polygon points="49,79 79,79 75,93 53,93" fill="#7B7880" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="49,79 62,79 62,93 53,93" fill="#B9B1AA"/>
+  <polygon points="49,79 79,79 75,93 53,93" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M50 85 L78 85" stroke="#263C40" stroke-width="1.8"/>
+  <!-- Ruote -->
+  <circle cx="56" cy="95" r="4" fill="#5F5D65" stroke="#263C40" stroke-width="2.2"/>
+  <circle cx="72" cy="95" r="4" fill="#5F5D65" stroke="#263C40" stroke-width="2.2"/>
+
+  <!-- Piccone appoggiato a destra -->
+  <path d="M91 93 L98 69" stroke="#8B493D" stroke-width="3.2" stroke-linecap="round"/>
+  <path d="M91 93 L98 69" stroke="#263C40" stroke-width="1.4" stroke-linecap="round"/>
+  <path d="M89 72 Q99 67 107 75" fill="none" stroke="#F3EEDF" stroke-width="3.8" stroke-linecap="round"/>
+  <path d="M89 72 Q99 67 107 75" fill="none" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+</svg>

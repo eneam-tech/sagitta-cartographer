@@ -1,13 +1,23 @@
 import { useEffect, useId, useRef, useState } from 'react';
 import { clampNumber } from '../model/coordinates';
-import { LabelObject, MapObject, StampObject } from '../model/document';
+import {
+  LabelObject,
+  MapObject,
+  PathObject,
+  StampObject,
+  resolveObjectLayerId
+} from '../model/document';
 import {
   DeleteObjectCommand,
+  PATH_KIND_OPTIONS,
   commitObjectReorder,
   commitObjectUpdate,
   getDefaultObjectLabel,
+  getDeleteObjectLabel,
+  getPathKindLabel,
   normalizeRotationDeg
 } from '../objects/objectCommands';
+import { PathColorControls, SyncedRangeField } from '../objects/uiControls';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { LABEL_ROLE_PRESETS } from '../theme/theme';
 
@@ -35,6 +45,7 @@ interface CommittedNumberFieldProps {
   step?: number;
   unit: string;
   compact?: boolean;
+  disabled?: boolean;
   onCommit: (nextValue: number) => void;
 }
 
@@ -46,6 +57,7 @@ function CommittedNumberField({
   step = 1,
   unit,
   compact = false,
+  disabled = false,
   onCommit
 }: CommittedNumberFieldProps) {
   const inputId = useId();
@@ -102,6 +114,7 @@ function CommittedNumberField({
           min={min}
           max={max}
           step={step}
+          disabled={disabled}
           value={editing ? draft : formatNum(value)}
           style={compact ? { width: '68px' } : { width: '82px' }}
           onFocus={() => {
@@ -167,13 +180,15 @@ function CommittedNumberField({
 interface StampInspectorFieldsProps {
   store: EditorStore;
   stamp: StampObject;
+  disabled: boolean;
 }
 
-function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
+function StampInspectorFields({ store, stamp, disabled }: StampInspectorFieldsProps) {
   const [keepRatio, setKeepRatio] = useState(true);
   const maxDim = Math.max(4000, store.getDocument().manifest.space.width * 2);
 
   const commitStampPatch = (patch: Partial<StampObject>, label: string) => {
+    if (disabled) return;
     const next: StampObject = { ...stamp, ...patch };
     commitObjectUpdate(store, stamp, next, label);
   };
@@ -215,6 +230,7 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
           step={10}
           unit="u"
           compact
+          disabled={disabled}
           onCommit={(x) => commitStampPatch({ x }, 'Sposta simbolo')}
         />
         <CommittedNumberField
@@ -225,6 +241,7 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
           step={10}
           unit="u"
           compact
+          disabled={disabled}
           onCommit={(y) => commitStampPatch({ y }, 'Sposta simbolo')}
         />
       </div>
@@ -236,6 +253,7 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
         max={maxDim}
         step={4}
         unit="u"
+        disabled={disabled}
         onCommit={handleWidthCommit}
       />
 
@@ -246,6 +264,7 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
         max={maxDim}
         step={4}
         unit="u"
+        disabled={disabled}
         onCommit={handleHeightCommit}
       />
 
@@ -258,12 +277,13 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
           fontSize: '15px',
           lineHeight: '22px',
           color: 'var(--ui-text)',
-          cursor: 'pointer'
+          cursor: disabled ? 'not-allowed' : 'pointer'
         }}
       >
         <input
           type="checkbox"
           checked={keepRatio}
+          disabled={disabled}
           onChange={(e) => setKeepRatio(e.target.checked)}
           style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
         />
@@ -277,6 +297,7 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
         max={360}
         step={5}
         unit="°"
+        disabled={disabled}
         onCommit={(deg) =>
           commitStampPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota simbolo')
         }
@@ -288,9 +309,10 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
 interface LabelInspectorFieldsProps {
   store: EditorStore;
   labelObj: LabelObject;
+  disabled: boolean;
 }
 
-function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
+function LabelInspectorFields({ store, labelObj, disabled }: LabelInspectorFieldsProps) {
   const textId = useId();
   const hexId = useId();
 
@@ -317,6 +339,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
   }, [labelObj.id, labelObj.color, hexEditing]);
 
   const commitLabelPatch = (patch: Partial<LabelObject>, actionLabel: string) => {
+    if (disabled) return;
     const next: LabelObject = { ...labelObj, ...patch };
     commitObjectUpdate(store, labelObj, next, actionLabel);
   };
@@ -357,6 +380,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
           id={textId}
           type="text"
           className="text-input"
+          disabled={disabled}
           value={textEditing ? textDraft : labelObj.text}
           onFocus={() => {
             textCancelledRef.current = false;
@@ -405,6 +429,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
                 key={preset.id}
                 type="button"
                 className="segmented-btn"
+                disabled={disabled}
                 aria-pressed={isActive}
                 onClick={() =>
                   commitLabelPatch(
@@ -433,6 +458,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
         max={400}
         step={1}
         unit="u"
+        disabled={disabled}
         onCommit={(fontSize) => commitLabelPatch({ fontSize }, 'Ridimensiona etichetta')}
       />
 
@@ -456,6 +482,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
                   key={swatch.hex}
                   type="button"
                   className="has-tooltip-top"
+                  disabled={disabled}
                   aria-label={`Colore ${swatch.name} (${swatch.hex})`}
                   aria-pressed={isSelected}
                   data-tooltip={`${swatch.name} (${swatch.hex})`}
@@ -474,7 +501,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
                       ? '2px solid var(--ui-accent)'
                       : '1px solid var(--ui-line)',
                     boxShadow: isSelected ? '0 0 0 1px var(--ui-bench)' : 'none',
-                    cursor: 'pointer'
+                    cursor: disabled ? 'not-allowed' : 'pointer'
                   }}
                 />
               );
@@ -488,6 +515,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
           className="text-input tabular-nums"
           aria-label="Colore esadecimale"
           placeholder="#263C40"
+          disabled={disabled}
           value={hexEditing ? hexDraft : labelObj.color.toUpperCase()}
           onFocus={() => {
             hexCancelledRef.current = false;
@@ -531,6 +559,7 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
         max={360}
         step={5}
         unit="°"
+        disabled={disabled}
         onCommit={(deg) =>
           commitLabelPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota etichetta')
         }
@@ -539,13 +568,204 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
   );
 }
 
+interface PathInspectorFieldsProps {
+  store: EditorStore;
+  pathObj: PathObject;
+  disabled: boolean;
+}
+
+function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsProps) {
+  const theme = store.getDocument().theme;
+
+  const commitPathPatch = (patch: Partial<PathObject>, actionLabel: string) => {
+    if (disabled) return;
+    const next: PathObject = { ...pathObj, ...patch };
+    commitObjectUpdate(store, pathObj, next, actionLabel);
+  };
+
+  const opacityPercent = Math.round(clampNumber(pathObj.opacity ?? 1, 0, 1) * 100);
+
+  return (
+    <>
+      <div className="form-field">
+        <div className="slider-header">
+          <span className="field-label">Stile</span>
+          <span
+            style={{
+              fontSize: '13px',
+              lineHeight: '18px',
+              color: 'var(--ui-muted)'
+            }}
+          >
+            {getPathKindLabel(pathObj.kind)}
+          </span>
+        </div>
+        <div className="segmented-group" role="group" aria-label="Stile tracciato">
+          {PATH_KIND_OPTIONS.map((opt) => {
+            const isActive = pathObj.kind === opt.kind;
+            return (
+              <button
+                key={opt.kind}
+                type="button"
+                className="segmented-btn"
+                disabled={disabled}
+                aria-pressed={isActive}
+                onClick={() =>
+                  commitPathPatch({ kind: opt.kind }, `Cambia stile in ${opt.label}`)
+                }
+                style={{
+                  minHeight: '36px',
+                  padding: '4px 8px',
+                  fontSize: '13px',
+                  lineHeight: '18px',
+                  color: isActive ? 'var(--ui-accent)' : 'var(--ui-text)'
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      <SyncedRangeField
+        label="Spessore"
+        value={pathObj.strokeWidthDoc}
+        min={2}
+        max={60}
+        step={0.5}
+        unit="u"
+        disabled={disabled}
+        deferDragCommit={true}
+        onChange={(strokeWidthDoc) =>
+          commitPathPatch({ strokeWidthDoc }, 'Modifica spessore tracciato')
+        }
+      />
+
+      <PathColorControls
+        theme={theme}
+        color={pathObj.color}
+        disabled={disabled}
+        onChangeColor={(color) => commitPathPatch({ color }, 'Cambia colore tracciato')}
+      />
+
+      <SyncedRangeField
+        label="Opacità"
+        value={opacityPercent}
+        min={0}
+        max={100}
+        step={1}
+        unit="%"
+        disabled={disabled}
+        deferDragCommit={true}
+        onChange={(pct) =>
+          commitPathPatch(
+            { opacity: Number(clampNumber(pct / 100, 0, 1).toFixed(2)) },
+            'Modifica opacità tracciato'
+          )
+        }
+      />
+
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--ui-space-1)' }}>
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--ui-space-2)',
+            minHeight: '36px',
+            fontSize: '15px',
+            lineHeight: '22px',
+            color: 'var(--ui-text)',
+            cursor: disabled ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={pathObj.smooth !== false}
+            disabled={disabled}
+            onChange={(e) =>
+              commitPathPatch({ smooth: e.target.checked }, 'Modifica curvatura tracciato')
+            }
+            style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+          />
+          <span>Curva morbida</span>
+        </label>
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--ui-space-2)',
+            minHeight: '36px',
+            fontSize: '15px',
+            lineHeight: '22px',
+            color: 'var(--ui-text)',
+            cursor: disabled ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(pathObj.tapered)}
+            disabled={disabled}
+            onChange={(e) =>
+              commitPathPatch({ tapered: e.target.checked }, 'Modifica affusolatura tracciato')
+            }
+            style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+          />
+          <span>Affusolato</span>
+        </label>
+
+        <label
+          style={{
+            display: 'flex',
+            alignItems: 'center',
+            gap: 'var(--ui-space-2)',
+            minHeight: '36px',
+            fontSize: '15px',
+            lineHeight: '22px',
+            color: 'var(--ui-text)',
+            cursor: disabled ? 'not-allowed' : 'pointer'
+          }}
+        >
+          <input
+            type="checkbox"
+            checked={Boolean(pathObj.dashed)}
+            disabled={disabled}
+            onChange={(e) =>
+              commitPathPatch({ dashed: e.target.checked }, 'Modifica tratteggio tracciato')
+            }
+            style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+          />
+          <span>Tratteggiato</span>
+        </label>
+      </div>
+
+      <CommittedNumberField
+        label="Rotazione"
+        value={pathObj.rotationDeg}
+        min={-360}
+        max={360}
+        step={5}
+        unit="°"
+        disabled={disabled}
+        onCommit={(deg) =>
+          commitPathPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota tracciato')
+        }
+      />
+    </>
+  );
+}
+
 /**
- * Property inspector for the currently selected StampObject or LabelObject.
- * Commits edits atomically via UpdateObjectCommand / ReorderObjectsCommand / DeleteObjectCommand.
+ * Property inspector for the currently selected StampObject, LabelObject, or PathObject.
+ * Includes layer reassignment via `<select>` and atomic edits via `UpdateObjectCommand` /
+ * `ReorderObjectsCommand` / `DeleteObjectCommand`.
  */
 export function ObjectInspector({ store }: ObjectInspectorProps) {
   const snap = useEditorStore(store);
+  const layerSelectId = useId();
   const objects = snap.doc.manifest.objects;
+  const layers = snap.doc.manifest.layers;
   const selectedId = snap.selectedObjectId;
   const docIndex = selectedId ? objects.findIndex((o) => o.id === selectedId) : -1;
   const selectedObject: MapObject | null = docIndex >= 0 ? objects[docIndex] : null;
@@ -554,7 +774,7 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
     if (snap.activeTool === 'select') {
       return (
         <p className="panel-empty-hint">
-          Fai clic su un simbolo o su un’etichetta della mappa, oppure scegli un elemento nell’elenco Oggetti.
+          Fai clic su un simbolo, un tracciato o un’etichetta della mappa, oppure scegli un elemento nell’elenco Oggetti.
         </p>
       );
     }
@@ -562,8 +782,26 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
   }
 
   const displayName = getDefaultObjectLabel(selectedObject);
-  const canMoveForward = docIndex < objects.length - 1;
-  const canMoveBackward = docIndex > 0;
+  const nonTerrainLayers = layers.filter((l) => l.kind !== 'terrain');
+  const currentLayerId = resolveObjectLayerId(selectedObject, layers);
+  const currentLayer = layers.find((l) => l.id === currentLayerId);
+  const layerEditable = currentLayer ? currentLayer.visible && !currentLayer.locked : true;
+
+  const canMoveForward = layerEditable && docIndex < objects.length - 1;
+  const canMoveBackward = layerEditable && docIndex > 0;
+
+  const headingText =
+    selectedObject.type === 'stamp'
+      ? displayName
+      : selectedObject.type === 'label'
+        ? 'Etichetta'
+        : displayName;
+  const subheadingText =
+    selectedObject.type === 'stamp'
+      ? 'Simbolo POI'
+      : selectedObject.type === 'label'
+        ? displayName
+        : 'Tracciato vettoriale';
 
   return (
     <div className="panel-group">
@@ -577,11 +815,9 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
               whiteSpace: 'nowrap'
             }}
           >
-            {selectedObject.type === 'stamp' ? displayName : 'Etichetta'}
+            {headingText}
           </h3>
-          <span className="panel-hint">
-            {selectedObject.type === 'stamp' ? 'Simbolo POI' : displayName}
-          </span>
+          <span className="panel-hint">{subheadingText}</span>
         </div>
         <button
           type="button"
@@ -592,14 +828,54 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
         </button>
       </div>
 
+      {!layerEditable ? (
+        <p
+          role="status"
+          style={{
+            margin: 0,
+            padding: 'var(--ui-space-2)',
+            backgroundColor: 'rgba(23, 35, 45, 0.55)',
+            border: '1px solid var(--ui-line-subtle)',
+            borderRadius: 'var(--ui-radius-control)',
+            fontSize: '13px',
+            lineHeight: '18px',
+            color: 'var(--ui-error)'
+          }}
+        >
+          Il livello «{currentLayer?.name ?? 'Oggetti'}» è bloccato o nascosto. Sbloccalo per modificare l’oggetto.
+        </p>
+      ) : null}
+
+      <div className="form-field">
+        <label htmlFor={layerSelectId} className="field-label">
+          Livello
+        </label>
+        <select
+          id={layerSelectId}
+          className="select-input"
+          value={currentLayerId}
+          disabled={!layerEditable}
+          onChange={(e) => {
+            const nextLayerId = e.target.value;
+            if (!nextLayerId || nextLayerId === currentLayerId) return;
+            const nextObj: MapObject = { ...selectedObject, layerId: nextLayerId };
+            commitObjectUpdate(store, selectedObject, nextObj, 'Sposta oggetto su livello');
+          }}
+        >
+          {nonTerrainLayers.map((layer) => (
+            <option key={layer.id} value={layer.id}>
+              {layer.name}
+            </option>
+          ))}
+        </select>
+      </div>
+
       {selectedObject.type === 'stamp' ? (
-        <StampInspectorFields store={store} stamp={selectedObject} />
+        <StampInspectorFields store={store} stamp={selectedObject} disabled={!layerEditable} />
       ) : selectedObject.type === 'label' ? (
-        <LabelInspectorFields store={store} labelObj={selectedObject} />
+        <LabelInspectorFields store={store} labelObj={selectedObject} disabled={!layerEditable} />
       ) : (
-        <div className="panel-group">
-          <p className="panel-hint">Tracciato vettoriale ({selectedObject.kind}).</p>
-        </div>
+        <PathInspectorFields store={store} pathObj={selectedObject} disabled={!layerEditable} />
       )}
 
       <div
@@ -636,11 +912,12 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
       <button
         type="button"
         className="btn btn-secondary btn-compact"
+        disabled={!layerEditable}
         onClick={() =>
           store.executeCommand(
             new DeleteObjectCommand(
               selectedObject.id,
-              selectedObject.type === 'stamp' ? 'Elimina simbolo' : 'Elimina etichetta'
+              getDeleteObjectLabel(selectedObject)
             )
           )
         }

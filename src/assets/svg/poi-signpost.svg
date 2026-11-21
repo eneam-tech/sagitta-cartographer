@@ -1,0 +1,51 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Cippo / Crocevia">
+  <!-- Ombra a terra -->
+  <ellipse cx="64" cy="98" rx="43" ry="10" fill="#263C40" opacity="0.22"/>
+
+  <!-- Bivio di sentieri sterrati e zolla erbosa -->
+  <ellipse cx="64" cy="94" rx="42" ry="8.5" fill="#D9C598" stroke="#263C40" stroke-width="2.4"/>
+  <path d="M26 95 Q44 90 64 93 Q84 90 102 95" fill="none" stroke="#EFE4C8" stroke-width="4" stroke-linecap="round"/>
+  <path d="M35 90 Q42 82 50 89 M78 90 Q86 83 94 90" fill="none" stroke="#486953" stroke-width="3" stroke-linecap="round"/>
+
+  <!-- Palo verticale in legno di quercia -->
+  <polygon points="57,94 58,24 66,24 67,94" fill="#8B493D" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="57,94 58,24 61,24 60,94" fill="#D9C598" opacity="0.55"/>
+  <polygon points="63,24 66,24 67,94 63,94" fill="#6E372D"/>
+  <polygon points="57,94 58,24 66,24 67,94" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Cappuccio d'ottone in cima al palo -->
+  <polygon points="56,24 62,15 68,24" fill="#E0BB79" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Freccia superiore verso sinistra -->
+  <polygon points="73,30 30,30 20,37 30,44 73,44" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="30,40 73,40 73,44 30,44 22,38" fill="#D9C598"/>
+  <polygon points="73,30 30,30 20,37 30,44 73,44" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M33 37 L63 37" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="62" cy="34" r="1.4" fill="#263C40"/>
+
+  <!-- Freccia centrale verso destra -->
+  <polygon points="51,47 98,47 109,54 98,61 51,61" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="51,57 98,57 107,55 98,61 51,61" fill="#B9B1AA"/>
+  <polygon points="51,47 98,47 109,54 98,61 51,61" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M60 54 L94 54" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+  <circle cx="62" cy="51" r="1.4" fill="#263C40"/>
+
+  <!-- Freccia inferiore inclinata verso sinistra -->
+  <polygon points="69,64 31,68 23,75 33,80 70,76" fill="#D9C598" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M35 74 L61 71" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Lanterna da viaggio appesa a destra -->
+  <path d="M66 64 L78 64 L78 68" fill="none" stroke="#263C40" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"/>
+  <polygon points="74,68 82,68 81,77 75,77" fill="#E0BB79" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+  <circle cx="78" cy="72.5" r="2" fill="#F3EEDF"/>
+
+  <!-- Cippo miliare in pietra scolpita alla base a destra -->
+  <path d="M77 95 L77 80 Q84 72 91 80 L91 95 Z" fill="#B9B1AA" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M78 94 L78 81 Q81 76 84 76 L84 94 Z" fill="#F3EEDF"/>
+  <path d="M84 76 Q88 76 90 81 L90 94 L84 94 Z" fill="#7B7880"/>
+  <path d="M77 95 L77 80 Q84 72 91 80 L91 95 Z" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M84 81 L84 90 M81 85 L87 85" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Ciuffi d'erba in primo piano -->
+  <path d="M51 96 Q50 89 54 88 Q56 92 58 96 Z" fill="#486953" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+  <path d="M90 96 Q92 89 96 89 Q97 93 95 96 Z" fill="#486953" stroke="#263C40" stroke-width="1.8" stroke-linejoin="round"/>
+</svg>

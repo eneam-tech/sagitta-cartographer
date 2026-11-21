@@ -1,0 +1,47 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Rosa dei venti">
+  <!-- Anello graduato esterno in ottone -->
+  <circle cx="64" cy="64" r="38" fill="none" stroke="#E0BB79" stroke-width="6"/>
+  <circle cx="64" cy="64" r="41" fill="none" stroke="#263C40" stroke-width="2.4"/>
+  <circle cx="64" cy="64" r="35" fill="none" stroke="#263C40" stroke-width="2.2"/>
+  <!-- Tacche cardinali e intercardinali sull'anello -->
+  <path d="M64 23 L64 29 M64 99 L64 105 M23 64 L29 64 M99 64 L105 64" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M35 35 L39 39 M93 35 L89 39 M35 93 L39 89 M93 93 L89 89" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Punte secondarie diagonali (NE, SE, SO, NO) -->
+  <!-- NO -->
+  <polygon points="64,64 55,55 37,37" fill="#F3EEDF" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="64,64 64,53 37,37" fill="#B9B1AA" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <!-- NE -->
+  <polygon points="64,64 64,53 91,37" fill="#E8D8AF" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="64,64 75,64 91,37" fill="#7B7880" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <!-- SE -->
+  <polygon points="64,64 75,64 91,91" fill="#B9B1AA" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="64,64 64,75 91,91" fill="#5F5D65" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <!-- SO -->
+  <polygon points="64,64 53,64 37,91" fill="#E8D8AF" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <polygon points="64,64 64,75 37,91" fill="#7B7880" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- Quattro punte cardinali principali sfaccettate -->
+  <!-- Nord (punta principale evidenziata con oro e rosso araldico) -->
+  <polygon points="64,64 53,53 64,13" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="64,64 75,53 64,13" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- Punta a giglio d'oro sul Nord -->
+  <polygon points="64,7 68,16 64,19 60,16" fill="#E0BB79" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Sud -->
+  <polygon points="64,64 53,75 64,115" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="64,64 75,75 64,115" fill="#263C40" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Ovest -->
+  <polygon points="64,64 53,53 13,64" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="64,64 53,75 13,64" fill="#263C40" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Est -->
+  <polygon points="64,64 75,53 115,64" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="64,64 75,75 115,64" fill="#263C40" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Rosone centrale in ottone e gemma azzurra -->
+  <circle cx="64" cy="64" r="10.5" fill="#E0BB79" stroke="#263C40" stroke-width="2.6"/>
+  <circle cx="64" cy="64" r="5.5" fill="#5E95A0" stroke="#263C40" stroke-width="2"/>
+  <circle cx="62.2" cy="62.2" r="1.8" fill="#F3EEDF"/>
+</svg>

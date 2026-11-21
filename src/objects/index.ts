@@ -1,18 +1,26 @@
 export {
   AddObjectCommand,
+  AddObjectsBatchCommand,
   DeleteObjectCommand,
+  PATH_KIND_OPTIONS,
   ReorderObjectsCommand,
   UpdateObjectCommand,
   areMapObjectsEqual,
   commitObjectReorder,
   commitObjectUpdate,
   createLabelObject,
+  createPathObject,
   createPoiStampObject,
   getDefaultObjectLabel,
-  normalizeRotationDeg
+  getDeleteObjectLabel,
+  getPathKindLabel,
+  normalizeRotationDeg,
+  simplifyPolyline
 } from './objectCommands';
 export type {
+  AddObjectsBatchOptions,
   CreateLabelObjectOptions,
+  CreatePathObjectOptions,
   CreatePoiStampOptions
 } from './objectCommands';
 
@@ -36,3 +44,9 @@ export type {
   InlineLabelEditorProps,
   InlineLabelEditorSession
 } from '../ui/InlineLabelEditor';
+
+export { LayersPanel } from '../ui/LayersPanel';
+export type { LayersPanelProps } from '../ui/LayersPanel';
+
+export { PathToolPanel } from '../ui/PathToolPanel';
+export type { PathToolPanelProps } from '../ui/PathToolPanel';

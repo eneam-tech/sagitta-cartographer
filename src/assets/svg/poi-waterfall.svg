@@ -1,0 +1,38 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Cascata">
+  <!-- Bacino lacustre alla base -->
+  <ellipse cx="64" cy="95" rx="48" ry="12" fill="#A8C8C6" stroke="#263C40" stroke-width="2.4"/>
+  <ellipse cx="64" cy="94" rx="34" ry="8" fill="#5E95A0"/>
+
+  <!-- Parete rocciosa sinistra illuminata NW -->
+  <polygon points="16,92 22,42 42,27 56,36 53,90 25,95" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="22,42 42,27 50,32 33,55" fill="#F3EEDF"/>
+  <polygon points="44,41 54,41 53,90 42,92" fill="#B9B1AA"/>
+  <polygon points="16,92 22,42 42,27 56,36 53,90 25,95" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Parete rocciosa destra in ombra SE -->
+  <polygon points="73,36 86,27 106,43 112,92 84,95 75,90" fill="#7B7880" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="74,38 86,27 92,35 80,68" fill="#B9B1AA"/>
+  <polygon points="94,45 106,43 112,92 94,94" fill="#5F5D65"/>
+  <polygon points="73,36 86,27 106,43 112,92 84,95 75,90" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Vegetazione e pini sulle creste laterali -->
+  <path d="M22 44 Q21 30 31 28 Q35 20 44 27 Q49 23 53 31 L44 37 Z" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M75 31 Q80 22 87 27 Q95 22 101 32 Q107 34 106 43 L88 37 Z" fill="#334E3D" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- Torrente superiore che si getta dal salto -->
+  <path d="M47 34 Q64 25 81 34 L75 43 Q64 39 53 43 Z" fill="#5E95A0" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+
+  <!-- Nastro d'acqua della cascata e spuma bianca -->
+  <path d="M51 41 Q64 38 77 41 L81 91 Q64 95 47 91 Z" fill="#5E95A0" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M54 42 Q56 66 53 91 L61 92 Q62 66 60 41 Z" fill="#A8C8C6"/>
+  <path d="M66 41 Q68 67 67 92 L74 91 Q73 66 71 42 Z" fill="#F3EEDF"/>
+  <path d="M58 43 L57 86 M64 41 L64 89 M70 43 L71 86" stroke="#F3EEDF" stroke-width="2" stroke-linecap="round"/>
+
+  <!-- Spuntone roccioso affiorante a metà salto -->
+  <polygon points="59,64 65,58 70,64 67,71 61,70" fill="#B9B1AA" stroke="#263C40" stroke-width="2" stroke-linejoin="round"/>
+
+  <!-- Nuvoletta di schiuma e onde concentriche nel laghetto -->
+  <path d="M41 91 Q43 83 51 85 Q57 79 64 84 Q71 79 77 85 Q85 83 87 91 Q74 96 64 95 Q54 96 41 91 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M29 97 Q46 103 64 102 Q82 103 99 97" fill="none" stroke="#F3EEDF" stroke-width="2" stroke-linecap="round"/>
+  <path d="M23 102 Q44 108 64 107 Q84 108 105 102" fill="none" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+</svg>

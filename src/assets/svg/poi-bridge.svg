@@ -1,0 +1,41 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Ponte">
+  <!-- Sponde erbose e letto del fiume -->
+  <ellipse cx="64" cy="94" rx="50" ry="15" fill="#D9C598" opacity="0.75"/>
+  <!-- Sponda sinistra e destra -->
+  <path d="M12 72 Q26 67 34 80 L25 99 Q14 94 12 85 Z" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M94 80 Q103 67 116 72 L116 86 Q113 94 103 99 Z" fill="#486953" stroke="#263C40" stroke-width="2.2" stroke-linejoin="round"/>
+
+  <!-- Fiume che scorre sotto l'arco -->
+  <path d="M40 50 Q56 46 72 52 L100 98 Q64 109 28 98 Z" fill="#5E95A0" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M46 53 Q61 50 72 56 L87 98 Q64 104 40 98 Z" fill="#A8C8C6" opacity="0.65"/>
+
+  <!-- Sottarco in ombra e spalle del ponte -->
+  <path d="M35 83 Q64 56 93 83 L86 85 Q64 64 42 85 Z" fill="#263C40"/>
+
+  <!-- Struttura in pietra ad arco del ponte -->
+  <path d="M13 62 Q64 40 115 62 L113 82 L94 84 L92 78 Q64 56 36 78 L34 84 L15 82 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Ombra SE sul fianco destro e sulle pile -->
+  <path d="M68 50 Q92 52 115 62 L113 82 L94 84 L92 78 Q81 69 68 65 Z" fill="#7B7880"/>
+  <!-- Conci dell'arcata -->
+  <path d="M36 74 Q64 51 92 74" fill="none" stroke="#263C40" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M44 65 L47 70 M54 60 L56 66 M64 58 L64 64 M74 60 L72 66 M84 65 L81 70" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Parapetto superiore illuminato da NW -->
+  <path d="M12 56 Q64 34 116 56 L115 63 Q64 41 13 63 Z" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M68 46 Q93 48 116 56 L115 63 Q92 54 68 52 Z" fill="#B9B1AA"/>
+  <path d="M12 56 Q64 34 116 56 L115 63 Q64 41 13 63 Z" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Giunti di pietra del parapetto -->
+  <path d="M29 50 L29 56 M46 45 L46 51 M64 43 L64 49 M82 45 L82 51 M99 50 L99 56" stroke="#263C40" stroke-width="1.8"/>
+
+  <!-- Piloni rostrati alle estremità e lanterne -->
+  <polygon points="24,84 30,66 39,66 41,85 32,89" fill="#B9B1AA" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <polygon points="87,85 89,66 98,66 104,84 96,89" fill="#7B7880" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Lanterne d'ottone agli imbocchi -->
+  <rect x="20" y="48" width="6" height="8" rx="1" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+  <rect x="102" y="48" width="6" height="8" rx="1" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+
+  <!-- Increspature d'acqua e spuma contro i piloni -->
+  <path d="M35 88 Q49 93 64 89 Q79 93 93 88" fill="none" stroke="#F3EEDF" stroke-width="2.4" stroke-linecap="round"/>
+  <path d="M41 96 Q54 100 66 96 Q78 100 90 95" fill="none" stroke="#263C40" stroke-width="2" stroke-linecap="round"/>
+  <path d="M49 103 Q64 107 79 103" fill="none" stroke="#F3EEDF" stroke-width="1.8" stroke-linecap="round"/>
+</svg>

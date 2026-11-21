@@ -1,0 +1,54 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Castello">
+  <!-- Ombra a terra -->
+  <ellipse cx="66" cy="100" rx="48" ry="10" fill="#263C40" opacity="0.24"/>
+
+  <!-- Sperone roccioso d'altura -->
+  <polygon points="14,98 25,83 45,79 86,80 106,86 114,98 94,102 32,102" fill="#B9B1AA" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="68,80 86,80 106,86 114,98 94,102 66,102" fill="#7B7880"/>
+  <polygon points="22,97 32,85 48,84 42,100" fill="#E8D8AF"/>
+  <polygon points="14,98 25,83 45,79 86,80 106,86 114,98 94,102 32,102" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M35 88 L43 96 M84 88 L91 96" stroke="#263C40" stroke-width="1.8" stroke-linecap="round"/>
+
+  <!-- Grande maschio asimmetrico a sinistra -->
+  <polygon points="33,76 35,34 61,34 63,76" fill="#F3EEDF" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="52,34 61,34 63,76 53,76" fill="#7B7880"/>
+  <polygon points="33,76 35,34 61,34 63,76" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <!-- Merlatura sporgente del maschio -->
+  <path d="M31 28 L37 28 L37 32 L42 32 L42 28 L47 28 L47 32 L52 32 L52 28 L57 28 L57 32 L61 32 L61 28 L65 28 L64 37 L32 37 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <!-- Guglia alta e stendardo reale -->
+  <polygon points="31,28 48,12 65,28" fill="#8B493D" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="48,12 65,28 53,28" fill="#6E372D"/>
+  <polygon points="31,28 48,12 65,28" fill="none" stroke="#263C40" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M48 12 L48 6" stroke="#263C40" stroke-width="2.2" stroke-linecap="round"/>
+  <polygon points="48,6 60,9 48,12" fill="#E0BB79" stroke="#263C40" stroke-width="1.5" stroke-linejoin="round"/>
+  <rect x="42" y="42" width="4" height="10" rx="2" fill="#263C40"/>
+  <rect x="50" y="42" width="4" height="10" rx="2" fill="#263C40"/>
+
+  <!-- Sala reale e palazzetto a destra -->
+  <polygon points="60,55 90,55 90,85 60,85" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="78,55 90,55 90,85 78,85" fill="#7B7880"/>
+  <polygon points="60,55 90,55 90,85 60,85" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="58,56 75,38 92,56" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="75,38 92,56 80,56" fill="#6E372D"/>
+  <polygon points="58,56 75,38 92,56" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="66" y="61" width="4.5" height="9" rx="2" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+  <rect x="76" y="61" width="4.5" height="9" rx="2" fill="#E0BB79" stroke="#263C40" stroke-width="1.8"/>
+
+  <!-- Torretta di guardia arroccata a destra -->
+  <polygon points="88,88 90,46 103,46 105,88" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="97,46 103,46 105,88 97,88" fill="#5F5D65"/>
+  <polygon points="88,88 90,46 103,46 105,88" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="87,46 96.5,31 106,46" fill="#8B493D" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="96.5,31 106,46 98,46" fill="#6E372D"/>
+  <polygon points="87,46 96.5,31 106,46" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <rect x="95" y="54" width="3" height="8" rx="1.5" fill="#263C40"/>
+
+  <!-- Cortina bassa e torretta di ingresso a sinistra -->
+  <polygon points="22,87 24,57 36,57 38,87" fill="#F3EEDF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="21,57 30,45 39,57" fill="#8B493D" stroke="#263C40" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M36 69 L42 69 L42 73 L47 73 L47 69 L53 69 L53 73 L58 73 L58 69 L65 69 L65 73 L71 73 L71 69 L77 69 L77 73 L83 73 L83 69 L90 69 L90 89 L36 89 Z" fill="#E8D8AF" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="68,69 90,69 90,89 68,89" fill="#7B7880"/>
+  <path d="M36 69 L42 69 L42 73 L47 73 L47 69 L53 69 L53 73 L58 73 L58 69 L65 69 L65 73 L71 73 L71 69 L77 69 L77 73 L83 73 L83 69 L90 69 L90 89 L36 89 Z" fill="none" stroke="#263C40" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M46 89 L46 78 Q51 73 56 78 L56 89 Z" fill="#263C40"/>
+  <path d="M49 89 Q46 95 40 99" fill="none" stroke="#D9C598" stroke-width="4" stroke-linecap="round"/>
+</svg>
