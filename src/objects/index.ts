@@ -7,6 +7,7 @@ export {
   UpdateObjectCommand,
   areMapObjectsEqual,
   commitObjectReorder,
+  commitObjectReorderInLayer,
   commitObjectUpdate,
   createLabelObject,
   createPathObject,
@@ -14,6 +15,7 @@ export {
   getDefaultObjectLabel,
   getDeleteObjectLabel,
   getPathKindLabel,
+  getSameLayerAdjacentIndices,
   normalizeRotationDeg,
   simplifyPolyline
 } from './objectCommands';
@@ -21,7 +23,8 @@ export type {
   AddObjectsBatchOptions,
   CreateLabelObjectOptions,
   CreatePathObjectOptions,
-  CreatePoiStampOptions
+  CreatePoiStampOptions,
+  SameLayerAdjacentIndices
 } from './objectCommands';
 
 export { ObjectsLayerController } from '../canvas/ObjectsLayerController';

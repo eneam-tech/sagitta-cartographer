@@ -94,11 +94,13 @@ export function MapViewport({
   const seaHintElRef = useRef<HTMLDivElement>(null);
 
   const stageRef = useRef<Konva.Stage | null>(null);
+  const paperLayerRef = useRef<Konva.Layer | null>(null);
   const terrainLayerRef = useRef<Konva.Layer | null>(null);
   const objectsLayerRef = useRef<Konva.Layer | null>(null);
   const overlayLayerRef = useRef<Konva.Layer | null>(null);
 
   const terrainShadowRef = useRef<Konva.Rect | null>(null);
+  const paperBgRef = useRef<Konva.Rect | null>(null);
   const terrainSeaRef = useRef<Konva.Rect | null>(null);
   const terrainShapeRef = useRef<Konva.Shape | null>(null);
 
@@ -197,6 +199,7 @@ export function MapViewport({
       height: initH
     });
 
+    const paperLayer = new Konva.Layer({ listening: false });
     const terrainLayer = new Konva.Layer({ listening: false });
     const objectsLayer = new Konva.Layer({ listening: false });
     const overlayLayer = new Konva.Layer({ listening: false });
@@ -205,6 +208,14 @@ export function MapViewport({
       fill: 'rgba(8, 13, 18, 0.36)',
       listening: false
     });
+    const paperBgRect = new Konva.Rect({
+      x: 0,
+      y: 0,
+      fill: '#FFFFFF',
+      listening: false
+    });
+    paperLayer.add(shadowRect, paperBgRect);
+
     const seaRect = new Konva.Rect({
       x: 0,
       y: 0,
@@ -243,7 +254,7 @@ export function MapViewport({
         }
       }
     });
-    terrainLayer.add(shadowRect, seaRect, terrainShape);
+    terrainLayer.add(seaRect, terrainShape);
 
     const pageBorder = new Konva.Rect({
       x: 0,
@@ -310,13 +321,15 @@ export function MapViewport({
 
     overlayLayer.add(pageBorder, ...regMarks, fallbackGhostGroup, brushGroup);
 
-    stage.add(terrainLayer, objectsLayer, overlayLayer);
+    stage.add(paperLayer, terrainLayer, objectsLayer, overlayLayer);
 
     stageRef.current = stage;
+    paperLayerRef.current = paperLayer;
     terrainLayerRef.current = terrainLayer;
     objectsLayerRef.current = objectsLayer;
     overlayLayerRef.current = overlayLayer;
     terrainShadowRef.current = shadowRect;
+    paperBgRef.current = paperBgRect;
     terrainSeaRef.current = seaRect;
     terrainShapeRef.current = terrainShape;
     pageBorderRef.current = pageBorder;
@@ -353,10 +366,12 @@ export function MapViewport({
       onLayersReadyRef.current?.(null);
       stage.destroy();
       stageRef.current = null;
+      paperLayerRef.current = null;
       terrainLayerRef.current = null;
       objectsLayerRef.current = null;
       overlayLayerRef.current = null;
       terrainShadowRef.current = null;
+      paperBgRef.current = null;
       terrainSeaRef.current = null;
       terrainShapeRef.current = null;
     };
@@ -385,10 +400,11 @@ export function MapViewport({
 
   // Sincronizza camera, dimensioni pagina, ritaglio livello oggetti e segni di registro
   useEffect(() => {
+    const paperLayer = paperLayerRef.current;
     const terrainLayer = terrainLayerRef.current;
     const objectsLayer = objectsLayerRef.current;
     const overlayLayer = overlayLayerRef.current;
-    if (!terrainLayer || !objectsLayer || !overlayLayer) return;
+    if (!paperLayer || !terrainLayer || !objectsLayer || !overlayLayer) return;
 
     const { width, height } = doc.manifest.space;
     const layerTransform = {
@@ -398,6 +414,7 @@ export function MapViewport({
       scaleY: camera.scale
     };
 
+    paperLayer.setAttrs(layerTransform);
     terrainLayer.setAttrs({
       ...layerTransform,
       visible: terrainVisible,
@@ -417,6 +434,10 @@ export function MapViewport({
     terrainShadowRef.current?.setAttrs({
       x: shadowOffset,
       y: shadowOffset,
+      width,
+      height
+    });
+    paperBgRef.current?.setAttrs({
       width,
       height
     });
@@ -452,6 +473,7 @@ export function MapViewport({
       ]);
     }
 
+    paperLayer.batchDraw();
     terrainLayer.batchDraw();
     objectsLayer.batchDraw();
     syncOverlayCursor();
@@ -570,9 +592,12 @@ export function MapViewport({
 
     if (isTerrainBrushTool(tool)) {
       e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
-      activeGestureRef.current = { mode: 'brush', pointerId: e.pointerId };
-      store.beginTerrainStroke(coords.docX, coords.docY);
+      const target = e.currentTarget;
+      const started = store.beginTerrainStroke(coords.docX, coords.docY);
+      if (started) {
+        target.setPointerCapture(e.pointerId);
+        activeGestureRef.current = { mode: 'brush', pointerId: e.pointerId };
+      }
       syncOverlayCursor();
       return;
     }

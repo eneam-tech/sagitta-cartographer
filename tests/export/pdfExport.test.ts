@@ -134,7 +134,9 @@ function createMockCanvas2DRecorder() {
       rotate: (...args: unknown[]) => record('rotate', args),
       moveTo: (...args: unknown[]) => record('moveTo', args),
       lineTo: (...args: unknown[]) => record('lineTo', args),
+      closePath: () => record('closePath', []),
       stroke: () => record('stroke', []),
+      fill: () => record('fill', []),
       setLineDash: (segments: number[]) => {
         currentDash = [...segments];
         record('setLineDash', [segments]);
@@ -860,15 +862,24 @@ describe('PDF export & shared document composition', () => {
     expect(drawImageCalls[1].globalAlpha).toBe(1);
     expect(drawImageCalls[2].globalAlpha).toBe(1);
 
+    const fillCalls = recorder.calls.filter((c) => c.method === 'fill');
+    const closePathCalls = recorder.calls.filter((c) => c.method === 'closePath');
+    const lineToCalls = recorder.calls.filter((c) => c.method === 'lineTo');
+    const riverFills = fillCalls.filter((c) => c.fillStyle === doc.theme.colors.pathRiver);
     const strokeCalls = recorder.calls.filter((c) => c.method === 'stroke');
-    const riverStrokes = strokeCalls.filter((c) => c.strokeStyle === doc.theme.colors.pathRiver);
     const borderStrokes = strokeCalls.filter((c) => c.strokeStyle === doc.theme.colors.pathBorder);
-    expect(riverStrokes.length).toBeGreaterThan(1); // tapered river segment strokes
-    expect(riverStrokes[riverStrokes.length - 1].lineWidth).toBeGreaterThan(
-      riverStrokes[0].lineWidth
-    );
+    expect(riverFills).toHaveLength(1); // continuous tapered polygon fill (zero alpha joint overlap)
+    expect(closePathCalls.length).toBeGreaterThanOrEqual(1);
+    expect(lineToCalls.length).toBeGreaterThan(8);
     expect(borderStrokes).toHaveLength(1);
-    expect(borderStrokes[0].lineDash.length).toBe(2);
+    expect(borderStrokes[0].lineDash).toHaveLength(2);
+    // Dash pattern scales proportionally in document units across avgScale=(scaleX+scaleY)/2
+    const expectedScale =
+      (800 / doc.manifest.space.width + 566 / doc.manifest.space.height) * 0.5;
+    expect(borderStrokes[0].lineDash[0]).toBeCloseTo(
+      Math.max(4, border.strokeWidthDoc * 2.2) * expectedScale,
+      4
+    );
 
     // Caso 2: terrainLayer.visible === false -> non renderizza il terreno ma disegna fondo carta e oggetti visibili
     recorder.calls.length = 0;

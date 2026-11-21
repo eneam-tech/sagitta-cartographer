@@ -44,6 +44,7 @@ export function TopBar({ store }: TopBarProps) {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const initialTitleRef = useRef(doc.manifest.title);
   const canceledTitleRef = useRef(false);
+  const importPickerPendingRef = useRef(false);
 
   // Sincronizza il titolo mostrato su undo/redo o cambio documento quando l'input non è attivo
   useEffect(() => {
@@ -57,7 +58,17 @@ export function TopBar({ store }: TopBarProps) {
     if (!menuOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (projectMenuWrapRef.current && !projectMenuWrapRef.current.contains(e.target as Node)) {
+        const hadFocusInside =
+          document.activeElement instanceof Node &&
+          projectMenuWrapRef.current.contains(document.activeElement);
         setMenuOpen(false);
+        if (hadFocusInside) {
+          requestAnimationFrame(() => {
+            if (!document.activeElement || document.activeElement === document.body) {
+              projectBtnRef.current?.focus();
+            }
+          });
+        }
       }
     };
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -80,7 +91,17 @@ export function TopBar({ store }: TopBarProps) {
     if (!themeMenuOpen) return;
     const handlePointerDown = (e: PointerEvent) => {
       if (themeMenuWrapRef.current && !themeMenuWrapRef.current.contains(e.target as Node)) {
+        const hadFocusInside =
+          document.activeElement instanceof Node &&
+          themeMenuWrapRef.current.contains(document.activeElement);
         setThemeMenuOpen(false);
+        if (hadFocusInside) {
+          requestAnimationFrame(() => {
+            if (!document.activeElement || document.activeElement === document.body) {
+              themeBtnRef.current?.focus();
+            }
+          });
+        }
       }
     };
     const handleKeyDown = (e: globalThis.KeyboardEvent) => {
@@ -97,6 +118,43 @@ export function TopBar({ store }: TopBarProps) {
       window.removeEventListener('keydown', handleKeyDown, true);
     };
   }, [themeMenuOpen]);
+
+  // Restituisce il focus al pulsante Progetto se il file picker viene annullato
+  useEffect(() => {
+    const input = fileInputRef.current;
+    let cancelTimer: ReturnType<typeof setTimeout> | null = null;
+
+    const restoreFocusIfSafe = () => {
+      const active = document.activeElement;
+      if (!active || active === document.body || active === input) {
+        projectBtnRef.current?.focus();
+      }
+    };
+
+    const handleCancel = () => {
+      importPickerPendingRef.current = false;
+      restoreFocusIfSafe();
+    };
+
+    const handleWindowFocus = () => {
+      if (!importPickerPendingRef.current) return;
+      if (cancelTimer !== null) clearTimeout(cancelTimer);
+      cancelTimer = setTimeout(() => {
+        if (importPickerPendingRef.current) {
+          importPickerPendingRef.current = false;
+          restoreFocusIfSafe();
+        }
+      }, 150);
+    };
+
+    input?.addEventListener('cancel', handleCancel);
+    window.addEventListener('focus', handleWindowFocus);
+    return () => {
+      if (cancelTimer !== null) clearTimeout(cancelTimer);
+      input?.removeEventListener('cancel', handleCancel);
+      window.removeEventListener('focus', handleWindowFocus);
+    };
+  }, []);
 
   // Sposta il focus sul primo elemento quando si apre il menu Progetto
   useEffect(() => {
@@ -167,11 +225,21 @@ export function TopBar({ store }: TopBarProps) {
   };
 
   const handleImportChange = async (e: ChangeEvent<HTMLInputElement>) => {
+    importPickerPendingRef.current = false;
     const file = e.target.files?.[0];
     e.target.value = '';
-    if (!file) return;
-    const buf = await file.arrayBuffer();
-    await store.importArchiveFile(new Uint8Array(buf));
+    try {
+      if (!file) return;
+      const buf = await file.arrayBuffer();
+      await store.importArchiveFile(new Uint8Array(buf));
+    } finally {
+      requestAnimationFrame(() => {
+        const active = document.activeElement;
+        if (!active || active === document.body || active === fileInputRef.current) {
+          projectBtnRef.current?.focus();
+        }
+      });
+    }
   };
 
   const pageWidthMm = Math.round(doc.manifest.page.widthMm);
@@ -267,6 +335,7 @@ export function TopBar({ store }: TopBarProps) {
                 role="menuitem"
                 className="dropdown-item"
                 onClick={() => {
+                  importPickerPendingRef.current = true;
                   setMenuOpen(false);
                   fileInputRef.current?.click();
                 }}
@@ -392,7 +461,7 @@ export function TopBar({ store }: TopBarProps) {
           <button
             ref={themeBtnRef}
             type="button"
-            className="btn btn-secondary topbar-theme-btn has-tooltip-bottom"
+            className="btn btn-secondary topbar-theme-btn topbar-theme-select has-tooltip-bottom"
             aria-haspopup="menu"
             aria-expanded={themeMenuOpen}
             aria-controls="theme-menu-dropdown"

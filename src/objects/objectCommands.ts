@@ -7,11 +7,13 @@ import {
   DEFAULT_LAYER_VECTORS_ID,
   LabelObject,
   MapDocument,
+  MapLayer,
   MapObject,
   PathKind,
   PathObject,
   StampObject,
   cloneMapObject,
+  resolveObjectLayerId,
   safeRandomUUID
 } from '../model/document';
 import type { EditorStore } from '../state/editorStore';
@@ -780,4 +782,72 @@ export function commitObjectReorder(
   const defaultLabel = clamped > currentIndex ? 'Porta avanti' : 'Porta indietro';
   store.executeCommand(new ReorderObjectsCommand(objectId, clamped, label ?? defaultLabel));
   return true;
+}
+
+export interface SameLayerAdjacentIndices {
+  docIndex: number;
+  resolvedLayerId: string;
+  prevSameLayerIndex: number | null;
+  nextSameLayerIndex: number | null;
+}
+
+/**
+ * Finds the previous and next indices in `objects` belonging to the same effective
+ * layer as `objectId`, preventing no-op reorders across objects on different layers.
+ */
+export function getSameLayerAdjacentIndices(
+  objects: readonly MapObject[],
+  layers: readonly MapLayer[],
+  objectId: string
+): SameLayerAdjacentIndices | null {
+  const docIndex = objects.findIndex((o) => o.id === objectId);
+  if (docIndex === -1) return null;
+
+  const resolvedLayerId = resolveObjectLayerId(objects[docIndex], layers);
+  let prevSameLayerIndex: number | null = null;
+  let nextSameLayerIndex: number | null = null;
+
+  for (let i = docIndex - 1; i >= 0; i -= 1) {
+    if (resolveObjectLayerId(objects[i], layers) === resolvedLayerId) {
+      prevSameLayerIndex = i;
+      break;
+    }
+  }
+  for (let i = docIndex + 1; i < objects.length; i += 1) {
+    if (resolveObjectLayerId(objects[i], layers) === resolvedLayerId) {
+      nextSameLayerIndex = i;
+      break;
+    }
+  }
+
+  return {
+    docIndex,
+    resolvedLayerId,
+    prevSameLayerIndex,
+    nextSameLayerIndex
+  };
+}
+
+/**
+ * Reorders `objectId` one visual step forward or backward among objects sharing
+ * the same effective layer.
+ */
+export function commitObjectReorderInLayer(
+  store: EditorStore,
+  objectId: string,
+  direction: 'forward' | 'backward'
+): boolean {
+  const doc = store.getDocument();
+  const adj = getSameLayerAdjacentIndices(doc.manifest.objects, doc.manifest.layers, objectId);
+  if (!adj) return false;
+
+  const targetIndex = direction === 'forward' ? adj.nextSameLayerIndex : adj.prevSameLayerIndex;
+  if (targetIndex === null) return false;
+
+  return commitObjectReorder(
+    store,
+    objectId,
+    targetIndex,
+    direction === 'forward' ? 'Porta avanti' : 'Porta indietro'
+  );
 }

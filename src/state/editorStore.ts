@@ -23,8 +23,10 @@ import {
   COVER_NATURAL,
   CoverToolId,
   CreateEmptyDocumentOptions,
+  DEFAULT_LAYER_LABELS_ID,
   DEFAULT_LAYER_POI_ID,
   DEFAULT_LAYER_TERRAIN_ID,
+  DEFAULT_LAYER_VECTORS_ID,
   MapDocument,
   PathKind,
   createEmptyDocument,
@@ -963,6 +965,24 @@ export class EditorStore {
     if (!isLandRequiredBrush(tool)) {
       this.seaOnlyHintVisible = false;
     }
+
+    const layers = this.doc.manifest.layers;
+    const currentLayer = layers.find((l) => l.id === this.activeLayerId);
+    if (!currentLayer || currentLayer.kind !== 'custom') {
+      let semanticId: string | null = null;
+      if (isTerrainBrushTool(tool)) {
+        semanticId = DEFAULT_LAYER_TERRAIN_ID;
+      } else if (tool === 'path') {
+        semanticId = DEFAULT_LAYER_VECTORS_ID;
+      } else if (tool === 'poi') {
+        semanticId = DEFAULT_LAYER_POI_ID;
+      } else if (tool === 'label') {
+        semanticId = DEFAULT_LAYER_LABELS_ID;
+      }
+      if (semanticId && layers.some((l) => l.id === semanticId)) {
+        this.activeLayerId = semanticId;
+      }
+    }
     this.notify();
   }
 
@@ -992,7 +1012,7 @@ export class EditorStore {
   resolveTargetLayerIdForNewObject(type: 'stamp' | 'label' | 'path'): string {
     const layers = this.doc.manifest.layers;
     const active = layers.find((l) => l.id === this.activeLayerId);
-    if (active && active.kind !== 'terrain') {
+    if (active && active.kind === 'custom') {
       return active.id;
     }
     const preferredId = defaultLayerIdForObject({ type });

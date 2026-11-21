@@ -63,10 +63,107 @@ export function sampleSmoothPathPoints(points: readonly number[], subdivisionsPe
   return result;
 }
 
+function drawTaperedRibbon(
+  ctx: CanvasRenderingContext2D,
+  pts: readonly number[],
+  scaleX: number,
+  scaleY: number,
+  baseWidthPx: number,
+  color: string
+): void {
+  const scaled: number[] = [];
+  const rawCount = Math.floor(pts.length / 2);
+  if (rawCount === 2) {
+    // Subdivide a single 2-point straight segment so tapering stays continuous
+    const x0 = pts[0] * scaleX;
+    const y0 = pts[1] * scaleY;
+    const x1 = pts[2] * scaleX;
+    const y1 = pts[3] * scaleY;
+    for (let s = 0; s <= 6; s += 1) {
+      const t = s / 6;
+      scaled.push(x0 + (x1 - x0) * t, y0 + (y1 - y0) * t);
+    }
+  } else {
+    for (let i = 0; i < rawCount; i += 1) {
+      scaled.push(pts[i * 2] * scaleX, pts[i * 2 + 1] * scaleY);
+    }
+  }
+
+  const n = Math.floor(scaled.length / 2);
+  if (n < 2) return;
+
+  const leftX = new Float64Array(n);
+  const leftY = new Float64Array(n);
+  const rightX = new Float64Array(n);
+  const rightY = new Float64Array(n);
+
+  for (let i = 0; i < n; i += 1) {
+    const prevIdx = Math.max(0, i - 1);
+    const nextIdx = Math.min(n - 1, i + 1);
+    let dx = scaled[nextIdx * 2] - scaled[prevIdx * 2];
+    let dy = scaled[nextIdx * 2 + 1] - scaled[prevIdx * 2 + 1];
+    let len = Math.hypot(dx, dy);
+    if (len < 1e-6 && i > 0) {
+      dx = scaled[i * 2] - scaled[(i - 1) * 2];
+      dy = scaled[i * 2 + 1] - scaled[(i - 1) * 2 + 1];
+      len = Math.hypot(dx, dy);
+    }
+    const tx = len >= 1e-6 ? dx / len : 1;
+    const ty = len >= 1e-6 ? dy / len : 0;
+
+    const nx = -ty;
+    const ny = tx;
+    const t = i / (n - 1);
+    const halfW = Math.max(0.4, baseWidthPx * (0.25 + 1.05 * t) * 0.5);
+    const cx = scaled[i * 2];
+    const cy = scaled[i * 2 + 1];
+    leftX[i] = cx + nx * halfW;
+    leftY[i] = cy + ny * halfW;
+    rightX[i] = cx - nx * halfW;
+    rightY[i] = cy - ny * halfW;
+  }
+
+  const endIdx = n - 1;
+  const startHalfW = Math.hypot(leftX[0] - scaled[0], leftY[0] - scaled[1]);
+  const endHalfW = Math.hypot(leftX[endIdx] - scaled[endIdx * 2], leftY[endIdx] - scaled[endIdx * 2 + 1]);
+
+  const capSteps = 6;
+  const startRightAngle = Math.atan2(rightY[0] - scaled[1], rightX[0] - scaled[0]);
+  const endLeftAngle = Math.atan2(leftY[endIdx] - scaled[endIdx * 2 + 1], leftX[endIdx] - scaled[endIdx * 2]);
+
+  ctx.beginPath();
+  // Round cap at source (from right[0] around backward normal to left[0])
+  ctx.moveTo(rightX[0], rightY[0]);
+  for (let s = 1; s < capSteps; s += 1) {
+    // -Math.PI sweep goes through (-tx, -ty) if left is (+90 deg) from +tangent; Wait: left = (-ty, tx) = +90 deg from (tx, ty) in screen Y-down!
+    // Right is -90 deg from tangent, Left is +90 deg. Moving from Right (-90) through -tangent (+/-180) to Left (+90) sweeps -Math.PI!
+    const angle = startRightAngle - (Math.PI * s) / capSteps;
+    ctx.lineTo(scaled[0] + Math.cos(angle) * startHalfW, scaled[1] + Math.sin(angle) * startHalfW);
+  }
+  ctx.lineTo(leftX[0], leftY[0]);
+  for (let i = 1; i < n; i += 1) {
+    ctx.lineTo(leftX[i], leftY[i]);
+  }
+  // Round cap at mouth (from left[n-1] around forward +tangent to right[n-1])
+  for (let s = 1; s < capSteps; s += 1) {
+    const angle = endLeftAngle - (Math.PI * s) / capSteps;
+    ctx.lineTo(
+      scaled[endIdx * 2] + Math.cos(angle) * endHalfW,
+      scaled[endIdx * 2 + 1] + Math.sin(angle) * endHalfW
+    );
+  }
+  for (let i = endIdx; i >= 0; i -= 1) {
+    ctx.lineTo(rightX[i], rightY[i]);
+  }
+  ctx.closePath();
+  ctx.fillStyle = color;
+  ctx.fill();
+}
+
 /**
  * Renders a single `PathObject` onto a Canvas2D context using `(scaleX, scaleY)`
  * from document units to canvas pixels. Handles smooth curves, borders (dashed),
- * rivers (tapered from narrow source to wider mouth), and clockwise rotation.
+ * rivers (continuous tapered polygon fill), and clockwise rotation.
  */
 export function drawPathToContext(
   ctx: CanvasRenderingContext2D,
@@ -92,23 +189,16 @@ export function drawPathToContext(
   ctx.lineJoin = 'round';
   ctx.strokeStyle = path.color;
 
-  if (path.tapered && vertexCount >= 2) {
-    const steps = vertexCount - 1;
-    for (let i = 0; i < steps; i += 1) {
-      const t = (i + 0.5) / steps;
-      const wFactor = 0.25 + 1.05 * t;
-      ctx.beginPath();
-      ctx.moveTo(pts[i * 2] * scaleX, pts[i * 2 + 1] * scaleY);
-      ctx.lineTo(pts[(i + 1) * 2] * scaleX, pts[(i + 1) * 2 + 1] * scaleY);
-      ctx.lineWidth = Math.max(0.75, baseWidthPx * wFactor);
-      ctx.stroke();
-    }
+  if (path.tapered && vertexCount >= 2 && typeof ctx.fill === 'function' && typeof ctx.closePath === 'function') {
+    drawTaperedRibbon(ctx, pts, scaleX, scaleY, baseWidthPx, path.color);
     ctx.restore();
     return;
   }
 
   if (path.dashed) {
-    ctx.setLineDash([Math.max(4, baseWidthPx * 2.2), Math.max(3, baseWidthPx * 1.4)]);
+    const dashDoc = Math.max(4, path.strokeWidthDoc * 2.2);
+    const gapDoc = Math.max(3, path.strokeWidthDoc * 1.4);
+    ctx.setLineDash([dashDoc * avgScale, gapDoc * avgScale]);
   } else {
     ctx.setLineDash([]);
   }

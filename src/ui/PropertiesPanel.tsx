@@ -330,6 +330,8 @@ export function PropertiesPanel({
     activeTool === 'smooth';
   const isCoverTool = COVER_TOOL_SET.has(activeTool);
 
+  const formatTabBadge = (count: number): string => (count > 999 ? '999+' : String(count));
+
   const tabs: ReadonlyArray<{ id: InspectorTab; label: string; badge?: number }> = [
     { id: 'tool', label: 'Strumento' },
     { id: 'layers', label: 'Livelli', badge: doc.manifest.layers.length },
@@ -405,13 +407,17 @@ export function PropertiesPanel({
                 className="inspector-tab-btn"
                 aria-selected={isSelected}
                 aria-controls={`${baseId}-panel-${tab.id}`}
+                aria-label={tab.badge !== undefined ? `${tab.label} (${tab.badge})` : tab.label}
+                title={tab.badge !== undefined ? `${tab.label}: ${tab.badge}` : tab.label}
                 tabIndex={isSelected ? 0 : -1}
                 onClick={() => store.setInspectorTab(tab.id)}
                 onKeyDown={(e) => handleTabKeyDown(e, index)}
               >
                 <span className="inspector-tab-label">{tab.label}</span>
                 {tab.badge !== undefined ? (
-                  <span className="inspector-tab-badge tabular-nums">{tab.badge}</span>
+                  <span className="inspector-tab-badge tabular-nums">
+                    {formatTabBadge(tab.badge)}
+                  </span>
                 ) : null}
               </button>
             );

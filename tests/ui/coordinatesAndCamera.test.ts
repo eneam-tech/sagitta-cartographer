@@ -746,5 +746,86 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
       expect(html).not.toContain('font-size:12px');
       expect(html).not.toContain('font-size:14px');
     }
+
+    // StatusBar idle (revision === 0 -> 'Pronto', mai 'Salvataggio…') e notice 'info' distinta da 'success'
+    const idleHtml = renderToStaticMarkup(createElement(StatusBar, { store }));
+    expect(idleHtml).toContain('Pronto');
+    expect(idleHtml).not.toContain('Salvataggio…');
+
+    store.setStatusNotice({ tone: 'info', text: 'Il livello «Terreno e Rilievo» è bloccato o nascosto.' });
+    const infoNoticeHtml = renderToStaticMarkup(createElement(StatusBar, { store }));
+    expect(infoNoticeHtml).toContain('statusbar-icon-info');
+    expect(infoNoticeHtml).not.toContain('statusbar-icon-success');
+
+    // Badge scheda Oggetti > 999 formattato come 999+ con title completo
+    const crowdedDoc = createEmptyDocument({ widthPx: 64, heightPx: 64 });
+    crowdedDoc.manifest.objects = Array.from({ length: 1005 }, (_, i) => ({
+      id: `lbl-${i}`,
+      type: 'label' as const,
+      text: `L${i}`,
+      x: 100,
+      y: 100,
+      fontId: 'spectral-semibold',
+      fontSize: 20,
+      color: '#263C40',
+      rotationDeg: 0
+    }));
+    const crowdedStore = new EditorStore({ initialDocument: crowdedDoc });
+    const crowdedPropHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store: crowdedStore }));
+    expect(crowdedPropHtml).toContain('999+');
+    expect(crowdedPropHtml).toContain('title="Oggetti: 1005"');
+  });
+
+  it('scales rotated PathObject and StampObject accurately under anisotropic scale-content resize', () => {
+    const rotatedPath: PathObject = {
+      id: 'rot-path-90',
+      type: 'path',
+      kind: 'river',
+      x: 400,
+      y: 200,
+      rotationDeg: 90,
+      points: [-100, 0, 0, 50, 100, 0],
+      strokeWidthDoc: 10,
+      color: '#5E95A0'
+    };
+    const rotatedStamp: StampObject = {
+      id: 'rot-stamp-90',
+      type: 'stamp',
+      role: 'poi',
+      assetId: 'poi-tower',
+      x: 300,
+      y: 500,
+      width: 40,
+      height: 80,
+      rotationDeg: 90
+    };
+
+    // Scala anisotropa: scaleX = 2, scaleY = 3
+    const resized = resizeMapObjects(
+      [rotatedPath, rotatedStamp],
+      { width: 1000, height: 1000 },
+      { width: 2000, height: 3000 },
+      'scale-content',
+      'center'
+    );
+
+    const outPath = resized[0] as PathObject;
+    const outStamp = resized[1] as StampObject;
+
+    // A 90° l'asse X locale coincide con Y pagina (×3) e l'asse Y locale con -X pagina (×2)
+    expect(outPath.x).toBe(800);
+    expect(outPath.y).toBe(600);
+    expect(outPath.points[0]).toBeCloseTo(-300, 2);
+    expect(outPath.points[1]).toBeCloseTo(0, 2);
+    expect(outPath.points[2]).toBeCloseTo(0, 2);
+    expect(outPath.points[3]).toBeCloseTo(100, 2);
+    expect(outPath.points[4]).toBeCloseTo(300, 2);
+    expect(outPath.points[5]).toBeCloseTo(0, 2);
+
+    // Stamp a 90°: width segue scaleY (40*3=120), height segue scaleX (80*2=160)
+    expect(outStamp.x).toBe(600);
+    expect(outStamp.y).toBe(1500);
+    expect(outStamp.width).toBeCloseTo(120, 2);
+    expect(outStamp.height).toBeCloseTo(160, 2);
   });
 });

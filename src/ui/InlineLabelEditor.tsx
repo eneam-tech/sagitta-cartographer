@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from 'react';
 import { clampNumber, docToScreen } from '../model/coordinates';
+import { resolveObjectLayerId } from '../model/document';
 import {
   AddObjectCommand,
   commitObjectUpdate,
@@ -12,6 +13,7 @@ export interface InlineLabelEditorSession {
   mode: 'create' | 'edit';
   docX: number;
   docY: number;
+  layerId?: string;
   objectId?: string;
   initialText: string;
   fontId: string;
@@ -25,6 +27,74 @@ export interface InlineLabelEditorProps {
   store: EditorStore;
   session: InlineLabelEditorSession | null;
   onClose: () => void;
+}
+
+/**
+ * Commits an inline label creation or edit against `store` after verifying that
+ * the target layer is still visible and unlocked. Returns false if blocked.
+ */
+export function commitInlineLabelSession(
+  store: EditorStore,
+  session: InlineLabelEditorSession,
+  rawDraft: string
+): boolean {
+  const currentDoc = store.getDocument();
+  const finalText = rawDraft.trim();
+
+  if (session.mode === 'create') {
+    const targetLayerId = session.layerId ?? store.resolveTargetLayerIdForNewObject('label');
+    if (!store.isLayerEditable(targetLayerId)) {
+      store.setStatusNotice({
+        tone: 'info',
+        text: 'Il livello selezionato è bloccato o nascosto.'
+      });
+      return false;
+    }
+    if (finalText.length > 0) {
+      const labelObj = createLabelObject(
+        finalText,
+        session.docX,
+        session.docY,
+        currentDoc.theme,
+        undefined,
+        {
+          layerId: targetLayerId,
+          fontId: session.fontId,
+          fontSize: session.fontSize,
+          color: session.color,
+          rotationDeg: session.rotationDeg
+        }
+      );
+      store.executeCommand(
+        new AddObjectCommand(labelObj, undefined, undefined, 'Aggiungi etichetta')
+      );
+      store.selectObject(labelObj.id);
+    }
+    return true;
+  }
+
+  if (session.mode === 'edit' && session.objectId) {
+    const existing = currentDoc.manifest.objects.find((o) => o.id === session.objectId);
+    if (existing && existing.type === 'label') {
+      const targetLayerId = resolveObjectLayerId(existing, currentDoc.manifest.layers);
+      if (!store.isLayerEditable(targetLayerId)) {
+        store.setStatusNotice({
+          tone: 'info',
+          text: 'Il livello selezionato è bloccato o nascosto.'
+        });
+        return false;
+      }
+      if (finalText.length > 0 && finalText !== existing.text) {
+        commitObjectUpdate(
+          store,
+          existing,
+          { ...existing, text: finalText },
+          'Modifica etichetta'
+        );
+      }
+    }
+  }
+  return true;
 }
 
 /**
@@ -79,41 +149,7 @@ export function InlineLabelEditor({ store, session, onClose }: InlineLabelEditor
   const handleCommit = () => {
     if (settledRef.current) return;
     settledRef.current = true;
-
-    const finalText = draft.trim();
-    if (session.mode === 'create') {
-      if (finalText.length > 0) {
-        const labelObj = createLabelObject(
-          finalText,
-          session.docX,
-          session.docY,
-          snap.doc.theme,
-          undefined,
-          {
-            fontId: session.fontId,
-            fontSize: session.fontSize,
-            color: session.color,
-            rotationDeg: session.rotationDeg
-          }
-        );
-        store.executeCommand(new AddObjectCommand(labelObj, undefined, undefined, 'Aggiungi etichetta'));
-        store.selectObject(labelObj.id);
-      }
-      finishClose();
-      return;
-    }
-
-    if (session.mode === 'edit' && session.objectId) {
-      const existing = snap.doc.manifest.objects.find((o) => o.id === session.objectId);
-      if (existing && existing.type === 'label' && finalText.length > 0 && finalText !== existing.text) {
-        commitObjectUpdate(
-          store,
-          existing,
-          { ...existing, text: finalText },
-          'Modifica etichetta'
-        );
-      }
-    }
+    commitInlineLabelSession(store, session, draft);
     finishClose();
   };
 
@@ -172,7 +208,8 @@ export function InlineLabelEditor({ store, session, onClose }: InlineLabelEditor
         fontStyle: spec.italic ? 'italic' : 'normal',
         fontSize: `${screenFontPx}px`,
         lineHeight: 1.2,
-        outline: 'none'
+        outline: '2px solid var(--ui-focus)',
+        outlineOffset: '2px'
       }}
     />
   );

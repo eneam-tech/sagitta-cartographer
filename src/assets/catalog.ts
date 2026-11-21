@@ -446,28 +446,38 @@ export async function loadAssetsForDocument(
     if (obj.type === 'stamp') neededAssetIds.add(obj.assetId);
   }
 
-  for (const assetId of neededAssetIds) {
-    const entry = entriesById.get(assetId);
-    if (!entry) {
-      throw new Error(`Risorsa "${assetId}" non trovata nel manifest né nel catalogo.`);
-    }
-    const blob = extraAssetBlobs?.get(entry.path) ?? extraAssetBlobs?.get(assetId);
-    if (blob) {
-      const objectUrl = URL.createObjectURL(blob);
-      const image = await loadImageFromSrc(objectUrl, assetId);
-      const resource: LoadedAssetResource = { entry, image, objectUrl };
-      result.set(assetId, resource);
-      continue;
-    }
+  try {
+    for (const assetId of neededAssetIds) {
+      const entry = entriesById.get(assetId);
+      if (!entry) {
+        throw new Error(`Risorsa "${assetId}" non trovata nel manifest né nel catalogo.`);
+      }
+      const blob = extraAssetBlobs?.get(entry.path) ?? extraAssetBlobs?.get(assetId);
+      if (blob) {
+        const objectUrl = URL.createObjectURL(blob);
+        try {
+          const image = await loadImageFromSrc(objectUrl, assetId);
+          const resource: LoadedAssetResource = { entry, image, objectUrl };
+          result.set(assetId, resource);
+          continue;
+        } catch (err) {
+          URL.revokeObjectURL(objectUrl);
+          throw err;
+        }
+      }
 
-    const catalogItem = getCatalogItemById(assetId);
-    if (catalogItem) {
-      const image = await loadImageFromSrc(svgToDataUrl(catalogItem.svgContent), assetId);
-      result.set(assetId, { entry, image });
-      continue;
-    }
+      const catalogItem = getCatalogItemById(assetId);
+      if (catalogItem) {
+        const image = await loadImageFromSrc(svgToDataUrl(catalogItem.svgContent), assetId);
+        result.set(assetId, { entry, image });
+        continue;
+      }
 
-    throw new Error(`File risorsa "${entry.path}" (${assetId}) mancante.`);
+      throw new Error(`File risorsa "${entry.path}" (${assetId}) mancante.`);
+    }
+  } catch (err) {
+    disposeLoadedAssets(result);
+    throw err;
   }
 
   return result;

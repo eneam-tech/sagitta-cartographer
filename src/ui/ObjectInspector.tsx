@@ -10,11 +10,12 @@ import {
 import {
   DeleteObjectCommand,
   PATH_KIND_OPTIONS,
-  commitObjectReorder,
+  commitObjectReorderInLayer,
   commitObjectUpdate,
   getDefaultObjectLabel,
   getDeleteObjectLabel,
   getPathKindLabel,
+  getSameLayerAdjacentIndices,
   normalizeRotationDeg
 } from '../objects/objectCommands';
 import { PathColorControls, SyncedRangeField } from '../objects/uiControls';
@@ -45,6 +46,7 @@ interface CommittedNumberFieldProps {
   step?: number;
   unit: string;
   compact?: boolean;
+  stacked?: boolean;
   disabled?: boolean;
   onCommit: (nextValue: number) => void;
 }
@@ -57,6 +59,7 @@ function CommittedNumberField({
   step = 1,
   unit,
   compact = false,
+  stacked = false,
   disabled = false,
   onCommit
 }: CommittedNumberFieldProps) {
@@ -85,6 +88,108 @@ function CommittedNumberField({
     }
   };
 
+  const inputEl = (
+    <input
+      id={inputId}
+      type="number"
+      className="number-input tabular-nums"
+      min={min}
+      max={max}
+      step={step}
+      disabled={disabled}
+      value={editing ? draft : formatNum(value)}
+      style={
+        stacked
+          ? { width: '100%', fontVariantNumeric: 'tabular-nums' }
+          : compact
+            ? { width: '76px', fontVariantNumeric: 'tabular-nums' }
+            : { width: '88px', fontVariantNumeric: 'tabular-nums' }
+      }
+      onFocus={() => {
+        cancelledRef.current = false;
+        skipNextBlurRef.current = false;
+        setEditing(true);
+        setDraft(formatNum(value));
+      }}
+      onChange={(e) => {
+        const raw = e.target.value;
+        setDraft(raw);
+
+        const nativeEv = e.nativeEvent as Partial<InputEvent>;
+        const isTyping =
+          typeof nativeEv.inputType === 'string' &&
+          (nativeEv.inputType.startsWith('insert') ||
+            nativeEv.inputType.startsWith('delete') ||
+            nativeEv.inputType === 'historyUndo' ||
+            nativeEv.inputType === 'historyRedo');
+
+        if (!isTyping && raw.trim() !== '') {
+          const parsed = Number(raw.replace(',', '.'));
+          if (Number.isFinite(parsed)) {
+            const clamped = Number(clampNumber(parsed, min, max).toFixed(2));
+            if (clamped !== value) {
+              onCommit(clamped);
+            }
+          }
+        }
+      }}
+      onBlur={() => {
+        setEditing(false);
+        if (cancelledRef.current || skipNextBlurRef.current) {
+          cancelledRef.current = false;
+          skipNextBlurRef.current = false;
+          return;
+        }
+        commitDraft();
+      }}
+      onKeyDown={(e) => {
+        if (e.key === 'Enter') {
+          e.preventDefault();
+          skipNextBlurRef.current = true;
+          commitDraft();
+          setEditing(false);
+          e.currentTarget.blur();
+        } else if (e.key === 'Escape') {
+          e.preventDefault();
+          e.stopPropagation();
+          cancelledRef.current = true;
+          setDraft(formatNum(value));
+          setEditing(false);
+          e.currentTarget.blur();
+        }
+      }}
+    />
+  );
+
+  if (stacked) {
+    return (
+      <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--ui-space-1)' }}>
+        <label
+          htmlFor={inputId}
+          style={{
+            fontSize: '15px',
+            lineHeight: '20px',
+            fontWeight: 600,
+            color: 'var(--ui-text)'
+          }}
+        >
+          {label}{' '}
+          <span
+            style={{
+              fontSize: '13px',
+              lineHeight: '18px',
+              fontWeight: 400,
+              color: 'var(--ui-muted)'
+            }}
+          >
+            ({unit})
+          </span>
+        </label>
+        {inputEl}
+      </div>
+    );
+  }
+
   return (
     <div
       style={{
@@ -107,70 +212,7 @@ function CommittedNumberField({
       </label>
 
       <div className="number-unit-wrap">
-        <input
-          id={inputId}
-          type="number"
-          className="number-input tabular-nums"
-          min={min}
-          max={max}
-          step={step}
-          disabled={disabled}
-          value={editing ? draft : formatNum(value)}
-          style={compact ? { width: '68px' } : { width: '82px' }}
-          onFocus={() => {
-            cancelledRef.current = false;
-            skipNextBlurRef.current = false;
-            setEditing(true);
-            setDraft(formatNum(value));
-          }}
-          onChange={(e) => {
-            const raw = e.target.value;
-            setDraft(raw);
-
-            const nativeEv = e.nativeEvent as Partial<InputEvent>;
-            const isTyping =
-              typeof nativeEv.inputType === 'string' &&
-              (nativeEv.inputType.startsWith('insert') ||
-                nativeEv.inputType.startsWith('delete') ||
-                nativeEv.inputType === 'historyUndo' ||
-                nativeEv.inputType === 'historyRedo');
-
-            if (!isTyping && raw.trim() !== '') {
-              const parsed = Number(raw.replace(',', '.'));
-              if (Number.isFinite(parsed)) {
-                const clamped = Number(clampNumber(parsed, min, max).toFixed(2));
-                if (clamped !== value) {
-                  onCommit(clamped);
-                }
-              }
-            }
-          }}
-          onBlur={() => {
-            setEditing(false);
-            if (cancelledRef.current || skipNextBlurRef.current) {
-              cancelledRef.current = false;
-              skipNextBlurRef.current = false;
-              return;
-            }
-            commitDraft();
-          }}
-          onKeyDown={(e) => {
-            if (e.key === 'Enter') {
-              e.preventDefault();
-              skipNextBlurRef.current = true;
-              commitDraft();
-              setEditing(false);
-              e.currentTarget.blur();
-            } else if (e.key === 'Escape') {
-              e.preventDefault();
-              e.stopPropagation();
-              cancelledRef.current = true;
-              setDraft(formatNum(value));
-              setEditing(false);
-              e.currentTarget.blur();
-            }
-          }}
-        />
+        {inputEl}
         <span className="unit-label">{unit}</span>
       </div>
     </div>
@@ -229,7 +271,7 @@ function StampInspectorFields({ store, stamp, disabled }: StampInspectorFieldsPr
           max={maxDim}
           step={10}
           unit="u"
-          compact
+          stacked
           disabled={disabled}
           onCommit={(x) => commitStampPatch({ x }, 'Sposta simbolo')}
         />
@@ -240,7 +282,7 @@ function StampInspectorFields({ store, stamp, disabled }: StampInspectorFieldsPr
           max={maxDim}
           step={10}
           unit="u"
-          compact
+          stacked
           disabled={disabled}
           onCommit={(y) => commitStampPatch({ y }, 'Sposta simbolo')}
         />
@@ -707,37 +749,59 @@ function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsPr
             type="checkbox"
             checked={Boolean(pathObj.tapered)}
             disabled={disabled}
-            onChange={(e) =>
-              commitPathPatch({ tapered: e.target.checked }, 'Modifica affusolatura tracciato')
-            }
+            onChange={(e) => {
+              const nextTapered = e.target.checked;
+              commitPathPatch(
+                {
+                  tapered: nextTapered,
+                  ...(nextTapered && pathObj.dashed ? { dashed: false } : {})
+                },
+                'Modifica affusolatura tracciato'
+              );
+            }}
             style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
           />
           <span>Affusolato</span>
         </label>
 
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--ui-space-2)',
-            minHeight: '36px',
-            fontSize: '15px',
-            lineHeight: '22px',
-            color: 'var(--ui-text)',
-            cursor: disabled ? 'not-allowed' : 'pointer'
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={Boolean(pathObj.dashed)}
-            disabled={disabled}
-            onChange={(e) =>
-              commitPathPatch({ dashed: e.target.checked }, 'Modifica tratteggio tracciato')
-            }
-            style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
-          />
-          <span>Tratteggiato</span>
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--ui-space-2)',
+              minHeight: '36px',
+              fontSize: '15px',
+              lineHeight: '22px',
+              color: pathObj.tapered ? 'var(--ui-muted)' : 'var(--ui-text)',
+              opacity: pathObj.tapered ? 0.65 : 1,
+              cursor: disabled || pathObj.tapered ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={Boolean(pathObj.dashed) && !pathObj.tapered}
+              disabled={disabled || Boolean(pathObj.tapered)}
+              onChange={(e) =>
+                commitPathPatch({ dashed: e.target.checked }, 'Modifica tratteggio tracciato')
+              }
+              style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+            />
+            <span>Tratteggiato</span>
+          </label>
+          {pathObj.tapered ? (
+            <span
+              style={{
+                paddingLeft: '24px',
+                fontSize: '13px',
+                lineHeight: '18px',
+                color: 'var(--ui-muted)'
+              }}
+            >
+              Non disponibile con tratto affusolato
+            </span>
+          ) : null}
+        </div>
       </div>
 
       <CommittedNumberField
@@ -767,7 +831,10 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
   const objects = snap.doc.manifest.objects;
   const layers = snap.doc.manifest.layers;
   const selectedId = snap.selectedObjectId;
-  const docIndex = selectedId ? objects.findIndex((o) => o.id === selectedId) : -1;
+  const adjacent = selectedId
+    ? getSameLayerAdjacentIndices(objects, layers, selectedId)
+    : null;
+  const docIndex = adjacent ? adjacent.docIndex : -1;
   const selectedObject: MapObject | null = docIndex >= 0 ? objects[docIndex] : null;
 
   if (!selectedObject) {
@@ -787,8 +854,8 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
   const currentLayer = layers.find((l) => l.id === currentLayerId);
   const layerEditable = currentLayer ? currentLayer.visible && !currentLayer.locked : true;
 
-  const canMoveForward = layerEditable && docIndex < objects.length - 1;
-  const canMoveBackward = layerEditable && docIndex > 0;
+  const canMoveForward = layerEditable && adjacent?.nextSameLayerIndex !== null;
+  const canMoveBackward = layerEditable && adjacent?.prevSameLayerIndex !== null;
 
   const headingText =
     selectedObject.type === 'stamp'
@@ -858,15 +925,32 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
           onChange={(e) => {
             const nextLayerId = e.target.value;
             if (!nextLayerId || nextLayerId === currentLayerId) return;
+            if (!store.isLayerEditable(nextLayerId)) return;
             const nextObj: MapObject = { ...selectedObject, layerId: nextLayerId };
             commitObjectUpdate(store, selectedObject, nextObj, 'Sposta oggetto su livello');
           }}
         >
-          {nonTerrainLayers.map((layer) => (
-            <option key={layer.id} value={layer.id}>
-              {layer.name}
-            </option>
-          ))}
+          {nonTerrainLayers.map((layer) => {
+            const targetEditable = layer.visible && !layer.locked;
+            const isCurrent = layer.id === currentLayerId;
+            const statusSuffix = !layer.visible && layer.locked
+              ? ' (nascosto, bloccato)'
+              : !layer.visible
+                ? ' (nascosto)'
+                : layer.locked
+                  ? ' (bloccato)'
+                  : '';
+            return (
+              <option
+                key={layer.id}
+                value={layer.id}
+                disabled={!isCurrent && !targetEditable}
+              >
+                {layer.name}
+                {statusSuffix}
+              </option>
+            );
+          })}
         </select>
       </div>
 
@@ -892,7 +976,7 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
           className="btn btn-secondary btn-compact"
           disabled={!canMoveForward}
           onClick={() =>
-            commitObjectReorder(store, selectedObject.id, docIndex + 1, 'Porta avanti')
+            commitObjectReorderInLayer(store, selectedObject.id, 'forward')
           }
         >
           Porta avanti
@@ -902,7 +986,7 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
           className="btn btn-secondary btn-compact"
           disabled={!canMoveBackward}
           onClick={() =>
-            commitObjectReorder(store, selectedObject.id, docIndex - 1, 'Porta indietro')
+            commitObjectReorderInLayer(store, selectedObject.id, 'backward')
           }
         >
           Porta indietro

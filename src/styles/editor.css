@@ -1,5 +1,15 @@
 @import './tokens.css';
 
+:root {
+  --ui-panel-w: 308px;
+}
+
+@media (max-width: 1199px) {
+  :root {
+    --ui-panel-w: 292px;
+  }
+}
+
 *,
 *::before,
 *::after {
@@ -21,6 +31,33 @@ body,
   line-height: 22px;
   font-weight: 400;
   -webkit-font-smoothing: antialiased;
+}
+
+.editor-shell,
+.editor-topbar,
+.topbar,
+.editor-rail,
+.tool-rail,
+.editor-properties,
+.editor-statusbar,
+.status-bar,
+.editor-stage-wrap,
+.map-viewport,
+.dialog-card,
+.dialog-surface {
+  user-select: none;
+  -webkit-user-select: none;
+}
+
+input,
+textarea,
+select,
+[contenteditable='true'],
+[contenteditable=''],
+[contenteditable='plaintext-only'],
+pre {
+  user-select: text;
+  -webkit-user-select: text;
 }
 
 /* Focus accessibile globale: anello 2 px con distacco di 2 px */
@@ -187,12 +224,17 @@ body,
   flex-shrink: 0;
 }
 
-.topbar-theme-btn {
+.topbar-theme-btn,
+.topbar-theme-select {
   gap: var(--ui-space-2);
+  min-width: 215px;
+  width: auto;
+  max-width: 268px;
+  justify-content: space-between;
 }
 
 .topbar-theme-label {
-  max-width: 144px;
+  max-width: none;
   overflow: hidden;
   text-overflow: ellipsis;
   white-space: nowrap;
@@ -510,7 +552,7 @@ body,
   z-index: 11;
 }
 
-/* Pannello destro Proprietà (280 px) */
+/* Pannello destro Proprietà (308 px desktop, 292 px medio) */
 .editor-properties {
   width: var(--ui-panel-w);
   background-color: var(--ui-panel);
@@ -551,14 +593,15 @@ body,
   display: flex;
   align-items: stretch;
   gap: var(--ui-space-1);
-  padding: var(--ui-space-2);
+  padding: 6px;
   background-color: rgba(23, 35, 45, 0.42);
   border-bottom: var(--ui-border-w) solid var(--ui-line-subtle);
   flex-shrink: 0;
 }
 
-.inspector-tab-btn {
-  flex: 1 1 auto;
+.inspector-tab-btn,
+.inspector-tab {
+  flex: 1 0 auto;
   min-width: 0;
   min-height: var(--ui-control-h);
   padding: 0 6px;
@@ -579,12 +622,14 @@ body,
   transition: background-color var(--ui-motion-fast), border-color var(--ui-motion-fast), color var(--ui-motion-fast);
 }
 
-.inspector-tab-btn:hover {
+.inspector-tab-btn:hover,
+.inspector-tab:hover {
   background-color: var(--ui-raised);
   color: var(--ui-text);
 }
 
-.inspector-tab-btn[aria-selected='true'] {
+.inspector-tab-btn[aria-selected='true'],
+.inspector-tab[aria-selected='true'] {
   background-color: var(--ui-raised);
   color: var(--ui-accent);
   border-color: var(--ui-line-subtle);
@@ -592,8 +637,7 @@ body,
 }
 
 .inspector-tab-label {
-  overflow: hidden;
-  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .inspector-tab-badge {
@@ -808,9 +852,9 @@ body,
 
 .elevation-legend {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
-  gap: 2px;
-  padding: 6px var(--ui-space-1);
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-1) var(--ui-space-2);
+  padding: 6px var(--ui-space-2);
   background-color: var(--ui-panel);
   border-top: var(--ui-border-w) solid var(--ui-line-subtle);
   font-size: 13px;
@@ -1098,7 +1142,7 @@ body,
 }
 
 .objects-list-container {
-  padding: 0 var(--ui-space-4) var(--ui-space-4);
+  padding: 6px var(--ui-space-4) 16px;
   max-height: 220px;
   overflow-y: auto;
 }
@@ -1201,6 +1245,11 @@ body,
   color: var(--ui-muted);
 }
 
+.statusbar-text.is-info {
+  color: var(--ui-text);
+  font-weight: 600;
+}
+
 .statusbar-text.is-error {
   color: var(--ui-error);
   font-weight: 600;
@@ -1208,6 +1257,11 @@ body,
 
 .statusbar-icon-success {
   color: var(--ui-success);
+  flex-shrink: 0;
+}
+
+.statusbar-icon-info {
+  color: var(--ui-accent);
   flex-shrink: 0;
 }
 
@@ -1330,15 +1384,13 @@ body,
   background-color: #3a5263;
 }
 
-/* Suggerimenti visibili su hover e focus-visible per pulsanti a sola icona */
+/* Suggerimenti visibili su focus-visible e (su dispositivi hover) al passaggio del mouse */
 .has-tooltip-top,
 .has-tooltip-bottom {
   position: relative;
 }
 
-.has-tooltip-top:hover::after,
 .has-tooltip-top:focus-visible::after,
-.has-tooltip-bottom:hover::after,
 .has-tooltip-bottom:focus-visible::after {
   content: attr(data-tooltip);
   position: absolute;
@@ -1358,20 +1410,54 @@ body,
   white-space: nowrap;
 }
 
-.has-tooltip-top:hover::after,
 .has-tooltip-top:focus-visible::after {
   bottom: calc(100% + 6px);
 }
 
-.has-tooltip-bottom:hover::after,
 .has-tooltip-bottom:focus-visible::after {
   top: calc(100% + 6px);
 }
 
-.has-tooltip-bottom.has-tooltip-bottom-start:hover::after,
+.has-tooltip-start:focus-visible::after,
 .has-tooltip-bottom.has-tooltip-bottom-start:focus-visible::after {
   left: 0;
   right: auto;
+}
+
+@media (hover: hover) {
+  .has-tooltip-top:hover::after,
+  .has-tooltip-bottom:hover::after {
+    content: attr(data-tooltip);
+    position: absolute;
+    right: 0;
+    z-index: 90;
+    pointer-events: none;
+    padding: var(--ui-space-1) var(--ui-space-2);
+    background-color: var(--ui-panel);
+    color: var(--ui-text);
+    border: var(--ui-border-w) solid var(--ui-line);
+    border-radius: var(--ui-radius-control);
+    box-shadow: 0 8px 20px rgba(10, 17, 23, 0.55);
+    font-family: var(--ui-font-sans);
+    font-size: 13px;
+    line-height: 18px;
+    font-weight: 600;
+    white-space: nowrap;
+  }
+
+  .has-tooltip-top:hover::after {
+    bottom: calc(100% + 6px);
+  }
+
+  .has-tooltip-bottom:hover::after {
+    top: calc(100% + 6px);
+  }
+
+  .has-tooltip-start:hover::after,
+  .has-tooltip-bottom.has-tooltip-bottom-start:hover::after {
+    left: 0;
+    right: auto;
+  }
 }
 
 .has-tooltip-bottom[aria-expanded='true']::after {
@@ -1740,9 +1826,24 @@ body,
   .topbar-hide-medium {
     display: none;
   }
+}
+
+@media (max-width: 1199px) {
+  .topbar-theme-btn,
+  .topbar-theme-select {
+    min-width: 0;
+    max-width: 196px;
+  }
 
   .topbar-theme-label {
-    max-width: 96px;
+    max-width: 118px;
+  }
+
+  .inspector-tab-btn,
+  .inspector-tab {
+    padding: 0 5px;
+    font-size: 13px;
+    line-height: 18px;
   }
 }
 
@@ -1809,10 +1910,13 @@ body,
     display: none;
   }
 
+  .topbar-theme-btn,
+  .topbar-theme-select,
   .topbar-canvas-btn,
   .topbar-props-toggle {
     padding: 0 var(--ui-space-2);
     min-width: var(--ui-control-h);
+    justify-content: center;
   }
 
   .statusbar-telemetry {

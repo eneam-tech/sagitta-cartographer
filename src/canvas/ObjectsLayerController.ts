@@ -40,6 +40,7 @@ export interface InlineLabelEditRequest {
   mode: 'create' | 'edit';
   docX: number;
   docY: number;
+  layerId?: string;
   objectId?: string;
   initialText: string;
   fontId: string;
@@ -1295,7 +1296,12 @@ export class ObjectsLayerController {
     return this.inlineEditingSessionActive;
   }
 
-  private openInlineEditorForNewLabel(docX: number, docY: number, theme: MapTheme): void {
+  private openInlineEditorForNewLabel(
+    docX: number,
+    docY: number,
+    theme: MapTheme,
+    layerId: string
+  ): void {
     if (!this.onRequestInlineLabelEdit) return;
     const spec = getFontSpec(theme, theme.fonts.defaultFontId);
     this.inlineEditingSessionActive = true;
@@ -1307,6 +1313,7 @@ export class ObjectsLayerController {
       mode: 'create',
       docX: Number(docX.toFixed(2)),
       docY: Number(docY.toFixed(2)),
+      layerId,
       initialText: '',
       fontId: spec.id,
       fontSize: spec.defaultSizeDoc,
@@ -1318,6 +1325,8 @@ export class ObjectsLayerController {
 
   private openInlineEditorForExistingLabel(label: LabelObject): void {
     if (!this.onRequestInlineLabelEdit) return;
+    const doc = this.store.getDocument();
+    const resolvedLayerId = resolveObjectLayerId(label, doc.manifest.layers);
     this.store.selectObject(label.id);
     this.setInlineEditingState(true, label.id);
 
@@ -1325,6 +1334,7 @@ export class ObjectsLayerController {
       mode: 'edit',
       docX: label.x,
       docY: label.y,
+      layerId: resolvedLayerId,
       objectId: label.id,
       initialText: label.text,
       fontId: label.fontId,
@@ -1389,6 +1399,13 @@ export class ObjectsLayerController {
 
     this.pathPreviewShape.visible(false);
     const snap = this.store.getSnapshot();
+
+    if (!this.store.isLayerEditable(draft.layerId)) {
+      this.notifyLockedOrHiddenLayer(draft.layerId, snap.doc.manifest.layers, 'Fiumi e Strade');
+      this.updateGhost(snap, this.store.getEffectiveTool());
+      this.layers.overlayLayer.batchDraw();
+      return;
+    }
 
     if (draft.points.length >= 4 && computePolylineLength(draft.points) >= 3) {
       const toleranceDoc = clampNumber(snap.pathStrokeWidthDoc * 0.25, 1.5, 6);
@@ -1560,13 +1577,13 @@ export class ObjectsLayerController {
         return true;
       }
 
-      const targetLabelLayerId = resolveObjectLayerId({ type: 'label' }, snap.doc.manifest.layers);
+      const targetLabelLayerId = this.store.resolveTargetLayerIdForNewObject('label');
       if (!this.store.isLayerEditable(targetLabelLayerId)) {
         this.notifyLockedOrHiddenLayer(targetLabelLayerId, snap.doc.manifest.layers, 'Nomi e Note');
         return true;
       }
 
-      this.openInlineEditorForNewLabel(ctx.docX, ctx.docY, snap.doc.theme);
+      this.openInlineEditorForNewLabel(ctx.docX, ctx.docY, snap.doc.theme, targetLabelLayerId);
       return true;
     }
 

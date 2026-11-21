@@ -4,7 +4,7 @@ import { getCatalogItemById, svgToDataUrl } from '../assets/catalog';
 import { MapObject, resolveObjectLayerId } from '../model/document';
 import {
   DeleteObjectCommand,
-  commitObjectReorder,
+  commitObjectReorderInLayer,
   getDefaultObjectLabel,
   getDeleteObjectLabel
 } from '../objects/objectCommands';
@@ -218,14 +218,14 @@ function ObjectThumb({ obj }: { obj: MapObject }) {
 
 interface ObjectRowProps {
   obj: MapObject;
-  docIndex: number;
-  totalCount: number;
+  canMoveForwardInLayer: boolean;
+  canMoveBackwardInLayer: boolean;
   isSelected: boolean;
   layerName: string;
   layerEditable: boolean;
   onSelect: (id: string) => void;
-  onBringForward: (obj: MapObject, docIndex: number) => void;
-  onSendBackward: (obj: MapObject, docIndex: number) => void;
+  onBringForward: (obj: MapObject) => void;
+  onSendBackward: (obj: MapObject) => void;
   onDelete: (obj: MapObject) => void;
   onKeyDownSelectBtn: (e: KeyboardEvent<HTMLButtonElement>, visibleIndex: number, obj: MapObject) => void;
   visibleIndex: number;
@@ -234,8 +234,8 @@ interface ObjectRowProps {
 
 function ObjectRow({
   obj,
-  docIndex,
-  totalCount,
+  canMoveForwardInLayer,
+  canMoveBackwardInLayer,
   isSelected,
   layerName,
   layerEditable,
@@ -250,8 +250,8 @@ function ObjectRow({
   const displayName = getDefaultObjectLabel(obj);
   const kindLabel =
     obj.type === 'stamp' ? 'POI' : obj.type === 'label' ? 'Etichetta' : 'Tracciato';
-  const canMoveForward = layerEditable && docIndex < totalCount - 1;
-  const canMoveBackward = layerEditable && docIndex > 0;
+  const canMoveForward = layerEditable && canMoveForwardInLayer;
+  const canMoveBackward = layerEditable && canMoveBackwardInLayer;
 
   return (
     <li
@@ -259,8 +259,8 @@ function ObjectRow({
         display: 'flex',
         alignItems: 'center',
         gap: '2px',
-        minHeight: '36px',
-        padding: '0 2px 0 4px',
+        minHeight: '44px',
+        padding: '3px 2px 3px 4px',
         backgroundColor: isSelected ? 'var(--ui-raised)' : 'transparent',
         border: `1px solid ${isSelected ? 'var(--ui-accent)' : 'transparent'}`,
         borderRadius: 'var(--ui-radius-control)',
@@ -278,7 +278,7 @@ function ObjectRow({
           flex: '1 1 auto',
           minWidth: 0,
           minHeight: '36px',
-          padding: '0 4px',
+          padding: '2px 4px',
           background: 'transparent',
           border: 'none',
           borderRadius: 'var(--ui-radius-control)',
@@ -289,7 +289,7 @@ function ObjectRow({
           fontWeight: isSelected ? 600 : 400,
           display: 'flex',
           alignItems: 'center',
-          gap: '6px',
+          gap: '8px',
           textAlign: 'left',
           cursor: 'pointer'
         }}
@@ -299,32 +299,42 @@ function ObjectRow({
           style={{
             flex: '1 1 auto',
             minWidth: 0,
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap'
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'flex-start',
+            gap: '2px'
           }}
         >
-          {displayName}
-        </span>
-        <span
-          title={`Livello: ${layerName}`}
-          style={{
-            fontSize: '13px',
-            lineHeight: '18px',
-            fontWeight: 400,
-            color: 'var(--ui-muted)',
-            backgroundColor: 'rgba(23, 35, 45, 0.55)',
-            border: '1px solid var(--ui-line-subtle)',
-            borderRadius: 'var(--ui-radius-control)',
-            padding: '0 6px',
-            maxWidth: '68px',
-            overflow: 'hidden',
-            textOverflow: 'ellipsis',
-            whiteSpace: 'nowrap',
-            flexShrink: 0
-          }}
-        >
-          {layerName}
+          <span
+            style={{
+              width: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+            title={displayName}
+          >
+            {displayName}
+          </span>
+          <span
+            title={`Livello: ${layerName}`}
+            style={{
+              fontSize: '13px',
+              lineHeight: '18px',
+              fontWeight: 400,
+              color: 'var(--ui-muted)',
+              backgroundColor: 'rgba(23, 35, 45, 0.55)',
+              border: '1px solid var(--ui-line-subtle)',
+              borderRadius: 'var(--ui-radius-control)',
+              padding: '0 6px',
+              maxWidth: '100%',
+              overflow: 'hidden',
+              textOverflow: 'ellipsis',
+              whiteSpace: 'nowrap'
+            }}
+          >
+            {layerName}
+          </span>
         </span>
       </button>
 
@@ -335,7 +345,7 @@ function ObjectRow({
           aria-label={`Porta avanti ${displayName}`}
           data-tooltip="Porta avanti"
           disabled={!canMoveForward}
-          onClick={() => onBringForward(obj, docIndex)}
+          onClick={() => onBringForward(obj)}
           style={{
             minHeight: '36px',
             minWidth: '36px',
@@ -353,7 +363,7 @@ function ObjectRow({
           aria-label={`Porta indietro ${displayName}`}
           data-tooltip="Porta indietro"
           disabled={!canMoveBackward}
-          onClick={() => onSendBackward(obj, docIndex)}
+          onClick={() => onSendBackward(obj)}
           style={{
             minHeight: '36px',
             minWidth: '36px',
@@ -388,9 +398,17 @@ function ObjectRow({
   );
 }
 
+interface VisualObjectEntry {
+  obj: MapObject;
+  canMoveForwardInLayer: boolean;
+  canMoveBackwardInLayer: boolean;
+}
+
 /**
- * Foreground-first object z-order list with thumbnails, layer badges, keyboard arrow
- * navigation, forward/backward/delete controls, and windowing for 2,000+ symbols.
+ * Foreground-first object z-order list matching Canvas and PDF visual stacking
+ * (`[...nonTerrainLayers].reverse()`, then objects within each layer from front
+ * to back), with two-line rows, layer badges, same-layer reordering, keyboard
+ * navigation, and windowing for 2,000+ symbols.
  */
 export function ObjectListPanel({ store }: ObjectListPanelProps) {
   const snap = useEditorStore(store);
@@ -407,6 +425,32 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
   }
 
   const layerById = new Map(layers.map((l) => [l.id, l]));
+  const bucketsByLayer = new Map<string, MapObject[]>();
+  for (const obj of objects) {
+    const resolvedId = resolveObjectLayerId(obj, layers);
+    let bucket = bucketsByLayer.get(resolvedId);
+    if (!bucket) {
+      bucket = [];
+      bucketsByLayer.set(resolvedId, bucket);
+    }
+    bucket.push(obj);
+  }
+
+  // Costruisce la pila visiva effettiva dall'alto verso il basso (coerente con Canvas e PDF)
+  const visualOrder: VisualObjectEntry[] = [];
+  const nonTerrainLayers = layers.filter((l) => l.kind !== 'terrain');
+  for (let li = nonTerrainLayers.length - 1; li >= 0; li -= 1) {
+    const bucket = bucketsByLayer.get(nonTerrainLayers[li].id);
+    if (!bucket || bucket.length === 0) continue;
+    for (let bi = bucket.length - 1; bi >= 0; bi -= 1) {
+      visualOrder.push({
+        obj: bucket[bi],
+        canMoveForwardInLayer: bi < bucket.length - 1,
+        canMoveBackwardInLayer: bi > 0
+      });
+    }
+  }
+
   const getLayerMeta = (obj: MapObject) => {
     const resolvedId = resolveObjectLayerId(obj, layers);
     const layer = layerById.get(resolvedId);
@@ -416,31 +460,26 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
     };
   };
 
-  const isVirtualized = totalCount > VIRTUAL_THRESHOLD;
-  const effectiveLimit = isVirtualized ? Math.min(totalCount, visibleLimit) : totalCount;
+  const isVirtualized = visualOrder.length > VIRTUAL_THRESHOLD;
+  const effectiveLimit = isVirtualized
+    ? Math.min(visualOrder.length, visibleLimit)
+    : visualOrder.length;
+  const visibleEntries = visualOrder.slice(0, effectiveLimit);
 
-  // Costruisce la finestra dall'alto (primo piano = objects[totalCount - 1]) verso il fondo
-  const visibleEntries: Array<{ obj: MapObject; docIndex: number }> = [];
-  for (let rank = 0; rank < effectiveLimit; rank += 1) {
-    const docIndex = totalCount - 1 - rank;
-    visibleEntries.push({ obj: objects[docIndex], docIndex });
-  }
-
-  const selectedDocIndex = selectedId ? objects.findIndex((o) => o.id === selectedId) : -1;
-  const selectedRank = selectedDocIndex >= 0 ? totalCount - 1 - selectedDocIndex : -1;
+  const selectedRank = selectedId ? visualOrder.findIndex((e) => e.obj.id === selectedId) : -1;
   const pinnedSelectedOutsideWindow =
-    isVirtualized && selectedDocIndex >= 0 && selectedRank >= effectiveLimit
-      ? { obj: objects[selectedDocIndex], docIndex: selectedDocIndex, rank: selectedRank }
+    isVirtualized && selectedRank >= effectiveLimit
+      ? { entry: visualOrder[selectedRank], rank: selectedRank }
       : null;
 
-  const handleBringForward = (obj: MapObject, docIndex: number) => {
+  const handleBringForward = (obj: MapObject) => {
     if (!getLayerMeta(obj).layerEditable) return;
-    commitObjectReorder(store, obj.id, docIndex + 1, 'Porta avanti');
+    commitObjectReorderInLayer(store, obj.id, 'forward');
   };
 
-  const handleSendBackward = (obj: MapObject, docIndex: number) => {
+  const handleSendBackward = (obj: MapObject) => {
     if (!getLayerMeta(obj).layerEditable) return;
-    commitObjectReorder(store, obj.id, docIndex - 1, 'Porta indietro');
+    commitObjectReorderInLayer(store, obj.id, 'backward');
   };
 
   const handleDelete = (obj: MapObject) => {
@@ -468,13 +507,13 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
     });
   };
 
-  const remainingCount = totalCount - effectiveLimit;
+  const remainingCount = visualOrder.length - effectiveLimit;
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 'var(--ui-space-2)' }}>
       {pinnedSelectedOutsideWindow ? (
         (() => {
-          const meta = getLayerMeta(pinnedSelectedOutsideWindow.obj);
+          const meta = getLayerMeta(pinnedSelectedOutsideWindow.entry.obj);
           return (
             <div
               style={{
@@ -490,13 +529,13 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
                   marginBottom: '4px'
                 }}
               >
-                Selezionato (#{pinnedSelectedOutsideWindow.rank + 1} su {totalCount})
+                Selezionato (#{pinnedSelectedOutsideWindow.rank + 1} su {visualOrder.length})
               </div>
               <ul className="objects-fallback-list" aria-label="Oggetto selezionato">
                 <ObjectRow
-                  obj={pinnedSelectedOutsideWindow.obj}
-                  docIndex={pinnedSelectedOutsideWindow.docIndex}
-                  totalCount={totalCount}
+                  obj={pinnedSelectedOutsideWindow.entry.obj}
+                  canMoveForwardInLayer={pinnedSelectedOutsideWindow.entry.canMoveForwardInLayer}
+                  canMoveBackwardInLayer={pinnedSelectedOutsideWindow.entry.canMoveBackwardInLayer}
                   isSelected={true}
                   layerName={meta.layerName}
                   layerEditable={meta.layerEditable}
@@ -521,8 +560,8 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
             <ObjectRow
               key={entry.obj.id}
               obj={entry.obj}
-              docIndex={entry.docIndex}
-              totalCount={totalCount}
+              canMoveForwardInLayer={entry.canMoveForwardInLayer}
+              canMoveBackwardInLayer={entry.canMoveBackwardInLayer}
               isSelected={entry.obj.id === selectedId}
               layerName={meta.layerName}
               layerEditable={meta.layerEditable}
@@ -542,7 +581,7 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
         <button
           type="button"
           className="btn btn-secondary btn-compact"
-          onClick={() => setVisibleLimit((prev) => Math.min(totalCount, prev + PAGE_STEP))}
+          onClick={() => setVisibleLimit((prev) => Math.min(visualOrder.length, prev + PAGE_STEP))}
           style={{ width: '100%' }}
         >
           Mostra altri ({remainingCount} rimanenti)

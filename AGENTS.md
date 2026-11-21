@@ -10,25 +10,25 @@
 
 I contratti congelati seguenti definiscono le interfacce comuni e non vanno modificati unilateralmente dai singoli moduli:
 
-- `src/model/coordinates.ts` — unità logiche (`10 u/mm`), conversioni stampa (`mmToPdfPoints`, `mmToPrintPx`, `ptToDocUnits`), mapping maschera/documento, matematica camera (`screenToDoc`, `docToScreen`, `zoomAtPoint`, `fitCameraToViewport`).
-- `src/model/document.ts` — schema v2 (`DocumentManifest`, `TerrainBuffers`, `MapObject` unione discriminata `stamp | label`, `createEmptyDocument`, validazione runtime).
-- `src/model/commands.ts` e `src/model/history.ts` — confine dei comandi annullabili, `TerrainPatchCommand`, `HistoryManager` con budget di memoria e monotonicità di `revision` / `terrainVersion`.
-- `src/theme/theme.ts` — `MapTheme`, `DEFAULT_THEME`, `V1_FLAT_THEME`, soglie di elevazione e preset tipografici.
+- `src/model/coordinates.ts` — unità logiche (`10 u/mm`), conversioni stampa (`mmToPdfPoints`, `mmToPrintPx`, `ptToDocUnits`), preset pagina A4–A1 (`50–2000 mm`), matematica ancore/camera (`computeAnchorOffset`, `clampPrintDimensions`, `screenToDoc`, `docToScreen`, `zoomAtPoint`, `fitCameraToViewport`).
+- `src/model/document.ts` — schema v3 (`DocumentManifest`, `TerrainBuffers`, `CoverCode 0..9`, `MapLayer`, `MapObject` unione discriminata `stamp | label | path`, `createEmptyDocument`, `createDefaultLayers`, validazione runtime).
+- `src/model/commands.ts` e `src/model/history.ts` — confine dei comandi annullabili (`TerrainPatchCommand`, `ResizeCanvasCommand`, comandi `Add/Update/Delete/ReorderLayersCommand`), `HistoryManager` con budget di memoria e monotonicità di `revision` / `terrainVersion`.
+- `src/theme/theme.ts` — `MapTheme`, `MAP_THEMES` (4 temi built-in), `DEFAULT_THEME`, `V1_FLAT_THEME`, `normalizeTheme`, soglie di elevazione e preset tipografici.
 - `src/core/png.ts` — codifica/decodifica PNG RGBA lossless pure-TS (`encodeMaskPng`, `decodeMaskPng`).
-- `src/assets/types.ts` — tipi del catalogo POI e caricamento immagini.
-- `src/terrain/types.ts` — interfaccia di `ITerrainStrokeSession` e `ITerrainRenderer`.
+- `src/assets/types.ts` — tipi e categorie del catalogo POI (`POI_CATEGORIES`, `PoiCatalogItem`).
+- `src/terrain/types.ts` — interfaccia di `ITerrainStrokeSession` e `ITerrainRenderer` (16 strumenti terreno).
 - `src/persistence/types.ts` — interfaccia di `IPersistenceService`, stati di salvataggio ed esiti importazione.
-- `src/render/objectMetrics.ts` — metriche e disegno condivisi degli oggetti (`resolveLabelFontCss`, `drawMapObjectsToContext`) tra Konva, anteprima e PDF.
+- `src/render/objectMetrics.ts` — metriche e disegno condivisi (`resolveLabelFontCss`, `drawPathToContext`, `drawMapObjectsToContext` per layer) tra Konva, anteprima e PDF.
 - `src/export/types.ts` — interfaccia `PdfExportOptions` e `PdfExportResult`.
 
 ### Aree di responsabilità
 
 - **Terreno e rendering**: `src/terrain/` (escluso `types.ts`) e `tests/terrain/`
-- **Interfaccia, camera e strumenti**: `src/styles/`, `src/ui/` (esclusi dialoghi/pannelli Wave 2 dedicati), `src/canvas/MapViewport.tsx`, `src/state/editorStore.ts`, `tests/ui/`
+- **Interfaccia, camera, ridimensionamento e strumenti**: `src/styles/`, `src/ui/` (esclusi pannelli oggetti/livelli/tracciati ed export dedicati), `src/ui/ResizeCanvasDialog.tsx`, `src/canvas/MapViewport.tsx`, `src/state/editorStore.ts`, `tests/ui/`
 - **Persistenza e archivio**: `src/persistence/` (escluso `types.ts`) e `tests/persistence/`
-- **POI ed etichette**: `src/objects/`, `src/canvas/ObjectsLayerController.ts`, `src/ui/PoiLibraryPanel.tsx`, `src/ui/ObjectListPanel.tsx`, `src/ui/ObjectInspector.tsx`, `src/ui/InlineLabelEditor.tsx`, `tests/objects/`
+- **POI, etichette, tracciati e livelli**: `src/objects/`, `src/canvas/ObjectsLayerController.ts`, `src/ui/PoiLibraryPanel.tsx`, `src/ui/ObjectListPanel.tsx`, `src/ui/ObjectInspector.tsx`, `src/ui/InlineLabelEditor.tsx`, `src/ui/LayersPanel.tsx`, `src/ui/PathToolPanel.tsx`, `tests/objects/`
 - **Composizione condivisa ed export PDF**: `src/render/composeDocument.ts`, `src/export/` (escluso `types.ts`), `src/ui/ExportPdfDialog.tsx`, `tests/export/`
-- **Risorse cartografiche e licenze**: `src/assets/svg/`, `src/assets/catalog.ts`, `THIRD_PARTY_NOTICES.md`
+- **Risorse cartografiche e licenze**: `src/assets/svg/` (31 POI SVG `CC0-1.0`), `src/assets/catalog.ts`, `THIRD_PARTY_NOTICES.md`
 - **Integrazione e dipendenze**: `package.json`, `package-lock.json`, `src/App.tsx`, `src/main.tsx`
 
 ## Comandi di build, controllo tipi e test

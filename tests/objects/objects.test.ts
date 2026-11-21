@@ -32,6 +32,7 @@ import {
   AddObjectsBatchCommand,
   DeleteObjectCommand,
   InlineLabelEditor,
+  InlineLabelEditRequest,
   LayersPanel,
   ObjectInspector,
   ObjectListPanel,
@@ -42,14 +43,17 @@ import {
   UpdateObjectCommand,
   areMapObjectsEqual,
   commitObjectReorder,
+  commitObjectReorderInLayer,
   commitObjectUpdate,
   createLabelObject,
   createPathObject,
   createPoiStampObject,
+  getSameLayerAdjacentIndices,
   simplifyPolyline
 } from '../../src/objects';
 import { EditorStore } from '../../src/state/editorStore';
 import { TerrainRenderer, TerrainStrokeSession, inspectCellAtDoc, isPointOnLand } from '../../src/terrain';
+import { commitInlineLabelSession } from '../../src/ui/InlineLabelEditor';
 import { handleObjectListItemKeyDown } from '../../src/ui/ObjectListPanel';
 
 function countDiffBytes(a: Uint8Array, b: Uint8Array): number {
@@ -917,7 +921,7 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(poiHtml).not.toContain('font-size:12px');
     expect(poiHtml).not.toContain('font-size:14px');
 
-    // PathToolPanel
+    // PathToolPanel (target default = Fiumi e Strade, affusolato disabilita tratteggio)
     const pathHtml = renderToStaticMarkup(createElement(PathToolPanel, { store }));
     expect(pathHtml).toContain('Fiume');
     expect(pathHtml).toContain('Strada');
@@ -928,16 +932,19 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(pathHtml).toContain('Affusolato');
     expect(pathHtml).toContain('Tratteggiato');
     expect(pathHtml).toContain('type="color"');
-    expect(pathHtml).toContain('Luoghi e POI'); // activeLayerId default target or resolved target
+    expect(pathHtml).toContain('Fiumi e Strade');
+    expect(pathHtml).toContain('Il tratteggio richiede tratto uniforme, non affusolato');
     expect(pathHtml).not.toContain('font-size:11px');
     expect(pathHtml).not.toContain('font-size:12px');
     expect(pathHtml).not.toContain('font-size:14px');
 
-    // LayersPanel (ordine inverso con Base in fondo + controlli accessibili)
+    // LayersPanel (ordine inverso con Base in fondo, has-tooltip-start, opacità anche su Terreno)
     const layersHtml = renderToStaticMarkup(createElement(LayersPanel, { store }));
     expect(layersHtml).toContain('+ Nuovo livello');
     expect(layersHtml).toContain('Base');
     expect(layersHtml).toContain('Terreno e Rilievo');
+    expect(layersHtml).toContain('has-tooltip-start');
+    expect(layersHtml).toContain('Opacità livello Terreno e Rilievo (%)');
     expect(layersHtml.indexOf('Nomi e Note')).toBeLessThan(layersHtml.indexOf('Luoghi e POI'));
     expect(layersHtml.indexOf('Luoghi e POI')).toBeLessThan(layersHtml.indexOf('Fiumi e Strade'));
     expect(layersHtml.indexOf('Fiumi e Strade')).toBeLessThan(layersHtml.indexOf('Terreno e Rilievo'));
@@ -968,14 +975,33 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     store.executeCommand(new DeleteLayerCommand(DEFAULT_LAYER_TERRAIN_ID));
     expect(doc.manifest.layers.some((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)).toBe(true);
 
-    // ObjectListPanel shows PathObject and layer badges
+    // ObjectListPanel shows PathObject and layer badges in visual order (Nomi -> POI -> Fiumi)
     const listHtml = renderToStaticMarkup(createElement(ObjectListPanel, { store }));
+    expect(listHtml).toContain('Valico Ventoso');
+    expect(listHtml).toContain('Torre');
     expect(listHtml).toContain('Fiume');
     expect(listHtml).toContain('Fiumi e Strade');
     expect(listHtml).toContain('Luoghi e POI');
     expect(listHtml).toContain('Nomi e Note');
+    expect(listHtml.indexOf('Valico Ventoso')).toBeLessThan(listHtml.indexOf('Torre'));
+    expect(listHtml.indexOf('Torre')).toBeLessThan(listHtml.indexOf('Fiume'));
 
-    // ObjectInspector for PathObject + Livello <select> + locked state
+    // ObjectInspector for Stamp shows stacked X (u) / Y (u) and disabled locked <option>
+    const poiLayer = doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_POI_ID)!;
+    const labelsLayer = doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_LABELS_ID)!;
+    store.executeCommand(new UpdateLayerCommand(labelsLayer, { ...labelsLayer, locked: true }));
+    store.selectObject(tower.id);
+    const stampLocInspectorHtml = renderToStaticMarkup(createElement(ObjectInspector, { store }));
+    expect(stampLocInspectorHtml).toContain('X <span');
+    expect(stampLocInspectorHtml).toContain('Y <span');
+    expect(stampLocInspectorHtml).toContain('(u)</span>');
+    expect(stampLocInspectorHtml).toContain('width:100%;font-variant-numeric:tabular-nums');
+    expect(stampLocInspectorHtml).toContain('Nomi e Note (bloccato)');
+    expect(stampLocInspectorHtml).toContain('disabled=""');
+    store.executeCommand(new UpdateLayerCommand(labelsLayer, { ...labelsLayer, locked: false }));
+    void poiLayer;
+
+    // ObjectInspector for PathObject + Livello <select> + tapered dashed note + locked state
     store.selectObject(river.id);
     const pathInspectorHtml = renderToStaticMarkup(createElement(ObjectInspector, { store }));
     expect(pathInspectorHtml).toContain('Tracciato vettoriale');
@@ -985,6 +1011,7 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(pathInspectorHtml).toContain('Curva morbida');
     expect(pathInspectorHtml).toContain('Affusolato');
     expect(pathInspectorHtml).toContain('Tratteggiato');
+    expect(pathInspectorHtml).toContain('Non disponibile con tratto affusolato');
     expect(pathInspectorHtml).not.toContain('font-size:11px');
     expect(pathInspectorHtml).not.toContain('font-size:12px');
     expect(pathInspectorHtml).not.toContain('font-size:14px');
@@ -994,6 +1021,266 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     store.executeCommand(new UpdateLayerCommand(vecLayer, { ...vecLayer, locked: true }));
     const lockedInspectorHtml = renderToStaticMarkup(createElement(ObjectInspector, { store }));
     expect(lockedInspectorHtml).toContain('è bloccato o nascosto');
+
+    store.dispose();
+  });
+
+  it('routes Testo / InlineLabelEditor onto active custom layer, preserves focus ring, and rejects commits when layer becomes locked/hidden', () => {
+    const prevDocument = (globalThis as { document?: unknown }).document;
+    const noop = () => {};
+    const ctx2d = new Proxy(
+      {
+        canvas: {},
+        measureText: () => ({ width: 60 }),
+        createImageData: (w: number, h: number) => ({
+          width: w,
+          height: h,
+          data: new Uint8ClampedArray(w * h * 4)
+        }),
+        getImageData: () => ({ data: new Uint8ClampedArray(4) })
+      },
+      { get: (t, p) => (p in t ? (t as Record<string | symbol, unknown>)[p] : noop) }
+    );
+    (globalThis as { document?: unknown }).document = {
+      createElement: () => ({
+        width: 200,
+        height: 200,
+        style: {},
+        getContext: () => ctx2d,
+        addEventListener: noop,
+        removeEventListener: noop
+      }),
+      querySelector: () => null
+    };
+
+    try {
+      const containerStub = {
+        appendChild: noop,
+        style: {},
+        clientWidth: 960,
+        clientHeight: 640,
+        innerHTML: ''
+      } as unknown as HTMLDivElement;
+
+      const stage = new KonvaCtor.Stage({ container: containerStub, width: 960, height: 640 });
+      const terrainLayer = new KonvaCtor.Layer({ listening: false });
+      const objectsLayer = new KonvaCtor.Layer({ listening: false });
+      const overlayLayer = new KonvaCtor.Layer({ listening: false });
+      stage.add(terrainLayer, objectsLayer, overlayLayer);
+
+      const doc = createEmptyDocument({ widthPx: 128, heightPx: 128 });
+      const store = new EditorStore({
+        initialDocument: doc,
+        strokeSession: new TerrainStrokeSession(),
+        renderer: new TerrainRenderer()
+      });
+
+      const customLayer = {
+        id: 'layer-custom-labels',
+        name: 'Toponimi Speciali',
+        kind: 'custom' as const,
+        visible: true,
+        locked: false,
+        opacity: 1
+      };
+      store.executeCommand(new AddLayerCommand(customLayer));
+      store.setActiveLayerId(customLayer.id);
+      store.setTool('label');
+
+      let capturedRequest: InlineLabelEditRequest | null = null;
+      const controller = new ObjectsLayerController({
+        layers: { stage, terrainLayer, objectsLayer, overlayLayer },
+        store,
+        onRequestInlineLabelEdit: (req) => {
+          capturedRequest = req;
+        }
+      });
+
+      const fakeEvent = { pointerId: 1 } as unknown as PointerEvent;
+      controller.handlePointerDown({
+        docX: 520,
+        docY: 410,
+        cssX: 520,
+        cssY: 410,
+        camera: store.getSnapshot().camera,
+        event: fakeEvent
+      });
+
+      expect(capturedRequest).not.toBeNull();
+      expect(capturedRequest!.layerId).toBe(customLayer.id);
+
+      // Focus ring visibile (2px solid var(--ui-focus) + outline-offset: 2px, senza outline:none)
+      const inlineHtml = renderToStaticMarkup(
+        createElement(InlineLabelEditor, {
+          store,
+          session: capturedRequest,
+          onClose: () => {}
+        })
+      );
+      expect(inlineHtml).toContain('outline:2px solid var(--ui-focus)');
+      expect(inlineHtml).toContain('outline-offset:2px');
+      expect(inlineHtml).not.toContain('outline:none');
+
+      // Commit creazione su livello custom attivo
+      expect(commitInlineLabelSession(store, capturedRequest!, 'Borgo Alto')).toBe(true);
+      expect(doc.manifest.objects).toHaveLength(1);
+      const createdLabel = doc.manifest.objects[0] as LabelObject;
+      expect(createdLabel.layerId).toBe(customLayer.id);
+      expect(createdLabel.text).toBe('Borgo Alto');
+
+      // Blocca il livello e verifica rifiuto commit sia per creazione sia per modifica
+      store.executeCommand(new UpdateLayerCommand(customLayer, { ...customLayer, locked: true }));
+      expect(commitInlineLabelSession(store, capturedRequest!, 'Non Salvabile')).toBe(false);
+      expect(
+        commitInlineLabelSession(
+          store,
+          {
+            mode: 'edit',
+            docX: createdLabel.x,
+            docY: createdLabel.y,
+            layerId: createdLabel.layerId,
+            objectId: createdLabel.id,
+            initialText: createdLabel.text,
+            fontId: createdLabel.fontId,
+            fontSize: createdLabel.fontSize,
+            color: createdLabel.color,
+            rotationDeg: createdLabel.rotationDeg
+          },
+          'Testo Modificato'
+        )
+      ).toBe(false);
+      expect(doc.manifest.objects).toHaveLength(1);
+      expect((doc.manifest.objects[0] as LabelObject).text).toBe('Borgo Alto');
+      expect(store.getSnapshot().statusNotice?.text).toBe(
+        'Il livello selezionato è bloccato o nascosto.'
+      );
+
+      // Verifica commitPathDraft quando il livello viene bloccato durante il gesto
+      const vecLayer = doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_VECTORS_ID)!;
+      store.setActiveLayerId(DEFAULT_LAYER_VECTORS_ID);
+      store.setTool('path');
+      controller.handlePointerDown({
+        docX: 200,
+        docY: 200,
+        cssX: 200,
+        cssY: 200,
+        camera: store.getSnapshot().camera,
+        event: fakeEvent
+      });
+      controller.handlePointerMove({
+        docX: 340,
+        docY: 260,
+        cssX: 340,
+        cssY: 260,
+        camera: store.getSnapshot().camera,
+        event: fakeEvent
+      });
+      store.executeCommand(new UpdateLayerCommand(vecLayer, { ...vecLayer, locked: true }));
+      controller.handlePointerUp({
+        docX: 460,
+        docY: 300,
+        cssX: 460,
+        cssY: 300,
+        camera: store.getSnapshot().camera,
+        event: fakeEvent
+      });
+      expect(doc.manifest.objects).toHaveLength(1);
+      expect(store.getSnapshot().statusNotice?.text).toContain('bloccato');
+
+      controller.dispose();
+      stage.destroy();
+      store.dispose();
+    } finally {
+      if (prevDocument === undefined) {
+        delete (globalThis as { document?: unknown }).document;
+      } else {
+        (globalThis as { document?: unknown }).document = prevDocument;
+      }
+    }
+  });
+
+  it('aligns ObjectListPanel stacking order with Canvas/PDF and reorders Porta avanti/indietro within the same layer', () => {
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 128 });
+    const store = new EditorStore({
+      initialDocument: doc,
+      strokeSession: new TerrainStrokeSession(),
+      renderer: new TerrainRenderer()
+    });
+
+    const towerCatalog = BUILTIN_POI_CATALOG.find((i) => i.id === 'poi-tower')!;
+    const castleCatalog = BUILTIN_POI_CATALOG.find((i) => i.id === 'poi-castle')!;
+
+    // Inserimento interleaved su livelli diversi:
+    // layer-vectors < layer-poi < layer-labels
+    const poiBottom = createPoiStampObject(towerCatalog, 300, 300, {
+      id: 'poi-1',
+      layerId: DEFAULT_LAYER_POI_ID
+    });
+    const labelTop = createLabelObject('Regno d’Oro', 400, 200, doc.theme, 'title', {
+      id: 'lbl-1',
+      layerId: DEFAULT_LAYER_LABELS_ID
+    });
+    const poiTop = createPoiStampObject(castleCatalog, 500, 350, {
+      id: 'poi-2',
+      layerId: DEFAULT_LAYER_POI_ID
+    });
+    const riverBottom = createPathObject({
+      id: 'path-1',
+      kind: 'river',
+      layerId: DEFAULT_LAYER_VECTORS_ID,
+      points: [100, 100, 300, 200],
+      theme: doc.theme
+    });
+
+    store.executeCommand(new AddObjectCommand(poiBottom));
+    store.executeCommand(new AddObjectCommand(labelTop));
+    store.executeCommand(new AddObjectCommand(poiTop));
+    store.executeCommand(new AddObjectCommand(riverBottom));
+
+    // Ordine visivo reale: Regno d'Oro (labels) -> Castello (poi-2) -> Torre (poi-1) -> Fiume (vectors)
+    const listHtml = renderToStaticMarkup(createElement(ObjectListPanel, { store }));
+    const idxLbl = listHtml.indexOf('Regno d’Oro');
+    const idxCastle = listHtml.indexOf('Castello');
+    const idxTower = listHtml.indexOf('Torre');
+    const idxRiver = listHtml.indexOf('Fiume');
+    expect(idxLbl).toBeGreaterThan(-1);
+    expect(idxLbl).toBeLessThan(idxCastle);
+    expect(idxCastle).toBeLessThan(idxTower);
+    expect(idxTower).toBeLessThan(idxRiver);
+
+    // Adiacenza nello stesso livello per poiBottom: nextSameLayerIndex = 2 (poiTop), prevSameLayerIndex = null
+    const adjBefore = getSameLayerAdjacentIndices(
+      doc.manifest.objects,
+      doc.manifest.layers,
+      poiBottom.id
+    );
+    expect(adjBefore).toEqual({
+      docIndex: 0,
+      resolvedLayerId: DEFAULT_LAYER_POI_ID,
+      prevSameLayerIndex: null,
+      nextSameLayerIndex: 2
+    });
+
+    // Porta avanti sposta Torre (poi-1) sopra Castello (poi-2) saltando l'etichetta di un altro livello
+    expect(commitObjectReorderInLayer(store, poiBottom.id, 'forward')).toBe(true);
+    expect(doc.manifest.objects.map((o) => o.id)).toEqual([
+      labelTop.id,
+      poiTop.id,
+      poiBottom.id,
+      riverBottom.id
+    ]);
+    // Un secondo Porta avanti è no-op perché Torre è già il primo oggetto del suo livello
+    expect(commitObjectReorderInLayer(store, poiBottom.id, 'forward')).toBe(false);
+
+    // Ora nella lista Castello e Torre hanno invertito l'ordine
+    const listAfterForward = renderToStaticMarkup(createElement(ObjectListPanel, { store }));
+    expect(listAfterForward.indexOf('Regno d’Oro')).toBeLessThan(listAfterForward.indexOf('Torre'));
+    expect(listAfterForward.indexOf('Torre')).toBeLessThan(listAfterForward.indexOf('Castello'));
+
+    // Porta indietro riporta Torre dietro Castello
+    expect(commitObjectReorderInLayer(store, poiBottom.id, 'backward')).toBe(true);
+    const listAfterBackward = renderToStaticMarkup(createElement(ObjectListPanel, { store }));
+    expect(listAfterBackward.indexOf('Castello')).toBeLessThan(listAfterBackward.indexOf('Torre'));
 
     store.dispose();
   });

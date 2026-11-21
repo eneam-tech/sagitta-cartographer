@@ -29,11 +29,13 @@ npm run build       # Verifica tipi + build statica in dist/
 npm run preview     # Anteprima locale della build di produzione
 ```
 
-## Funzionalità incluse (v0.1 · Incremento 1/1b/2/3/4)
+## Funzionalità incluse (v0.2 · Incremento 2)
 
-- **Tela e formato fisico**: carta vuota con mare uniforme (A4 orizzontale/verticale, A3 orizzontale o misure personalizzate), cornice ottone e segni di registro sul banco blu ardesia.
-- **Pennelli del terreno reattivo**: Terra / Acqua, Elevazione (Alza / Abbassa) e Copertura (Foresta / Campi / Naturale) con classificazione contestuale di spiaggia, pianura, collina e montagna, ombreggiatura da nord-ovest e dettagli ancorati alle coordinate documento.
-- **Sticker POI ed etichette**: catalogo iniziale originale di simboli cartografici (Insediamento, Porto, Torre, Rovina, Cittadella, Monolite), selezione con maniglie a due toni, trasformazioni (sposta, scala, ruota), ordine dei livelli, elenco oggetti ed etichette editabili in Spectral con supporto agli accenti italiani.
-- **Cronologia unificata**: Annulla / Ripristina per pennellate, oggetti ed etichette con budget di memoria per i patch raster.
-- **Persistenza locale e portabilità**: autosalvataggio in IndexedDB con rilevamento dei conflitti tra schede, indicazione «Salvataggio…» / «Salvato» / «Errore di salvataggio», esportazione e importazione in archivio `.zip` con migrazione da progetti v1.
-- **Esportazione PDF**: anteprima completa e stampa rasterizzata a 300 ppi in formato fisico esatto senza maniglie di selezione né elementi di interfaccia.
+- **Tela espandibile e ridimensionabile**: formati predefiniti da **A4** fino ad **A1** (`841 × 594 mm`), **Quadrato grande (`500 × 500 mm`)** o misure personalizzate (`50–2000 mm`) sia alla creazione sia dal vivo con **`Tela…` (`Ridimensiona tela`)**, modalità *Espandi / Ritaglia* (ancora 3×3 a 9 punti) o *Scala contenuto* con pieno supporto Annulla / Ripristina.
+- **Motore terreno reattivo a 10 materiali**: pennelli Terra / Acqua, **4 strumenti di elevazione** (*Alza*, *Abbassa*, *Appiattisci*, *Ammorbidisci*) con regolazione fine dell’**Intensità** (`5–100%` + preset rapidi) e **10 superfici/materiali dedicati** (*Naturale*, *Foresta*, *Campi*, *Prateria*, *Sabbia*, *Roccia*, *Neve*, *Palude*, *Mattoni*, *Lava*) resi senza giunture sui chunk da `256 × 256 px`.
+- **4 temi cartografici**: *Carta di stracci classica*, *Atlante boreale*, *Pergamena d’archivio* e *Terra d’ossidiana*, commutabili istantaneamente dalla barra superiore o alla creazione progetto.
+- **Livelli ordinati (`Livelli`)**: gestione di livelli di disegno (*Terreno e Rilievo*, *Fiumi e Strade*, *Luoghi e POI*, *Nomi e Note* e livelli personalizzati `+ Nuovo livello`) con visibilità, blocco, opacità (`0–100%`), riordino ed esclusione automatica dei livelli nascosti dall’esportazione PDF.
+- **Tracciati vettoriali (`Fiumi e Strade`)**: disegno a mano libera semplificato (*Fiume* affusolato, *Strada*, *Confine* tratteggiato in unità documento e *Inchiostro libero*) con modifica di spessore, colore, opacità e tracciamento.
+- **Libreria ampliata a 31 POI ed etichette**: **31** simboli cartografici originali `CC0-1.0` in 6 categorie con ricerca istantanea, filtri, scala configurabile (`40–250%`), posa **Singola** o pennello **Scatter** (annullabile come passo singolo) ed etichette editabili in Spectral.
+- **Persistenza e retrocompatibilità v1/v2 -> v3**: autosalvataggio IndexedDB con rilevamento conflitti ed archivi `.zip` portabili con migrazione automatica di progetti `schemaVersion = 1` e `2` verso `schemaVersion = 3`.
+- **Esportazione PDF**: anteprima completa, selettore **150 / 200 / 300 ppi** (con adattamento sicuro `clampPrintDimensions` fino a `32M px` / `8192 px`) in formato fisico esatto senza maniglie né livelli nascosti.

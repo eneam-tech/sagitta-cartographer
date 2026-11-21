@@ -430,17 +430,17 @@ export function LayersPanel({ store }: LayersPanelProps) {
                 display: 'flex',
                 flexDirection: 'column',
                 gap: 'var(--ui-space-1)',
-                padding: 'var(--ui-space-2)',
+                padding: '6px',
                 backgroundColor: isActive ? 'var(--ui-raised)' : 'rgba(23, 35, 45, 0.35)',
                 border: `1px solid ${isActive ? 'var(--ui-accent)' : 'var(--ui-line-subtle)'}`,
                 borderRadius: 'var(--ui-radius-control)'
               }}
             >
               {/* Riga principale: Visibilità, Blocco, Nome/Selezione, Badge */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '4px', minWidth: 0 }}>
+              <div style={{ display: 'flex', alignItems: 'center', gap: '2px', minWidth: 0 }}>
                 <button
                   type="button"
-                  className="btn btn-ghost has-tooltip-top"
+                  className="btn btn-ghost has-tooltip-bottom has-tooltip-bottom-start has-tooltip-start"
                   aria-pressed={layer.visible}
                   aria-label={
                     layer.visible
@@ -450,10 +450,10 @@ export function LayersPanel({ store }: LayersPanelProps) {
                   data-tooltip={layer.visible ? 'Nascondi' : 'Mostra'}
                   onClick={() => handleToggleVisible(layer)}
                   style={{
-                    minWidth: '36px',
-                    minHeight: '36px',
-                    width: '36px',
-                    height: '36px',
+                    minWidth: '32px',
+                    minHeight: '32px',
+                    width: '32px',
+                    height: '32px',
                     padding: 0,
                     color: layer.visible ? 'var(--ui-text)' : 'var(--ui-muted)',
                     opacity: layer.visible ? 1 : 0.6
@@ -464,7 +464,7 @@ export function LayersPanel({ store }: LayersPanelProps) {
 
                 <button
                   type="button"
-                  className="btn btn-ghost has-tooltip-top"
+                  className="btn btn-ghost has-tooltip-bottom has-tooltip-bottom-start has-tooltip-start"
                   aria-pressed={layer.locked}
                   aria-label={
                     layer.locked
@@ -474,10 +474,10 @@ export function LayersPanel({ store }: LayersPanelProps) {
                   data-tooltip={layer.locked ? 'Sblocca' : 'Blocca'}
                   onClick={() => handleToggleLocked(layer)}
                   style={{
-                    minWidth: '36px',
-                    minHeight: '36px',
-                    width: '36px',
-                    height: '36px',
+                    minWidth: '32px',
+                    minHeight: '32px',
+                    width: '32px',
+                    height: '32px',
                     padding: 0,
                     color: layer.locked ? 'var(--ui-accent)' : 'var(--ui-muted)'
                   }}
@@ -524,7 +524,7 @@ export function LayersPanel({ store }: LayersPanelProps) {
                     style={{
                       flex: '1 1 auto',
                       minWidth: 0,
-                      minHeight: '36px',
+                      minHeight: '34px',
                       padding: '0 4px',
                       background: 'transparent',
                       border: 'none',
@@ -556,7 +556,7 @@ export function LayersPanel({ store }: LayersPanelProps) {
                       backgroundColor: 'rgba(23, 35, 45, 0.75)',
                       border: '1px solid var(--ui-line-subtle)',
                       borderRadius: 'var(--ui-radius-control)',
-                      padding: '2px 8px',
+                      padding: '1px 6px',
                       flexShrink: 0
                     }}
                   >
@@ -573,7 +573,7 @@ export function LayersPanel({ store }: LayersPanelProps) {
                       backgroundColor: 'rgba(23, 35, 45, 0.75)',
                       border: '1px solid var(--ui-line-subtle)',
                       borderRadius: 'var(--ui-radius-control)',
-                      padding: '2px 8px',
+                      padding: '1px 6px',
                       flexShrink: 0
                     }}
                   >
@@ -582,10 +582,8 @@ export function LayersPanel({ store }: LayersPanelProps) {
                 )}
               </div>
 
-              {/* Opacità (0-100%) per i livelli oggetti */}
-              {!isTerrain ? (
-                <LayerOpacitySlider layer={layer} onCommitOpacity={handleCommitOpacity} />
-              ) : null}
+              {/* Opacità (0-100%) per tutti i livelli incluso Terreno e Rilievo */}
+              <LayerOpacitySlider layer={layer} onCommitOpacity={handleCommitOpacity} />
 
               {/* Azioni livello: Sposta Su, Sposta Giù, Rinomina, Elimina */}
               {!isTerrain ? (

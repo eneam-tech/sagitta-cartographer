@@ -184,32 +184,54 @@ export function PathToolPanel({ store }: PathToolPanelProps) {
           <input
             type="checkbox"
             checked={pathTapered}
-            onChange={(e) => store.setPathTapered(e.target.checked)}
+            onChange={(e) => {
+              const nextTapered = e.target.checked;
+              store.setPathTapered(nextTapered);
+              if (nextTapered && pathDashed) {
+                store.setPathDashed(false);
+              }
+            }}
             style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
           />
           <span>Affusolato</span>
         </label>
 
-        <label
-          style={{
-            display: 'flex',
-            alignItems: 'center',
-            gap: 'var(--ui-space-2)',
-            minHeight: '36px',
-            fontSize: '15px',
-            lineHeight: '22px',
-            color: 'var(--ui-text)',
-            cursor: 'pointer'
-          }}
-        >
-          <input
-            type="checkbox"
-            checked={pathDashed}
-            onChange={(e) => store.setPathDashed(e.target.checked)}
-            style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
-          />
-          <span>Tratteggiato</span>
-        </label>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--ui-space-2)',
+              minHeight: '36px',
+              fontSize: '15px',
+              lineHeight: '22px',
+              color: pathTapered ? 'var(--ui-muted)' : 'var(--ui-text)',
+              opacity: pathTapered ? 0.65 : 1,
+              cursor: pathTapered ? 'not-allowed' : 'pointer'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={pathDashed && !pathTapered}
+              disabled={pathTapered}
+              onChange={(e) => store.setPathDashed(e.target.checked)}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+            />
+            <span>Tratteggiato</span>
+          </label>
+          {pathTapered ? (
+            <span
+              style={{
+                paddingLeft: '24px',
+                fontSize: '13px',
+                lineHeight: '18px',
+                color: 'var(--ui-muted)'
+              }}
+            >
+              Il tratteggio richiede tratto uniforme, non affusolato
+            </span>
+          ) : null}
+        </div>
       </div>
     </div>
   );

@@ -28,6 +28,27 @@ const BIOME_LABELS: Record<BiomeKind, string> = {
   mountain: 'Montagna'
 };
 
+function InfoStatusIcon({ size = 18, className }: { size?: number; className?: string }) {
+  return (
+    <svg
+      width={size}
+      height={size}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      strokeWidth={1.75}
+      strokeLinecap="round"
+      strokeLinejoin="round"
+      aria-hidden="true"
+      className={className}
+    >
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M12 11.2v4.8" />
+      <path d="M12 8.1v.3" />
+    </svg>
+  );
+}
+
 function CursorTelemetry({ store, doc }: { store: EditorStore; doc: MapDocument }) {
   const cursorDoc = useSyncExternalStore(
     store.subscribeCursor,
@@ -126,18 +147,25 @@ export function StatusBar({ store }: StatusBarProps) {
     }
 
     if (statusNotice) {
+      const noticeIcon =
+        statusNotice.tone === 'error' ? (
+          <AlertErrorIcon size={18} className="statusbar-icon-error" />
+        ) : statusNotice.tone === 'success' ? (
+          <CheckSavedIcon size={18} className="statusbar-icon-success" />
+        ) : (
+          <InfoStatusIcon size={18} className="statusbar-icon-info" />
+        );
+      const noticeToneClass =
+        statusNotice.tone === 'error'
+          ? 'is-error'
+          : statusNotice.tone === 'info'
+            ? 'is-info'
+            : 'is-muted';
+
       return (
         <>
-          {statusNotice.tone === 'error' ? (
-            <AlertErrorIcon size={18} className="statusbar-icon-error" />
-          ) : (
-            <CheckSavedIcon size={18} className="statusbar-icon-success" />
-          )}
-          <span
-            className={`statusbar-text ${
-              statusNotice.tone === 'error' ? 'is-error' : 'is-muted'
-            }`}
-          >
+          {noticeIcon}
+          <span className={`statusbar-text ${noticeToneClass}`}>
             {statusNotice.text}
           </span>
           <button
@@ -157,10 +185,21 @@ export function StatusBar({ store }: StatusBarProps) {
       return <span className="statusbar-text is-muted">Salvataggio…</span>;
     }
 
+    if (persistenceState.status === 'idle') {
+      if (persistenceState.savedRevision > 0) {
+        return (
+          <>
+            <CheckSavedIcon size={18} className="statusbar-icon-success" />
+            <span className="statusbar-text">Salvato</span>
+          </>
+        );
+      }
+      return <span className="statusbar-text is-muted">Pronto</span>;
+    }
+
     if (
-      (persistenceState.status === 'saved' &&
-        persistenceState.savedRevision === doc.manifest.revision) ||
-      (persistenceState.status === 'idle' && doc.manifest.revision === 0)
+      persistenceState.status === 'saved' &&
+      persistenceState.savedRevision === doc.manifest.revision
     ) {
       return (
         <>

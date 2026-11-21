@@ -1,5 +1,5 @@
 import { useId, useMemo, useRef, useState } from 'react';
-import type { FormEvent } from 'react';
+import type { FormEvent, KeyboardEvent } from 'react';
 import {
   CanvasResizeSnapshot,
   ResizeCanvasCommand
@@ -80,14 +80,43 @@ export function resizeMapObjects(
     cloned.y = Number((cloned.y * scaleY).toFixed(2));
 
     if (cloned.type === 'stamp') {
-      cloned.width = Math.max(4, Number((cloned.width * scaleX).toFixed(2)));
-      cloned.height = Math.max(4, Number((cloned.height * scaleY).toFixed(2)));
+      if (cloned.rotationDeg === 0 || Math.abs(scaleX - scaleY) < 1e-9) {
+        cloned.width = Math.max(4, Number((cloned.width * scaleX).toFixed(2)));
+        cloned.height = Math.max(4, Number((cloned.height * scaleY).toFixed(2)));
+      } else {
+        const rad = (cloned.rotationDeg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const effScaleW = Math.hypot(scaleX * cos, scaleY * sin);
+        const effScaleH = Math.hypot(scaleX * sin, scaleY * cos);
+        cloned.width = Math.max(4, Number((cloned.width * effScaleW).toFixed(2)));
+        cloned.height = Math.max(4, Number((cloned.height * effScaleH).toFixed(2)));
+      }
     } else if (cloned.type === 'label') {
       cloned.fontSize = Math.max(4, Number((cloned.fontSize * avgScale).toFixed(2)));
     } else if (cloned.type === 'path') {
-      cloned.points = cloned.points.map((coord, idx) =>
-        Number((coord * (idx % 2 === 0 ? scaleX : scaleY)).toFixed(2))
-      );
+      if (cloned.rotationDeg === 0 || Math.abs(scaleX - scaleY) < 1e-9) {
+        cloned.points = cloned.points.map((coord, idx) =>
+          Number((coord * (idx % 2 === 0 ? scaleX : scaleY)).toFixed(2))
+        );
+      } else {
+        const rad = (cloned.rotationDeg * Math.PI) / 180;
+        const cos = Math.cos(rad);
+        const sin = Math.sin(rad);
+        const nextPoints: number[] = [];
+        for (let i = 0; i < cloned.points.length; i += 2) {
+          const px = cloned.points[i];
+          const py = cloned.points[i + 1];
+          const wx = px * cos - py * sin;
+          const wy = px * sin + py * cos;
+          const sx = wx * scaleX;
+          const sy = wy * scaleY;
+          const nx = sx * cos + sy * sin;
+          const ny = -sx * sin + sy * cos;
+          nextPoints.push(Number(nx.toFixed(2)), Number(ny.toFixed(2)));
+        }
+        cloned.points = nextPoints;
+      }
       cloned.strokeWidthDoc = Math.max(1, Number((cloned.strokeWidthDoc * avgScale).toFixed(2)));
     }
     return cloned;
@@ -275,6 +304,7 @@ export function ResizeCanvasDialog({ store }: ResizeCanvasDialogProps) {
   const currentH = Math.round(doc.manifest.page.heightMm);
 
   const presetSelectRef = useRef<HTMLSelectElement>(null);
+  const anchorBtnRefs = useRef<Array<HTMLButtonElement | null>>([]);
   const presetIdAttr = useId();
   const widthId = useId();
   const heightId = useId();
@@ -360,13 +390,95 @@ export function ResizeCanvasDialog({ store }: ResizeCanvasDialogProps) {
     }
   };
 
-  // Anteprima proporzionale per confrontare vecchia e nuova tela nel box 104×76
-  const maxBoxMm = Math.max(currentW, currentH, targetW, targetH, 1);
-  const previewScale = Math.min(88 / maxBoxMm, 62 / maxBoxMm);
-  const oldBoxW = Math.max(8, currentW * previewScale);
-  const oldBoxH = Math.max(8, currentH * previewScale);
-  const newBoxW = Math.max(8, targetW * previewScale);
-  const newBoxH = Math.max(8, targetH * previewScale);
+  const handleAnchorKeyDown = (
+    e: KeyboardEvent<HTMLButtonElement>,
+    row: number,
+    col: number
+  ) => {
+    if (mode === 'scale-content') return;
+    let nextRow = row;
+    let nextCol = col;
+    if (e.key === 'ArrowRight') {
+      nextCol = (col + 1) % 3;
+    } else if (e.key === 'ArrowLeft') {
+      nextCol = (col + 2) % 3;
+    } else if (e.key === 'ArrowDown') {
+      nextRow = (row + 1) % 3;
+    } else if (e.key === 'ArrowUp') {
+      nextRow = (row + 2) % 3;
+    } else if (e.key === 'Home') {
+      nextRow = 0;
+      nextCol = 0;
+    } else if (e.key === 'End') {
+      nextRow = 2;
+      nextCol = 2;
+    } else {
+      return;
+    }
+    e.preventDefault();
+    const nextIdx = nextRow * 3 + nextCol;
+    const nextItem = ANCHOR_ITEMS[nextIdx];
+    if (nextItem) {
+      setAnchor(nextItem.id);
+      anchorBtnRefs.current[nextIdx]?.focus();
+    }
+  };
+
+  // Anteprima proporzionale ancorata per confrontare vecchia e nuova tela nel box 116×80
+  let oldRect: { x: number; y: number; width: number; height: number };
+  let newRect: { x: number; y: number; width: number; height: number };
+  let anchorDot: { x: number; y: number } | null = null;
+
+  if (mode === 'expand-crop') {
+    const { dx, dy } = computeAnchorOffset(currentW, currentH, targetW, targetH, anchor);
+    const minX = Math.min(0, dx);
+    const minY = Math.min(0, dy);
+    const maxX = Math.max(targetW, dx + currentW);
+    const maxY = Math.max(targetH, dy + currentH);
+    const unionW = Math.max(1, maxX - minX);
+    const unionH = Math.max(1, maxY - minY);
+    const previewScale = Math.min(96 / unionW, 64 / unionH);
+    const originX = (116 - unionW * previewScale) / 2 - minX * previewScale;
+    const originY = (80 - unionH * previewScale) / 2 - minY * previewScale;
+
+    oldRect = {
+      x: originX + dx * previewScale,
+      y: originY + dy * previewScale,
+      width: Math.max(6, currentW * previewScale),
+      height: Math.max(6, currentH * previewScale)
+    };
+    newRect = {
+      x: originX,
+      y: originY,
+      width: Math.max(6, targetW * previewScale),
+      height: Math.max(6, targetH * previewScale)
+    };
+    const anchorFactorX = activeAnchorInfo.col * 0.5;
+    const anchorFactorY = activeAnchorInfo.row * 0.5;
+    anchorDot = {
+      x: newRect.x + newRect.width * anchorFactorX,
+      y: newRect.y + newRect.height * anchorFactorY
+    };
+  } else {
+    const maxBoxMm = Math.max(currentW, currentH, targetW, targetH, 1);
+    const previewScale = Math.min(96 / maxBoxMm, 64 / maxBoxMm);
+    const oldBoxW = Math.max(8, currentW * previewScale);
+    const oldBoxH = Math.max(8, currentH * previewScale);
+    const newBoxW = Math.max(8, targetW * previewScale);
+    const newBoxH = Math.max(8, targetH * previewScale);
+    oldRect = {
+      x: (116 - oldBoxW) / 2,
+      y: (80 - oldBoxH) / 2,
+      width: oldBoxW,
+      height: oldBoxH
+    };
+    newRect = {
+      x: (116 - newBoxW) / 2,
+      y: (80 - newBoxH) / 2,
+      width: newBoxW,
+      height: newBoxH
+    };
+  }
 
   return (
     <ModalDialog
@@ -504,19 +616,24 @@ export function ResizeCanvasDialog({ store }: ResizeCanvasDialogProps) {
               aria-label="Griglia ancora a 9 punti"
               aria-disabled={mode === 'scale-content'}
             >
-              {ANCHOR_ITEMS.map((item) => {
+              {ANCHOR_ITEMS.map((item, idx) => {
                 const isSelected = anchor === item.id;
                 return (
                   <button
                     key={item.id}
+                    ref={(el) => {
+                      anchorBtnRefs.current[idx] = el;
+                    }}
                     type="button"
                     role="radio"
                     aria-checked={isSelected}
                     aria-label={item.label}
                     title={item.label}
+                    tabIndex={mode === 'scale-content' ? -1 : isSelected ? 0 : -1}
                     disabled={mode === 'scale-content'}
                     className={`anchor-cell-btn ${isSelected ? 'is-selected' : ''}`}
                     onClick={() => setAnchor(item.id)}
+                    onKeyDown={(e) => handleAnchorKeyDown(e, item.row, item.col)}
                   >
                     <AnchorCellGlyph
                       isSelected={isSelected}
@@ -538,26 +655,36 @@ export function ResizeCanvasDialog({ store }: ResizeCanvasDialogProps) {
             <span className="field-label">Anteprima live</span>
             <div className="resize-live-card">
               <div className="resize-live-diagram" aria-hidden="true">
-                <svg viewBox="0 0 108 74" width="108" height="74">
+                <svg viewBox="0 0 116 80" width="116" height="80">
                   <rect
-                    x={(108 - oldBoxW) / 2}
-                    y={(74 - oldBoxH) / 2}
-                    width={oldBoxW}
-                    height={oldBoxH}
-                    fill="rgba(129, 147, 154, 0.14)"
-                    stroke="#81939A"
-                    strokeWidth="1"
-                    strokeDasharray="3 2"
-                  />
-                  <rect
-                    x={(108 - newBoxW) / 2}
-                    y={(74 - newBoxH) / 2}
-                    width={newBoxW}
-                    height={newBoxH}
-                    fill="rgba(224, 187, 121, 0.16)"
+                    x={newRect.x}
+                    y={newRect.y}
+                    width={newRect.width}
+                    height={newRect.height}
+                    fill="rgba(224, 187, 121, 0.14)"
                     stroke="#E0BB79"
                     strokeWidth="1.5"
                   />
+                  <rect
+                    x={oldRect.x}
+                    y={oldRect.y}
+                    width={oldRect.width}
+                    height={oldRect.height}
+                    fill="rgba(129, 147, 154, 0.18)"
+                    stroke="#C0C9C9"
+                    strokeWidth="1.2"
+                    strokeDasharray="3 2"
+                  />
+                  {anchorDot ? (
+                    <circle
+                      cx={anchorDot.x}
+                      cy={anchorDot.y}
+                      r="2.8"
+                      fill="#E0BB79"
+                      stroke="#17232D"
+                      strokeWidth="1"
+                    />
+                  ) : null}
                 </svg>
               </div>
               <dl className="inspector-summary-grid resize-live-metrics">

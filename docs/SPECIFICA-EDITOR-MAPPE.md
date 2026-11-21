@@ -193,3 +193,11 @@ Registrare computer, browser, risoluzione, densità schermo, numero di oggetti e
 - Aggiornare questo riferimento quando una decisione cambia il comportamento visibile, la compatibilità dei file o il perimetro. Annotare data, ragione, conseguenze per i documenti esistenti e verifica che ha motivato la decisione.
 
 **Decisioni aperte per la prima prova con il titolare.** Confermare il computer e il browser di riferimento, valutare A4 con una stampa reale, provare la risposta del pennello e scegliere quanto deve essere irregolare il bordo costiero. La selezione del primo tema illustrato può avvenire sulla stessa carta campione dopo la validazione degli strumenti.
+
+---
+
+### Aggiornamento Incremento 2 (`schemaVersion = 3`, `rulesVersion = 2` — 21 novembre 2026)
+
+- **Ragione e perimetro:** completato l’Incremento 2 con estensione del formato fisico (`50–2000 mm`, preset A4–A1 e Quadrato `500×500 mm`) e comando annullabile `ResizeCanvasCommand` (`expand-crop` ad ancora 3×3 / `scale-content`), **10 codici copertura (`0..9`: Naturale, Foresta, Campi, Sabbia, Mattoni, Neve, Palude, Roccia, Prateria, Lava)** resi in modo deterministico sui chunk da `256 px`, **4 strumenti elevazione (`Alza`, `Abbassa`, `Appiattisci`, `Ammorbidisci`)**, **4 temi cartografici built-in** (`base`, `nordica`, `pergamena`, `vulcanica`), **livelli (`MapLayer` con visibilità, blocco, opacità e riordino)** onorati su tela, anteprima ed esportazione PDF, **tracciati vettoriali `PathObject`** (`river`, `road`, `border`, `freehand`), **31 POI originali `CC0-1.0`** con ricerca/filtri/scala/pennello scatter (`AddObjectsBatchCommand`), e selettore PDF `150 / 200 / 300 ppi` protetto da `clampPrintDimensions`.
+- **Compatibilità e migrazione:** i salvataggi e gli archivi `.zip` `v1` e `v2` restano integralmente importabili tramite `migrateManifestToV3` + `normalizeTheme` (i progetti `v1` preservano `V1_FLAT_THEME`, i progetti `v2` ricevono livelli predefiniti, `layerId` sugli oggetti e tavolozza v3 completa).
+- **Verifica di supporto:** `npm run typecheck`, suite `Vitest` (6 file, 72+ test), `vite build`, prova end-to-end in browser (`1440×900`, `1024×768`, `390×844`), benchmark `?qa=1` a 2.000 simboli e ispezione indipendente PDF tramite Swift `PDFKit`.
