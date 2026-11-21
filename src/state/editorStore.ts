@@ -12,6 +12,7 @@ import {
 import {
   DirtyRectPx,
   HistoryCommand,
+  SetThemeCommand,
   SetTitleCommand,
   TerrainPatchCommand,
   TerrainTilePatch
@@ -22,10 +23,15 @@ import {
   COVER_NATURAL,
   CoverToolId,
   CreateEmptyDocumentOptions,
+  DEFAULT_LAYER_POI_ID,
+  DEFAULT_LAYER_TERRAIN_ID,
   MapDocument,
-  createEmptyDocument
+  PathKind,
+  createEmptyDocument,
+  defaultLayerIdForObject
 } from '../model/document';
 import { HistoryManager } from '../model/history';
+import { MapTheme } from '../theme/theme';
 import {
   ArchiveImportResult,
   IPersistenceService,
@@ -720,6 +726,9 @@ export interface EditorStoreOptions {
   maxHistoryBytes?: number;
 }
 
+export type InspectorTab = 'tool' | 'layers' | 'objects';
+export type PoiBrushMode = 'single' | 'scatter';
+
 export interface EditorSnapshot {
   doc: MapDocument;
   activeTool: EditorTool;
@@ -727,6 +736,18 @@ export interface EditorSnapshot {
   lastCoverTool: CoverSubTool;
   brushDiameterDoc: number;
   brushIntensity: number;
+  inspectorTab: InspectorTab;
+  activeLayerId: string;
+  poiPlacementScale: number;
+  poiBrushMode: PoiBrushMode;
+  poiScatterRadiusDoc: number;
+  poiScatterDensity: number;
+  pathKind: PathKind;
+  pathStrokeWidthDoc: number;
+  pathColor: string;
+  pathSmooth: boolean;
+  pathDashed: boolean;
+  pathTapered: boolean;
   camera: CameraState;
   viewportSize: { width: number; height: number };
   hasInitialFit: boolean;
@@ -762,6 +783,19 @@ export class EditorStore {
   private brushDiameterDoc = DEFAULT_BRUSH_DIAMETER_DOC;
   private brushIntensity = DEFAULT_BRUSH_INTENSITY;
 
+  private inspectorTab: InspectorTab = 'tool';
+  private activeLayerId = DEFAULT_LAYER_POI_ID;
+  private poiPlacementScale = 1.0;
+  private poiBrushMode: PoiBrushMode = 'single';
+  private poiScatterRadiusDoc = 140;
+  private poiScatterDensity = 4;
+  private pathKind: PathKind = 'river';
+  private pathStrokeWidthDoc = 14;
+  private pathColor: string;
+  private pathSmooth = true;
+  private pathDashed = false;
+  private pathTapered = true;
+
   private camera: CameraState = { offsetX: 0, offsetY: 0, scale: 1 };
   private viewportSize = { width: 0, height: 0 };
   private hasInitialFit = false;
@@ -786,6 +820,8 @@ export class EditorStore {
   constructor(options: EditorStoreOptions = {}) {
     this.doc = options.initialDocument ?? createEmptyDocument();
     this.extraAssetBlobs = options.initialExtraAssets ? new Map(options.initialExtraAssets) : new Map();
+    this.pathColor = this.doc.theme.colors.pathRiver;
+    this.ensureValidActiveLayer();
     this.history = new HistoryManager(options.maxHistoryBytes);
     this.strokeSession = options.strokeSession ?? new FallbackTerrainStrokeSession();
     this.renderer = options.renderer ?? new FallbackTerrainRenderer();
@@ -866,15 +902,175 @@ export class EditorStore {
       this.cancelTerrainStroke();
     }
     this.activeTool = tool;
-    if (tool === 'raise' || tool === 'lower') {
+    if (tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth') {
       this.lastElevationTool = tool;
-    } else if (tool === 'forest' || tool === 'fields' || tool === 'natural') {
+    } else if (
+      tool === 'forest' ||
+      tool === 'fields' ||
+      tool === 'sand' ||
+      tool === 'brick' ||
+      tool === 'snow' ||
+      tool === 'swamp' ||
+      tool === 'rock' ||
+      tool === 'meadow' ||
+      tool === 'lava' ||
+      tool === 'natural'
+    ) {
       this.lastCoverTool = tool;
     }
     if (!isLandRequiredBrush(tool)) {
       this.seaOnlyHintVisible = false;
     }
     this.notify();
+  }
+
+  setInspectorTab(tab: InspectorTab): void {
+    if (this.inspectorTab === tab) return;
+    this.inspectorTab = tab;
+    this.notify();
+  }
+
+  setActiveLayerId(layerId: string): void {
+    if (!this.doc.manifest.layers.some((l) => l.id === layerId)) return;
+    if (this.activeLayerId === layerId) return;
+    this.activeLayerId = layerId;
+    this.notify();
+  }
+
+  private ensureValidActiveLayer(): void {
+    const layers = this.doc.manifest.layers;
+    if (!layers.some((l) => l.id === this.activeLayerId)) {
+      const firstEditable = layers.find((l) => l.kind !== 'terrain') ?? layers[0];
+      if (firstEditable) {
+        this.activeLayerId = firstEditable.id;
+      }
+    }
+  }
+
+  resolveTargetLayerIdForNewObject(type: 'stamp' | 'label' | 'path'): string {
+    const layers = this.doc.manifest.layers;
+    const active = layers.find((l) => l.id === this.activeLayerId);
+    if (active && active.kind !== 'terrain') {
+      return active.id;
+    }
+    const preferredId = defaultLayerIdForObject({ type });
+    const preferred = layers.find((l) => l.id === preferredId && l.kind !== 'terrain');
+    if (preferred) return preferred.id;
+    const firstNonTerrain = layers.find((l) => l.kind !== 'terrain');
+    return firstNonTerrain ? firstNonTerrain.id : DEFAULT_LAYER_POI_ID;
+  }
+
+  isLayerEditable(layerId: string): boolean {
+    const layer = this.doc.manifest.layers.find((l) => l.id === layerId);
+    if (!layer) return true;
+    return layer.visible && !layer.locked;
+  }
+
+  isTerrainLayerEditable(): boolean {
+    const terrainLayer =
+      this.doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID || l.kind === 'terrain');
+    if (!terrainLayer) return true;
+    return terrainLayer.visible && !terrainLayer.locked;
+  }
+
+  setPoiPlacementScale(scale: number): void {
+    if (!Number.isFinite(scale)) return;
+    const clamped = Math.round(clampNumber(scale, 0.4, 2.5) * 100) / 100;
+    if (clamped === this.poiPlacementScale) return;
+    this.poiPlacementScale = clamped;
+    this.notify();
+  }
+
+  setPoiBrushMode(mode: PoiBrushMode): void {
+    if (this.poiBrushMode === mode) return;
+    this.poiBrushMode = mode;
+    this.notify();
+  }
+
+  setPoiScatterRadiusDoc(radiusDoc: number): void {
+    if (!Number.isFinite(radiusDoc)) return;
+    const clamped = Math.round(clampNumber(radiusDoc, 40, 360));
+    if (clamped === this.poiScatterRadiusDoc) return;
+    this.poiScatterRadiusDoc = clamped;
+    this.notify();
+  }
+
+  setPoiScatterDensity(density: number): void {
+    if (!Number.isFinite(density)) return;
+    const clamped = Math.round(clampNumber(density, 2, 8));
+    if (clamped === this.poiScatterDensity) return;
+    this.poiScatterDensity = clamped;
+    this.notify();
+  }
+
+  setPathKind(kind: PathKind): void {
+    this.pathKind = kind;
+    const c = this.doc.theme.colors;
+    if (kind === 'river') {
+      this.pathStrokeWidthDoc = 14;
+      this.pathColor = c.pathRiver;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = true;
+    } else if (kind === 'road') {
+      this.pathStrokeWidthDoc = 9;
+      this.pathColor = c.pathRoad;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    } else if (kind === 'border') {
+      this.pathStrokeWidthDoc = 7;
+      this.pathColor = c.pathBorder;
+      this.pathSmooth = true;
+      this.pathDashed = true;
+      this.pathTapered = false;
+    } else {
+      this.pathStrokeWidthDoc = 6;
+      this.pathColor = c.ink;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    }
+    this.notify();
+  }
+
+  setPathStrokeWidthDoc(widthDoc: number): void {
+    if (!Number.isFinite(widthDoc)) return;
+    const clamped = Math.round(clampNumber(widthDoc, 2, 60) * 10) / 10;
+    if (clamped === this.pathStrokeWidthDoc) return;
+    this.pathStrokeWidthDoc = clamped;
+    this.notify();
+  }
+
+  setPathColor(color: string): void {
+    if (!color || color === this.pathColor) return;
+    this.pathColor = color;
+    this.notify();
+  }
+
+  setPathSmooth(smooth: boolean): void {
+    if (this.pathSmooth === smooth) return;
+    this.pathSmooth = smooth;
+    this.notify();
+  }
+
+  setPathDashed(dashed: boolean): void {
+    if (this.pathDashed === dashed) return;
+    this.pathDashed = dashed;
+    this.notify();
+  }
+
+  setPathTapered(tapered: boolean): void {
+    if (this.pathTapered === tapered) return;
+    this.pathTapered = tapered;
+    this.notify();
+  }
+
+  setTheme(theme: MapTheme): void {
+    if (this.doc.theme.id === theme.id && JSON.stringify(this.doc.theme.colors) === JSON.stringify(theme.colors)) {
+      return;
+    }
+    this.executeCommand(new SetThemeCommand(this.doc.theme, theme, this.doc));
   }
 
   selectElevationGroup(): void {
@@ -1061,7 +1257,13 @@ export class EditorStore {
     const result = this.history.execute(this.doc, command, options);
     this.documentVersionTick += 1;
 
-    if (result.affectsTerrain) {
+    if (result.command.kind === 'resize-canvas') {
+      this.renderer.renderFull(this.doc);
+      this.terrainRenderTick += 1;
+      this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
+      this.fitCamera();
+    } else if (result.affectsTerrain) {
       if (result.dirtyRect && options.alreadyApplied !== true) {
         this.renderer.renderRegion(this.doc, result.dirtyRect);
       } else if (!result.dirtyRect && options.alreadyApplied !== true) {
@@ -1072,6 +1274,7 @@ export class EditorStore {
       this.notifyTerrainRedraw();
     }
 
+    this.ensureValidActiveLayer();
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
     }
@@ -1094,7 +1297,13 @@ export class EditorStore {
     if (!result) return false;
 
     this.documentVersionTick += 1;
-    if (result.affectsTerrain) {
+    if (result.command.kind === 'resize-canvas') {
+      this.renderer.renderFull(this.doc);
+      this.terrainRenderTick += 1;
+      this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
+      this.fitCamera();
+    } else if (result.affectsTerrain) {
       if (result.dirtyRect) {
         this.renderer.renderRegion(this.doc, result.dirtyRect);
       } else {
@@ -1104,6 +1313,7 @@ export class EditorStore {
       this.hasLand = computeHasLand(this.doc);
       this.notifyTerrainRedraw();
     }
+    this.ensureValidActiveLayer();
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
     }
@@ -1120,7 +1330,13 @@ export class EditorStore {
     if (!result) return false;
 
     this.documentVersionTick += 1;
-    if (result.affectsTerrain) {
+    if (result.command.kind === 'resize-canvas') {
+      this.renderer.renderFull(this.doc);
+      this.terrainRenderTick += 1;
+      this.hasLand = computeHasLand(this.doc);
+      this.notifyTerrainRedraw();
+      this.fitCamera();
+    } else if (result.affectsTerrain) {
       if (result.dirtyRect) {
         this.renderer.renderRegion(this.doc, result.dirtyRect);
       } else {
@@ -1130,6 +1346,7 @@ export class EditorStore {
       this.hasLand = computeHasLand(this.doc);
       this.notifyTerrainRedraw();
     }
+    this.ensureValidActiveLayer();
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
     }
@@ -1142,6 +1359,15 @@ export class EditorStore {
     const tool = this.getEffectiveTool();
     if (!isTerrainBrushTool(tool)) return false;
 
+    if (!this.isTerrainLayerEditable()) {
+      this.statusNotice = {
+        tone: 'info',
+        text: 'Il livello «Terreno e Rilievo» è bloccato o nascosto.'
+      };
+      this.notify();
+      return false;
+    }
+
     if (tool === 'land' && !this.hasLand) {
       this.hasLand = true;
     }
@@ -1152,7 +1378,9 @@ export class EditorStore {
     }
 
     const effectiveIntensity =
-      tool === 'raise' || tool === 'lower' ? this.brushIntensity : 1.0;
+      tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth'
+        ? this.brushIntensity
+        : 1.0;
 
     const dirtyRect = this.strokeSession.beginStroke(
       this.doc,
@@ -1236,6 +1464,11 @@ export class EditorStore {
     this.seaOnlyHintVisible = false;
     this.statusNotice = null;
     this.hasLand = computeHasLand(this.doc);
+    this.ensureValidActiveLayer();
+    if (this.pathKind === 'river') this.pathColor = this.doc.theme.colors.pathRiver;
+    else if (this.pathKind === 'road') this.pathColor = this.doc.theme.colors.pathRoad;
+    else if (this.pathKind === 'border') this.pathColor = this.doc.theme.colors.pathBorder;
+    else this.pathColor = this.doc.theme.colors.ink;
     this.documentVersionTick += 1;
     this.renderer.renderFull(this.doc);
     this.terrainRenderTick += 1;
@@ -1435,11 +1668,26 @@ export class EditorStore {
       case 'c':
         this.selectCoverGroup();
         return true;
+      case 'r':
+        this.setTool('path');
+        return true;
       case 'p':
         this.setTool('poi');
         return true;
       case 't':
         this.setTool('label');
+        return true;
+      case '[':
+        e.preventDefault?.();
+        this.setBrushDiameter(Math.round(this.brushDiameterDoc * 0.85));
+        return true;
+      case ']':
+        e.preventDefault?.();
+        this.setBrushDiameter(Math.round(this.brushDiameterDoc * 1.15));
+        return true;
+      case '?':
+        e.preventDefault?.();
+        this.openDialog('shortcuts');
         return true;
       default:
         return false;
@@ -1467,6 +1715,18 @@ export class EditorStore {
       lastCoverTool: this.lastCoverTool,
       brushDiameterDoc: this.brushDiameterDoc,
       brushIntensity: this.brushIntensity,
+      inspectorTab: this.inspectorTab,
+      activeLayerId: this.activeLayerId,
+      poiPlacementScale: this.poiPlacementScale,
+      poiBrushMode: this.poiBrushMode,
+      poiScatterRadiusDoc: this.poiScatterRadiusDoc,
+      poiScatterDensity: this.poiScatterDensity,
+      pathKind: this.pathKind,
+      pathStrokeWidthDoc: this.pathStrokeWidthDoc,
+      pathColor: this.pathColor,
+      pathSmooth: this.pathSmooth,
+      pathDashed: this.pathDashed,
+      pathTapered: this.pathTapered,
       camera: this.camera,
       viewportSize: this.viewportSize,
       hasInitialFit: this.hasInitialFit,
