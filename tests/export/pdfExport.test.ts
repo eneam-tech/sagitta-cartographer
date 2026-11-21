@@ -12,6 +12,7 @@ import {
   exportDocumentToPdf,
   triggerPdfDownload
 } from '../../src/export';
+import { ensureDocumentFontsLoaded } from '../../src/render/composeDocument';
 import { createEmptyDocument } from '../../src/model/document';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
 import { EditorStore } from '../../src/state/editorStore';
@@ -113,7 +114,10 @@ function createMockCanvas2DRecorder() {
           cb(null);
           return;
         }
-        cb(new Blob([new Uint8Array([137, 80, 78, 71])], { type: 'image/png' }));
+        const validPng = encodeRgbaPng(new Uint8ClampedArray([0, 0, 0, 255]), 1, 1);
+        const buf = new ArrayBuffer(validPng.byteLength);
+        new Uint8Array(buf).set(validPng);
+        cb(new Blob([buf], { type: 'image/png' }));
       }
     };
     return canvasObj as unknown as HTMLCanvasElement;
@@ -133,7 +137,12 @@ describe('PDF export & shared document composition', () => {
     'exports valid A4 landscape and portrait PDFs with exact physical dimensions at 300 ppi',
     async () => {
       const sampleDoc = createSampleWorldDocument();
-      const landscapeResult = await exportDocumentToPdf(sampleDoc);
+      const landscapeResult = await exportDocumentToPdf(sampleDoc, {
+        renderRasterPngFn: ({ doc: targetDoc, widthPx, heightPx }) => {
+          const terrain = composeDocumentTerrainRgba(targetDoc);
+          return encodeRgbaPng(terrain.rgba, terrain.width, terrain.height, widthPx, heightPx);
+        }
+      });
 
       expect(landscapeResult.filename).toBe('arcipelago-delle-brume.pdf');
       expect(landscapeResult.rasterWidthPx).toBe(3508);
@@ -152,7 +161,7 @@ describe('PDF export & shared document composition', () => {
       expect(landscapeImages[0].width).toBe(3508);
       expect(landscapeImages[0].height).toBe(2480);
 
-      // A4 verticale (210 x 297 mm) e verifica fallback nome file 'carta.pdf' con titolo vuoto
+      // A4 verticale (210 x 297 mm) solo-terreno senza DOM né renderRasterPngFn + fallback nome file 'carta.pdf'
       const portraitDoc = createEmptyDocument({
         page: { widthMm: 210, heightMm: 297 },
         widthPx: 210,
@@ -311,7 +320,13 @@ describe('PDF export & shared document composition', () => {
     expect(existingRenderer.dispose).not.toHaveBeenCalled();
   });
 
-  it('reports missing assets, blocks active gestures, and guarantees cleanup hooks in finally on failure', async () => {
+  it('reports missing assets, blocks active gestures, rejects objects without DOM/custom renderer, and guarantees cleanup hooks in finally on failure', async () => {
+    // 0. Carta con oggetti senza DOM né renderRasterPngFn deve fallire esplicitamente invece di ignorare gli oggetti
+    const sampleWithObjects = createSampleWorldDocument({ widthPx: 96, heightPx: 68 });
+    await expect(exportDocumentToPdf(sampleWithObjects)).rejects.toThrow(
+      'Impossibile esportare una carta contenente oggetti o etichette in un ambiente privo di superficie Canvas 2D (DOM) o renderer raster personalizzato.'
+    );
+
     // 1. Risorsa referenziata da stamp mancante
     const docMissingStamp = createSampleWorldDocument({ widthPx: 96, heightPx: 68 });
     docMissingStamp.manifest.objects.push({
@@ -515,5 +530,109 @@ describe('PDF export & shared document composition', () => {
     expect(portraitHtml).toContain('300 ppi · 2480 × 3508 px');
     expect(portraitHtml).toContain('595,3 × 841,9 pt');
     expect(portraitHtml).toContain('regno-del-nord.pdf');
+  });
+
+  it('loads all unique font variants before rendering and honors optional matchesDocument freshness checks', async () => {
+    const doc = createSampleWorldDocument({ widthPx: 120, heightPx: 84 });
+    doc.manifest.objects.push({
+      id: 'obj-sea-label',
+      type: 'label',
+      text: 'Mare di Vetro',
+      x: 400,
+      y: 350,
+      fontId: 'spectral-italic',
+      fontSize: 35,
+      color: '#263C40',
+      rotationDeg: 0
+    });
+
+    const loadCalls: Array<{ font: string; text?: string }> = [];
+    let readyAccessed = false;
+    const recorder = createMockCanvas2DRecorder();
+
+    vi.stubGlobal('document', {
+      createElement: (tag: string) => {
+        if (tag === 'canvas') return recorder.makeCanvas();
+        throw new Error(`Unexpected tag: ${tag}`);
+      },
+      fonts: {
+        load: vi.fn(async (font: string, text?: string) => {
+          loadCalls.push({ font, text });
+          return [];
+        }),
+        get ready() {
+          readyAccessed = true;
+          return Promise.resolve();
+        }
+      }
+    });
+
+    await ensureDocumentFontsLoaded(doc);
+    expect(readyAccessed).toBe(true);
+    expect(loadCalls.map((c) => c.font)).toEqual([
+      '600 32px "Spectral", Georgia, serif',
+      'italic 400 32px "Spectral", Georgia, serif'
+    ]);
+
+    // Anche exportDocumentToPdf invoca ensureDocumentFontsLoaded prima del rendering Canvas 2D
+    loadCalls.length = 0;
+    await exportDocumentToPdf(doc, {
+      ppi: 72,
+      loadAssetsFn: async () => {
+        const map: LoadedAssetMap = new Map();
+        for (const entry of doc.manifest.assets) {
+          map.set(entry.id, { entry, image: {} as HTMLImageElement });
+        }
+        return map;
+      }
+    });
+    expect(loadCalls.length).toBe(2);
+
+    // Controllo freschezza existingTerrainRenderer tramite matchesDocument(doc)
+    const stalePixels = new Uint8ClampedArray(doc.terrain.widthPx * doc.terrain.heightPx * 4).fill(99);
+    const staleRenderer: ITerrainRenderer & { matchesDocument: (d: typeof doc) => boolean } = {
+      renderFull: vi.fn(),
+      renderRegion: vi.fn(),
+      getCanvas: () => null,
+      getPixelData: () => ({
+        width: doc.terrain.widthPx,
+        height: doc.terrain.heightPx,
+        rgba: stalePixels
+      }),
+      dispose: vi.fn(),
+      matchesDocument: vi.fn(() => false)
+    };
+
+    const renderFullSpy = vi.spyOn(TerrainRenderer.prototype, 'renderFull');
+    const disposeSpy = vi.spyOn(TerrainRenderer.prototype, 'dispose');
+
+    const freshTerrain = composeDocumentTerrainRgba(doc, staleRenderer);
+    expect(staleRenderer.matchesDocument).toHaveBeenCalledWith(doc);
+    expect(renderFullSpy).toHaveBeenCalledTimes(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
+    expect(freshTerrain.rgba[0]).not.toBe(99);
+
+    renderFullSpy.mockClear();
+    disposeSpy.mockClear();
+    staleRenderer.matchesDocument = vi.fn(() => true);
+    const reusedTerrain = composeDocumentTerrainRgba(doc, staleRenderer);
+    expect(staleRenderer.matchesDocument).toHaveBeenCalledWith(doc);
+    expect(renderFullSpy).not.toHaveBeenCalled();
+    expect(disposeSpy).not.toHaveBeenCalled();
+    expect(reusedTerrain.rgba[0]).toBe(99);
+
+    // Verifica matchesDocument === false anche in composeDocumentToCanvas
+    renderFullSpy.mockClear();
+    disposeSpy.mockClear();
+    staleRenderer.matchesDocument = vi.fn(() => false);
+    composeDocumentToCanvas(doc, new Map(doc.manifest.assets.map((entry) => [entry.id, { entry, image: {} as HTMLImageElement }])), {
+      widthPx: 200,
+      heightPx: 141,
+      existingTerrainRenderer: staleRenderer,
+      targetCanvas: recorder.makeCanvas()
+    });
+    expect(staleRenderer.matchesDocument).toHaveBeenCalledWith(doc);
+    expect(renderFullSpy).toHaveBeenCalledTimes(1);
+    expect(disposeSpy).toHaveBeenCalledTimes(1);
   });
 });

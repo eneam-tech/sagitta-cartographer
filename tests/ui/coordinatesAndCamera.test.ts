@@ -10,9 +10,11 @@ import { createEmptyDocument } from '../../src/model/document';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
 import {
   EditorStore,
+  FallbackPersistenceService,
   isBrushSeaOnly,
   shouldIgnoreShortcut
 } from '../../src/state/editorStore';
+import { LAND_MASK_THRESHOLD, TerrainStrokeSession } from '../../src/terrain';
 
 interface RectLike {
   left: number;
@@ -302,5 +304,64 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     store.commitTerrainStroke();
     expect(store.getDocument().manifest.revision).toBe(revBefore);
     expect(store.getSnapshot().canUndo).toBe(false);
+  });
+
+  it('uses intensity 1.0 for single-click land and water strokes with real TerrainStrokeSession while keeping Rilievo intensity', () => {
+    const doc = createEmptyDocument();
+    const store = new EditorStore({
+      initialDocument: doc,
+      strokeSession: new TerrainStrokeSession()
+    });
+
+    // Verifica impostazioni predefinite (Rilievo parte a 0.45 ma Terra deve usare 1.0)
+    expect(store.getSnapshot().activeTool).toBe('land');
+    expect(store.getSnapshot().brushIntensity).toBe(0.45);
+    expect(store.getSnapshot().brushDiameterDoc).toBe(80);
+
+    const centerDocX = doc.manifest.space.width * 0.5;
+    const centerDocY = doc.manifest.space.height * 0.5;
+    const pxX = Math.floor(docToMaskX(centerDocX, doc.manifest.space, doc.terrain));
+    const pxY = Math.floor(docToMaskY(centerDocY, doc.manifest.space, doc.terrain));
+    const centerIdx = pxY * doc.terrain.widthPx + pxX;
+
+    // Singolo clic fermo con Terra: crea terra piena (mask === 255 >= LAND_MASK_THRESHOLD)
+    store.beginTerrainStroke(centerDocX, centerDocY);
+    store.commitTerrainStroke();
+
+    expect(doc.terrain.mask[centerIdx]).toBe(255);
+    expect(doc.terrain.mask[centerIdx]).toBeGreaterThanOrEqual(LAND_MASK_THRESHOLD);
+    expect(store.getSnapshot().hasLand).toBe(true);
+    expect(doc.manifest.revision).toBe(1);
+
+    // Verifica che Rilievo continui a rispettare brushIntensity (0.45 -> delta < 16)
+    store.setTool('raise');
+    store.beginTerrainStroke(centerDocX, centerDocY);
+    store.commitTerrainStroke();
+    expect(doc.terrain.height[centerIdx]).toBeGreaterThan(0);
+    expect(doc.terrain.height[centerIdx]).toBeLessThan(16);
+
+    // Singolo clic fermo con Acqua sullo stesso punto: azzera maschera, quota e copertura
+    store.setTool('water');
+    store.beginTerrainStroke(centerDocX, centerDocY);
+    store.commitTerrainStroke();
+
+    expect(doc.terrain.mask[centerIdx]).toBe(0);
+    expect(doc.terrain.height[centerIdx]).toBe(0);
+    expect(doc.terrain.cover[centerIdx]).toBe(0);
+  });
+
+  it('catches downloadArchive errors and exposes a statusNotice without throwing', async () => {
+    const persistence = new FallbackPersistenceService();
+    persistence.exportArchive = async () => {
+      throw new Error('Errore creazione archivio ZIP');
+    };
+    const store = new EditorStore({ persistence });
+
+    const result = await store.downloadArchive();
+    expect(result).toBeNull();
+    expect(store.getSnapshot().statusNotice).toEqual({
+      tone: 'error',
+      text: 'Errore creazione archivio ZIP'
+    });
   });
 });

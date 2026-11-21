@@ -16,6 +16,52 @@ export interface ObjectListPanelProps {
 const VIRTUAL_THRESHOLD = 200;
 const PAGE_STEP = 100;
 
+export interface ObjectListRowKeyCallbacks {
+  onDelete: () => void;
+  onFocusPrev?: () => void;
+  onFocusNext?: () => void;
+  onFocusFirst?: () => void;
+  onFocusLast?: () => void;
+}
+
+/**
+ * Handles keyboard navigation and deletion on an ObjectListPanel row button.
+ * Calls both `preventDefault()` and `stopPropagation()` on Delete/Backspace so
+ * the global window handler does not delete a second object.
+ */
+export function handleObjectListItemKeyDown(
+  e: Pick<KeyboardEvent<HTMLElement>, 'key' | 'preventDefault' | 'stopPropagation'>,
+  callbacks: ObjectListRowKeyCallbacks
+): boolean {
+  if (e.key === 'ArrowDown') {
+    e.preventDefault();
+    callbacks.onFocusNext?.();
+    return true;
+  }
+  if (e.key === 'ArrowUp') {
+    e.preventDefault();
+    callbacks.onFocusPrev?.();
+    return true;
+  }
+  if (e.key === 'Home') {
+    e.preventDefault();
+    callbacks.onFocusFirst?.();
+    return true;
+  }
+  if (e.key === 'End') {
+    e.preventDefault();
+    callbacks.onFocusLast?.();
+    return true;
+  }
+  if (e.key === 'Delete' || e.key === 'Backspace') {
+    e.preventDefault();
+    e.stopPropagation();
+    callbacks.onDelete();
+    return true;
+  }
+  return false;
+}
+
 function ArrowUpSmallIcon() {
   return (
     <svg
@@ -128,7 +174,9 @@ function ObjectThumb({ obj }: { obj: MapObject }) {
           style={{ display: 'block', pointerEvents: 'none' }}
         />
       ) : (
-        <span style={{ fontSize: '11px', fontWeight: 600, color: 'var(--ui-muted)' }}>P</span>
+        <span style={{ fontSize: '13px', lineHeight: '18px', fontWeight: 600, color: 'var(--ui-muted)' }}>
+          P
+        </span>
       )}
     </span>
   );
@@ -195,7 +243,7 @@ function ObjectRow({
           borderRadius: 'var(--ui-radius-control)',
           color: 'var(--ui-text)',
           fontFamily: 'var(--ui-font-sans)',
-          fontSize: '14px',
+          fontSize: '15px',
           lineHeight: '20px',
           fontWeight: isSelected ? 600 : 400,
           display: 'flex',
@@ -220,15 +268,16 @@ function ObjectRow({
       <div style={{ display: 'inline-flex', alignItems: 'center', flexShrink: 0 }}>
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost has-tooltip-top"
           aria-label={`Porta avanti ${displayName}`}
-          title="Porta avanti"
+          data-tooltip="Porta avanti"
           disabled={!canMoveForward}
           onClick={() => onBringForward(obj, docIndex)}
           style={{
             minHeight: '36px',
-            minWidth: '28px',
-            width: '28px',
+            minWidth: '36px',
+            width: '36px',
+            height: '36px',
             padding: 0
           }}
         >
@@ -237,15 +286,16 @@ function ObjectRow({
 
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost has-tooltip-top"
           aria-label={`Porta indietro ${displayName}`}
-          title="Porta indietro"
+          data-tooltip="Porta indietro"
           disabled={!canMoveBackward}
           onClick={() => onSendBackward(obj, docIndex)}
           style={{
             minHeight: '36px',
-            minWidth: '28px',
-            width: '28px',
+            minWidth: '36px',
+            width: '36px',
+            height: '36px',
             padding: 0
           }}
         >
@@ -254,14 +304,15 @@ function ObjectRow({
 
         <button
           type="button"
-          className="btn btn-ghost"
+          className="btn btn-ghost has-tooltip-top"
           aria-label={`Elimina ${displayName}`}
-          title="Elimina"
+          data-tooltip="Elimina"
           onClick={() => onDelete(obj)}
           style={{
             minHeight: '36px',
-            minWidth: '28px',
-            width: '28px',
+            minWidth: '36px',
+            width: '36px',
+            height: '36px',
             padding: 0,
             color: 'var(--ui-muted)'
           }}
@@ -333,24 +384,13 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
     visibleIndex: number,
     obj: MapObject
   ) => {
-    if (e.key === 'ArrowDown') {
-      e.preventDefault();
-      const next = rowBtnRefs.current[visibleIndex + 1];
-      next?.focus();
-    } else if (e.key === 'ArrowUp') {
-      e.preventDefault();
-      const prev = rowBtnRefs.current[visibleIndex - 1];
-      prev?.focus();
-    } else if (e.key === 'Home') {
-      e.preventDefault();
-      rowBtnRefs.current[0]?.focus();
-    } else if (e.key === 'End') {
-      e.preventDefault();
-      rowBtnRefs.current[visibleEntries.length - 1]?.focus();
-    } else if (e.key === 'Delete' || e.key === 'Backspace') {
-      e.preventDefault();
-      handleDelete(obj);
-    }
+    handleObjectListItemKeyDown(e, {
+      onFocusNext: () => rowBtnRefs.current[visibleIndex + 1]?.focus(),
+      onFocusPrev: () => rowBtnRefs.current[visibleIndex - 1]?.focus(),
+      onFocusFirst: () => rowBtnRefs.current[0]?.focus(),
+      onFocusLast: () => rowBtnRefs.current[visibleEntries.length - 1]?.focus(),
+      onDelete: () => handleDelete(obj)
+    });
   };
 
   const remainingCount = totalCount - effectiveLimit;
@@ -366,8 +406,8 @@ export function ObjectListPanel({ store }: ObjectListPanelProps) {
         >
           <div
             style={{
-              fontSize: '12px',
-              lineHeight: '16px',
+              fontSize: '13px',
+              lineHeight: '18px',
               color: 'var(--ui-accent)',
               marginBottom: '4px'
             }}

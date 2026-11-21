@@ -16,7 +16,8 @@ import { AssetManifestEntry, MapDocument } from '../model/document';
 import {
   composeDocumentTerrainRgba,
   composeDocumentToCanvas,
-  encodeRgbaPng
+  encodeRgbaPng,
+  ensureDocumentFontsLoaded
 } from '../render/composeDocument';
 import { ITerrainRenderer } from '../terrain/types';
 import { PdfExportOptions, PdfExportResult } from './types';
@@ -169,9 +170,7 @@ export async function exportDocumentToPdf(
       throw new Error('Dimensioni raster di stampa non valide.');
     }
 
-    if (typeof document !== 'undefined' && document.fonts?.ready) {
-      await document.fonts.ready;
-    }
+    await ensureDocumentFontsLoaded(doc);
 
     if (options?.loadAssetsFn) {
       loadedAssets = await options.loadAssetsFn(doc, options.extraAssetBlobs);
@@ -202,6 +201,11 @@ export async function exportDocumentToPdf(
       });
       pngBytes = await canvasToPngUint8Array(tempCanvas);
     } else {
+      if (doc.manifest.objects.length > 0) {
+        throw new Error(
+          'Impossibile esportare una carta contenente oggetti o etichette in un ambiente privo di superficie Canvas 2D (DOM) o renderer raster personalizzato.'
+        );
+      }
       const terrain = composeDocumentTerrainRgba(doc, options?.existingTerrainRenderer);
       pngBytes = encodeRgbaPng(
         terrain.rgba,

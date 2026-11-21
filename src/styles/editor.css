@@ -37,8 +37,11 @@ body,
 .editor-shell {
   display: grid;
   grid-template-rows: var(--ui-topbar-h) minmax(0, 1fr) var(--ui-statusbar-h);
+  grid-template-columns: minmax(0, 1fr);
   height: 100vh;
   width: 100vw;
+  max-width: 100%;
+  min-width: 0;
   overflow: hidden;
   background-color: var(--ui-bench);
 }
@@ -48,12 +51,15 @@ body,
   grid-template-columns: var(--ui-rail-w) minmax(0, 1fr) var(--ui-panel-w);
   min-height: 0;
   min-width: 0;
+  max-width: 100%;
   position: relative;
 }
 
 /* Barra superiore (56 px) */
 .editor-topbar {
   height: var(--ui-topbar-h);
+  min-width: 0;
+  max-width: 100%;
   background-color: var(--ui-panel);
   border-bottom: var(--ui-border-w) solid var(--ui-line-subtle);
   display: flex;
@@ -767,7 +773,7 @@ body,
   border: var(--ui-border-w) solid transparent;
   border-radius: var(--ui-radius-control);
   font-family: var(--ui-font-sans);
-  font-size: 14px;
+  font-size: 15px;
   line-height: 20px;
   text-align: left;
   cursor: pointer;
@@ -809,6 +815,8 @@ body,
 .editor-statusbar {
   height: var(--ui-statusbar-h);
   min-height: var(--ui-statusbar-h);
+  min-width: 0;
+  max-width: 100%;
   background-color: var(--ui-panel);
   border-top: var(--ui-border-w) solid var(--ui-line-subtle);
   display: flex;
@@ -962,6 +970,16 @@ body,
 .has-tooltip-bottom:hover::after,
 .has-tooltip-bottom:focus-visible::after {
   top: calc(100% + 6px);
+}
+
+.has-tooltip-bottom.has-tooltip-bottom-start:hover::after,
+.has-tooltip-bottom.has-tooltip-bottom-start:focus-visible::after {
+  left: 0;
+  right: auto;
+}
+
+.has-tooltip-bottom[aria-expanded='true']::after {
+  display: none;
 }
 
 /* Dialoghi modali accessibili */
@@ -1168,6 +1186,7 @@ body,
   }
 
   .editor-properties {
+    display: none;
     position: absolute;
     top: 0;
     right: 0;
@@ -1175,32 +1194,60 @@ body,
     width: var(--ui-panel-w);
     max-width: calc(100vw - var(--ui-rail-w));
     box-shadow: -12px 0 28px rgba(10, 17, 23, 0.55);
-    transform: translateX(100%);
-    visibility: hidden;
-    transition: transform var(--ui-motion-fast), visibility var(--ui-motion-fast);
+    z-index: 30;
   }
 
   .editor-properties.is-open {
-    transform: translateX(0);
-    visibility: visible;
+    display: flex;
+    z-index: 30;
   }
 }
 
 /* Spazio compatto sotto 760 px: rail orizzontale scorrevole + cassetto proprietà richiudibile */
 @media (max-width: 759px) {
   .editor-topbar {
-    padding: 0 var(--ui-space-2);
-    gap: var(--ui-space-2);
+    padding: 0 8px;
+    gap: 4px;
   }
 
   .topbar-left {
-    gap: var(--ui-space-2);
+    gap: 4px;
+    min-width: 0;
+    flex: 1 1 0;
+  }
+
+  .topbar-title-form {
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
   }
 
   .topbar-title-input {
-    font-size: 18px;
-    line-height: 24px;
-    min-width: 80px;
+    min-width: 0;
+    width: 100%;
+    font-size: 16px;
+    line-height: 22px;
+    padding: 4px 6px;
+  }
+
+  .topbar-right {
+    gap: 4px;
+    flex-shrink: 0;
+  }
+
+  .topbar-project-chevron {
+    display: none;
+  }
+
+  .editor-topbar .btn {
+    padding: 0 6px;
+    min-width: 36px;
+  }
+
+  .editor-topbar .btn-primary {
+    padding: 0 8px;
+    gap: 4px;
+    font-size: 13px;
   }
 
   .topbar-btn-label {
@@ -1214,6 +1261,8 @@ body,
 
   .editor-rail {
     width: 100%;
+    min-width: 0;
+    max-width: 100%;
     height: 56px;
     flex-direction: row;
     justify-content: flex-start;
@@ -1253,16 +1302,32 @@ body,
     border-top: var(--ui-border-w) solid var(--ui-line);
     border-radius: var(--ui-radius-dialog) var(--ui-radius-dialog) 0 0;
     box-shadow: 0 -12px 28px rgba(10, 17, 23, 0.6);
-    transform: translateY(100%);
-  }
-
-  .editor-properties.is-open {
-    transform: translateY(0);
   }
 
   .editor-statusbar {
-    padding: 0 var(--ui-space-2);
-    gap: var(--ui-space-2);
+    padding: 0 8px;
+    gap: 4px;
+  }
+
+  .statusbar-left {
+    min-width: 0;
+    flex: 1 1 0;
+    overflow: hidden;
+  }
+
+  .statusbar-right {
+    gap: 2px;
+    flex-shrink: 0;
+  }
+
+  .statusbar-btn {
+    min-width: 36px;
+    padding: 0 4px;
+  }
+
+  .statusbar-zoom-readout {
+    min-width: 38px;
+    font-size: 13px;
   }
 
   .statusbar-fit-label {

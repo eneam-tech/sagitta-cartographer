@@ -1,4 +1,4 @@
-import { useEffect, useId, useState } from 'react';
+import { useEffect, useId, useRef, useState } from 'react';
 import type { ReactNode } from 'react';
 import { clampNumber } from '../model/coordinates';
 import { MapObject } from '../model/document';
@@ -193,6 +193,23 @@ export function PropertiesPanel({
   } = snap;
 
   const [objectsOpen, setObjectsOpen] = useState(true);
+  const closeBtnRef = useRef<HTMLButtonElement>(null);
+  const prevDrawerOpenRef = useRef(propertiesDrawerOpen);
+
+  useEffect(() => {
+    const wasOpen = prevDrawerOpenRef.current;
+    prevDrawerOpenRef.current = propertiesDrawerOpen;
+    if (wasOpen === propertiesDrawerOpen) return;
+
+    const toggleBtn = document.querySelector<HTMLButtonElement>('.topbar-props-toggle');
+    if (!toggleBtn || toggleBtn.offsetParent === null) return;
+
+    if (propertiesDrawerOpen) {
+      closeBtnRef.current?.focus();
+    } else {
+      toggleBtn.focus();
+    }
+  }, [propertiesDrawerOpen]);
 
   const selectedObject = selectedObjectId
     ? doc.manifest.objects.find((o) => o.id === selectedObjectId) ?? null
@@ -216,6 +233,7 @@ export function PropertiesPanel({
         <div className="properties-header">
           <h2 className="panel-title">Proprietà</h2>
           <button
+            ref={closeBtnRef}
             type="button"
             className="btn btn-ghost btn-icon-only properties-close-btn has-tooltip-bottom"
             aria-label="Chiudi pannello proprietà"

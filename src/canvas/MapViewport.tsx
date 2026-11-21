@@ -48,6 +48,14 @@ interface CursorState {
   docY: number;
 }
 
+interface TileCapableTerrainRenderer {
+  drawToCanvasContext?: (
+    ctx: CanvasRenderingContext2D,
+    space: { width: number; height: number },
+    visibleDocRect?: { x: number; y: number; width: number; height: number }
+  ) => void;
+}
+
 export function MapViewport({
   store,
   onLayersReady,
@@ -81,7 +89,7 @@ export function MapViewport({
 
   const terrainShadowRef = useRef<Konva.Rect | null>(null);
   const terrainSeaRef = useRef<Konva.Rect | null>(null);
-  const terrainImageRef = useRef<Konva.Image | null>(null);
+  const terrainShapeRef = useRef<Konva.Shape | null>(null);
 
   const pageBorderRef = useRef<Konva.Rect | null>(null);
   const regMarksRef = useRef<Konva.Line[]>([]);
@@ -191,13 +199,40 @@ export function MapViewport({
       y: 0,
       listening: false
     });
-    const terrainImg = new Konva.Image({
+    const terrainShape = new Konva.Shape({
       x: 0,
       y: 0,
-      image: undefined,
-      listening: false
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx) => {
+        const currentSnap = store.getSnapshot();
+        const renderer = store.getRenderer();
+        const { space } = currentSnap.doc.manifest;
+        const tileRenderer = renderer as unknown as TileCapableTerrainRenderer;
+
+        if (typeof tileRenderer.drawToCanvasContext === 'function') {
+          const cam = currentSnap.camera;
+          const scale = Math.max(1e-6, cam.scale);
+          const vpW = currentSnap.viewportSize.width || stage.width() || 1;
+          const vpH = currentSnap.viewportSize.height || stage.height() || 1;
+          const marginDoc = 16 / scale;
+          const visibleDocRect = {
+            x: -cam.offsetX / scale - marginDoc,
+            y: -cam.offsetY / scale - marginDoc,
+            width: vpW / scale + marginDoc * 2,
+            height: vpH / scale + marginDoc * 2
+          };
+          tileRenderer.drawToCanvasContext(ctx._context, space, visibleDocRect);
+          return;
+        }
+
+        const canvas = renderer.getCanvas();
+        if (canvas) {
+          ctx._context.drawImage(canvas, 0, 0, space.width, space.height);
+        }
+      }
     });
-    terrainLayer.add(shadowRect, seaRect, terrainImg);
+    terrainLayer.add(shadowRect, seaRect, terrainShape);
 
     const pageBorder = new Konva.Rect({
       x: 0,
@@ -272,7 +307,7 @@ export function MapViewport({
     overlayLayerRef.current = overlayLayer;
     terrainShadowRef.current = shadowRect;
     terrainSeaRef.current = seaRect;
-    terrainImageRef.current = terrainImg;
+    terrainShapeRef.current = terrainShape;
     pageBorderRef.current = pageBorder;
     regMarksRef.current = regMarks;
     brushGroupRef.current = brushGroup;
@@ -310,6 +345,9 @@ export function MapViewport({
       terrainLayerRef.current = null;
       objectsLayerRef.current = null;
       overlayLayerRef.current = null;
+      terrainShadowRef.current = null;
+      terrainSeaRef.current = null;
+      terrainShapeRef.current = null;
     };
   }, [store]);
 
@@ -372,10 +410,9 @@ export function MapViewport({
       height,
       fill: doc.theme.colors.sea
     });
-    terrainImageRef.current?.setAttrs({
+    terrainShapeRef.current?.setAttrs({
       width,
-      height,
-      image: store.getRenderer().getCanvas() ?? undefined
+      height
     });
 
     pageBorderRef.current?.setAttrs({
@@ -418,9 +455,8 @@ export function MapViewport({
     const flushTerrainDraw = () => {
       rafId = null;
       const terrainLayer = terrainLayerRef.current;
-      const terrainImg = terrainImageRef.current;
-      if (!terrainLayer || !terrainImg) return;
-      terrainImg.image(store.getRenderer().getCanvas() ?? undefined);
+      const terrainShape = terrainShapeRef.current;
+      if (!terrainLayer || !terrainShape) return;
       terrainLayer.batchDraw();
     };
 

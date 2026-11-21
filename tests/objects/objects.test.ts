@@ -30,6 +30,7 @@ import {
 } from '../../src/objects';
 import { EditorStore } from '../../src/state/editorStore';
 import { TerrainRenderer, TerrainStrokeSession, inspectCellAtDoc, isPointOnLand } from '../../src/terrain';
+import { handleObjectListItemKeyDown } from '../../src/ui/ObjectListPanel';
 
 function countDiffBytes(a: Uint8Array, b: Uint8Array): number {
   if (a.length !== b.length) return Math.max(a.length, b.length);
@@ -362,6 +363,15 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     // Primo piano (label) appare prima del fondo (Torre)
     expect(listHtml.indexOf('Porto delle Brume')).toBeLessThan(listHtml.indexOf('Torre'));
     expect(listHtml).toContain('aria-current="true"');
+    expect(listHtml).toContain('has-tooltip-top');
+    expect(listHtml).toContain('data-tooltip="Porta avanti"');
+    expect(listHtml).toContain('data-tooltip="Porta indietro"');
+    expect(listHtml).toContain('data-tooltip="Elimina"');
+    expect(listHtml).toContain('min-width:36px');
+    expect(listHtml).toContain('min-height:36px');
+    expect(listHtml).not.toContain('font-size:11px');
+    expect(listHtml).not.toContain('font-size:12px');
+    expect(listHtml).not.toContain('font-size:14px');
 
     // ObjectInspector for Label
     const labelInspectorHtml = renderToStaticMarkup(createElement(ObjectInspector, { store }));
@@ -371,6 +381,8 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(labelInspectorHtml).toContain('Mare (10 pt corsivo)');
     expect(labelInspectorHtml).toContain('#263C40');
     expect(labelInspectorHtml).toContain('#8B493D');
+    expect(labelInspectorHtml).toContain('width:36px;height:36px;min-width:36px;min-height:36px');
+    expect(labelInspectorHtml).not.toContain('font-size:14px');
 
     // ObjectInspector for Stamp
     store.selectObject(tower.id);
@@ -380,6 +392,8 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(stampInspectorHtml).toContain('Altezza');
     expect(stampInspectorHtml).toContain('Mantieni proporzioni');
     expect(stampInspectorHtml).toContain('Rotazione');
+    expect(stampInspectorHtml).toContain('font-size:15px');
+    expect(stampInspectorHtml).not.toContain('font-size:14px');
 
     // InlineLabelEditor positioned via docToScreen with Italian accents
     store.setCamera({ offsetX: 100, offsetY: 50, scale: 0.5 });
@@ -422,8 +436,66 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     const bigListHtml = renderToStaticMarkup(createElement(ObjectListPanel, { store: bigStore }));
     expect(bigListHtml).toContain('Selezionato (#2000 su 2000)');
     expect(bigListHtml).toContain('Mostra altri (1900 rimanenti)');
+    expect(bigListHtml).not.toContain('font-size:12px');
 
     bigStore.dispose();
+    store.dispose();
+  });
+
+  it('stops propagation on Delete and Backspace in ObjectListPanel rows so window shortcuts cannot double-delete', () => {
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 128 });
+    const store = new EditorStore({
+      initialDocument: doc,
+      strokeSession: new TerrainStrokeSession(),
+      renderer: new TerrainRenderer()
+    });
+
+    const towerCatalog = BUILTIN_POI_CATALOG.find((i) => i.id === 'poi-tower')!;
+    const objA = createPoiStampObject(towerCatalog, 300, 300, { id: 'obj-a' });
+    const objB = createPoiStampObject(towerCatalog, 500, 500, { id: 'obj-b' });
+    const objC = createPoiStampObject(towerCatalog, 700, 700, { id: 'obj-c' });
+    store.executeCommand(new AddObjectCommand(objA));
+    store.executeCommand(new AddObjectCommand(objB));
+    store.executeCommand(new AddObjectCommand(objC));
+    store.selectObject(objC.id);
+
+    for (const [key, targetObj] of [
+      ['Delete', objA],
+      ['Backspace', objB]
+    ] as const) {
+      let prevented = false;
+      let stopped = false;
+
+      const handled = handleObjectListItemKeyDown(
+        {
+          key,
+          preventDefault: () => {
+            prevented = true;
+          },
+          stopPropagation: () => {
+            stopped = true;
+          }
+        },
+        {
+          onDelete: () => {
+            store.executeCommand(new DeleteObjectCommand(targetObj.id, 'Elimina simbolo'));
+          }
+        }
+      );
+
+      expect(handled).toBe(true);
+      expect(prevented).toBe(true);
+      expect(stopped).toBe(true);
+
+      // Simulazione risalita verso window: non deve invocare la cancellazione globale sul selezionato
+      if (!stopped && store.getSnapshot().selectedObjectId) {
+        store.executeCommand(new DeleteObjectCommand(store.getSnapshot().selectedObjectId!));
+      }
+    }
+
+    expect(doc.manifest.objects.map((o) => o.id)).toEqual([objC.id]);
+    expect(store.getSnapshot().selectedObjectId).toBe(objC.id);
+
     store.dispose();
   });
 });

@@ -85,7 +85,7 @@ function CommittedNumberField({
       <label
         htmlFor={inputId}
         style={{
-          fontSize: '14px',
+          fontSize: '15px',
           lineHeight: '20px',
           fontWeight: 600,
           color: 'var(--ui-text)'
@@ -255,8 +255,8 @@ function StampInspectorFields({ store, stamp }: StampInspectorFieldsProps) {
           alignItems: 'center',
           gap: 'var(--ui-space-2)',
           minHeight: '36px',
-          fontSize: '14px',
-          lineHeight: '20px',
+          fontSize: '15px',
+          lineHeight: '22px',
           color: 'var(--ui-text)',
           cursor: 'pointer'
         }}
@@ -448,23 +448,25 @@ function LabelInspectorFields({ store, labelObj }: LabelInspectorFieldsProps) {
           <label htmlFor={hexId} className="field-label">
             Colore
           </label>
-          <div style={{ display: 'flex', alignItems: 'center', gap: '6px' }}>
+          <div style={{ display: 'flex', alignItems: 'center', gap: 'var(--ui-space-1)' }}>
             {LABEL_COLOR_SWATCHES.map((swatch) => {
               const isSelected = labelObj.color.toUpperCase() === swatch.hex.toUpperCase();
               return (
                 <button
                   key={swatch.hex}
                   type="button"
+                  className="has-tooltip-top"
                   aria-label={`Colore ${swatch.name} (${swatch.hex})`}
                   aria-pressed={isSelected}
-                  title={`${swatch.name} (${swatch.hex})`}
+                  data-tooltip={`${swatch.name} (${swatch.hex})`}
                   onClick={() =>
                     commitLabelPatch({ color: swatch.hex }, 'Cambia colore etichetta')
                   }
                   style={{
-                    width: '28px',
-                    height: '28px',
-                    minHeight: '28px',
+                    width: '36px',
+                    height: '36px',
+                    minWidth: '36px',
+                    minHeight: '36px',
                     padding: 0,
                     borderRadius: 'var(--ui-radius-control)',
                     backgroundColor: swatch.hex,

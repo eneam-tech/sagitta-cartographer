@@ -1,4 +1,4 @@
-import { describe, expect, it } from 'vitest';
+import { afterEach, describe, expect, it, vi } from 'vitest';
 import {
   COVER_FIELDS,
   COVER_FOREST,
@@ -8,7 +8,7 @@ import {
 } from '../../src/model/document';
 import { HistoryManager } from '../../src/model/history';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
-import { DEFAULT_THEME, V1_FLAT_THEME } from '../../src/theme/theme';
+import { DEFAULT_THEME, V1_FLAT_THEME, cloneTheme } from '../../src/theme/theme';
 import {
   TerrainRenderer,
   TerrainStrokeSession,
@@ -57,6 +57,11 @@ function countRgbDiffs(
 }
 
 describe('Terrain engine & reactive rendering', () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    vi.unstubAllGlobals();
+  });
+
   it('classifies the 5 elevation/coastal strips accurately and treats land at page borders as inland', () => {
     // 1485 x 1050 px on 2970 x 2100 doc space => 2 doc units per pixel
     const doc = createEmptyDocument({ widthPx: 1485, heightPx: 1050, seed: 42 });
@@ -342,8 +347,9 @@ describe('Terrain engine & reactive rendering', () => {
     expect(isPointOnLand(doc, 1485 + 115, 1050)).toBe(false);
     expect(isPointOnLand(doc, 1485 + 80, 1050 + 80)).toBe(false); // hypot(80,80) = 113.1 > 100
 
-    // Newly emerged land starts at height 0, cover 0
+    // Newly emerged land starts at mask 255 (>= 128), height 0, cover 0
     const centerInsp = inspectCellAtDoc(doc, 1485, 1050)!;
+    expect(centerInsp.mask).toBe(255);
     expect(centerInsp.height).toBe(0);
     expect(centerInsp.cover).toBe(COVER_NATURAL);
 
@@ -445,25 +451,26 @@ describe('Terrain engine & reactive rendering', () => {
     expect(dists[3 * 10 + 4]).toBeCloseTo(5, 5); // (14,13) -> hypot(4,3) = 5
   });
 
-  it('renders 240x240 dirtyRect on full 3508x2480 canvas rapidly and matches chunked renderFull bit-for-bit', () => {
+  it('renders 240x240 dirtyRect on full 3508x2480 canvas rapidly and matches chunked renderFull bit-for-bit across 256x256 seams', () => {
     const doc = createEmptyDocument({ widthPx: 3508, heightPx: 2480, seed: 173 });
     const session = new TerrainStrokeSession();
 
-    // Straddle the 512x512 internal renderer chunk boundary around px (512, 512) -> doc (434, 434)
-    session.beginStroke(doc, { tool: 'land', diameterDoc: 180, intensity: 1.0 }, 380, 400);
-    session.addPoint(doc, 500, 470);
+    // Straddle the 256x256 internal renderer chunk boundary around px (256, 256) -> doc (217, 217)
+    // as well as (512, 512) -> doc (434, 434)
+    session.beginStroke(doc, { tool: 'land', diameterDoc: 180, intensity: 1.0 }, 175, 190);
+    session.addPoint(doc, 275, 255);
     session.commit(doc);
 
-    session.beginStroke(doc, { tool: 'raise', diameterDoc: 120, intensity: 1.0 }, 420, 430);
-    session.addPoint(doc, 460, 450);
+    session.beginStroke(doc, { tool: 'raise', diameterDoc: 120, intensity: 1.0 }, 200, 210);
+    session.addPoint(doc, 240, 230);
     session.commit(doc);
 
     const renderer = new TerrainRenderer();
     renderer.renderFull(doc);
 
-    // Apply forest across the 512x512 chunk seam and test incremental renderRegion speed & bit-exactness
-    session.beginStroke(doc, { tool: 'forest', diameterDoc: 120, intensity: 1.0 }, 410, 430);
-    session.addPoint(doc, 470, 440);
+    // Apply forest across the 256x256 chunk seam and test incremental renderRegion speed & bit-exactness
+    session.beginStroke(doc, { tool: 'forest', diameterDoc: 120, intensity: 1.0 }, 190, 210);
+    session.addPoint(doc, 250, 225);
     const forestRes = session.commit(doc)!;
     expect(forestRes).not.toBeNull();
 
@@ -485,6 +492,258 @@ describe('Terrain engine & reactive rendering', () => {
     fullRef.dispose();
     expect(renderer.getPixelData().rgba.length).toBe(0);
     expect(renderer.getCanvas()).toBeNull();
+  });
+
+  it('tracks document freshness via matchesDocument across terrainVersion, id, theme, size, and dispose', () => {
+    const doc = createEmptyDocument({ widthPx: 594, heightPx: 420, seed: 173 });
+    const renderer = new TerrainRenderer();
+
+    expect(renderer.matchesDocument(doc)).toBe(false);
+
+    renderer.renderFull(doc);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    // terrainVersion bump invalidates freshness until renderRegion or renderFull catches up
+    const session = new TerrainStrokeSession();
+    session.beginStroke(doc, { tool: 'land', diameterDoc: 80, intensity: 1.0 }, 400, 400);
+    const res = session.commit(doc)!;
+    expect(res).not.toBeNull();
+    doc.terrainVersion += 1;
+    expect(renderer.matchesDocument(doc)).toBe(false);
+
+    renderer.renderRegion(doc, res.dirtyRect);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    // Empty / out-of-bounds dirtyRect with matching id & theme also keeps terrainVersion current
+    doc.terrainVersion += 1;
+    expect(renderer.matchesDocument(doc)).toBe(false);
+    renderer.renderRegion(doc, { x: -50, y: -50, width: 10, height: 10 });
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    // Document ID change invalidates freshness and recovers on renderRegion / renderFull
+    const prevId = doc.manifest.id;
+    doc.manifest.id = 'other-document-id';
+    expect(renderer.matchesDocument(doc)).toBe(false);
+    renderer.renderFull(doc);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    doc.manifest.id = prevId;
+    expect(renderer.matchesDocument(doc)).toBe(false);
+    renderer.renderRegion(doc, res.dirtyRect);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    // Theme change (both preset switch and inline color mutation) invalidates freshness
+    doc.theme = V1_FLAT_THEME;
+    expect(renderer.matchesDocument(doc)).toBe(false);
+    renderer.renderFull(doc);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    const mutatedTheme = cloneTheme(V1_FLAT_THEME);
+    mutatedTheme.colors.sea = '#112233';
+    doc.theme = mutatedTheme;
+    expect(renderer.matchesDocument(doc)).toBe(false);
+    renderer.renderFull(doc);
+    expect(renderer.matchesDocument(doc)).toBe(true);
+
+    // Dimension mismatch invalidates freshness
+    const otherDimDoc = createEmptyDocument({ id: doc.manifest.id, widthPx: 300, heightPx: 210 });
+    otherDimDoc.terrainVersion = doc.terrainVersion;
+    otherDimDoc.theme = doc.theme;
+    expect(renderer.matchesDocument(otherDimDoc)).toBe(false);
+
+    // Disposed renderer never matches
+    renderer.dispose();
+    expect(renderer.matchesDocument(doc)).toBe(false);
+  });
+
+  it('maintains 256x256 tile canvases incrementally, culls drawToCanvasContext, blits lazily in getCanvas, and cleans up on dispose', () => {
+    interface MockCanvasRecord {
+      width: number;
+      height: number;
+      rgba: Uint8ClampedArray;
+      putImageDataCalls: Array<{ dx: number; dy: number; dirtyW: number; dirtyH: number }>;
+      drawImageCalls: Array<{ src: MockCanvasRecord; dx: number; dy: number; dw: number; dh: number }>;
+      canvas: HTMLCanvasElement;
+    }
+
+    const createdCanvases: MockCanvasRecord[] = [];
+    const makeMockCanvas = (): MockCanvasRecord => {
+      const record: MockCanvasRecord = {
+        width: 0,
+        height: 0,
+        rgba: new Uint8ClampedArray(0),
+        putImageDataCalls: [],
+        drawImageCalls: [],
+        canvas: null as unknown as HTMLCanvasElement
+      };
+
+      const ctx = {
+        createImageData: (w: number, h: number) => ({
+          width: w,
+          height: h,
+          data: new Uint8ClampedArray(w * h * 4)
+        }),
+        putImageData: (
+          imgData: ImageData,
+          dx: number,
+          dy: number,
+          dirtyX = 0,
+          dirtyY = 0,
+          dirtyW = imgData.width,
+          dirtyH = imgData.height
+        ) => {
+          record.putImageDataCalls.push({ dx, dy, dirtyW, dirtyH });
+          for (let sy = dirtyY; sy < dirtyY + dirtyH; sy += 1) {
+            const dstY = dy + sy;
+            if (dstY < 0 || dstY >= record.height) continue;
+            for (let sx = dirtyX; sx < dirtyX + dirtyW; sx += 1) {
+              const dstX = dx + sx;
+              if (dstX < 0 || dstX >= record.width) continue;
+              const sOff = (sy * imgData.width + sx) * 4;
+              const dOff = (dstY * record.width + dstX) * 4;
+              record.rgba[dOff] = imgData.data[sOff];
+              record.rgba[dOff + 1] = imgData.data[sOff + 1];
+              record.rgba[dOff + 2] = imgData.data[sOff + 2];
+              record.rgba[dOff + 3] = imgData.data[sOff + 3];
+            }
+          }
+        },
+        drawImage: (srcCanvas: HTMLCanvasElement, dx: number, dy: number, dw: number, dh: number) => {
+          const srcRec = createdCanvases.find((c) => c.canvas === srcCanvas)!;
+          record.drawImageCalls.push({ src: srcRec, dx, dy, dw, dh });
+        }
+      } as unknown as CanvasRenderingContext2D;
+
+      const canvasObj = {
+        get width() {
+          return record.width;
+        },
+        set width(v: number) {
+          record.width = v;
+          record.rgba = new Uint8ClampedArray(Math.max(0, record.width) * Math.max(0, record.height) * 4);
+        },
+        get height() {
+          return record.height;
+        },
+        set height(v: number) {
+          record.height = v;
+          record.rgba = new Uint8ClampedArray(Math.max(0, record.width) * Math.max(0, record.height) * 4);
+        },
+        getContext: (kind: string) => (kind === '2d' ? ctx : null)
+      } as unknown as HTMLCanvasElement;
+
+      record.canvas = canvasObj;
+      createdCanvases.push(record);
+      return record;
+    };
+
+    vi.stubGlobal('document', {
+      createElement: (tag: string) => {
+        if (tag === 'canvas') return makeMockCanvas().canvas;
+        throw new Error(`Unexpected tag: ${tag}`);
+      }
+    });
+
+    // 600 x 400 -> 3 x 2 grid of <=256x256 tiles: widths [256, 256, 88], heights [256, 144]
+    const doc = createEmptyDocument({ widthPx: 600, heightPx: 400, seed: 42 });
+    const session = new TerrainStrokeSession();
+    session.beginStroke(doc, { tool: 'land', diameterDoc: 240, intensity: 1.0 }, 400, 400);
+    session.commit(doc);
+
+    const renderer = new TerrainRenderer();
+    renderer.renderFull(doc);
+
+    // renderFull must NOT allocate the 600x400 monolithic canvas or unused tiles upfront
+    expect(createdCanvases).toHaveLength(0);
+
+    // drawToCanvasContext with a visible rect inside tile (0, 0) creates & draws only 1 tile
+    const viewportRecord = makeMockCanvas();
+    viewportRecord.canvas.width = 600;
+    viewportRecord.canvas.height = 400;
+    const viewportCtx = viewportRecord.canvas.getContext('2d')!;
+    const scaleX = doc.manifest.space.width / 600;
+    const scaleY = doc.manifest.space.height / 400;
+
+    renderer.drawToCanvasContext(viewportCtx, doc.manifest.space, {
+      x: 0,
+      y: 0,
+      width: 200 * scaleX,
+      height: 200 * scaleY
+    });
+
+    const tileCanvasesAfterCulledDraw = createdCanvases.filter((c) => c !== viewportRecord);
+    expect(tileCanvasesAfterCulledDraw).toHaveLength(1);
+    expect(tileCanvasesAfterCulledDraw[0].width).toBe(256);
+    expect(tileCanvasesAfterCulledDraw[0].height).toBe(256);
+    expect(viewportRecord.drawImageCalls).toHaveLength(1);
+
+    // Drawing full docSpace populates all 6 tiles with <=256x256 dimensions & contiguous coverage
+    viewportRecord.drawImageCalls.length = 0;
+    renderer.drawToCanvasContext(viewportCtx, doc.manifest.space);
+    const allTiles = createdCanvases.filter((c) => c !== viewportRecord);
+    expect(allTiles).toHaveLength(6);
+    for (const t of allTiles) {
+      expect(t.width).toBeLessThanOrEqual(256);
+      expect(t.height).toBeLessThanOrEqual(256);
+    }
+    expect(viewportRecord.drawImageCalls).toHaveLength(6);
+
+    // Verify contiguous dest rects across the 3x2 grid
+    const totalCoveredArea = viewportRecord.drawImageCalls.reduce((sum, c) => sum + c.dw * c.dh, 0);
+    expect(totalCoveredArea).toBeCloseTo(doc.manifest.space.width * doc.manifest.space.height, 4);
+
+    // Verify getCanvas() lazily creates the 600x400 canvas and matches RGBA buffer bit-for-bit
+    const fullCanvas = renderer.getCanvas()!;
+    expect(fullCanvas).not.toBeNull();
+    const fullRecord = createdCanvases.find((c) => c.canvas === fullCanvas)!;
+    expect(fullRecord.width).toBe(600);
+    expect(fullRecord.height).toBe(400);
+    expect(countByteMismatches(fullRecord.rgba, renderer.getPixelData().rgba)).toBe(0);
+
+    // Reset call counters and apply a small brush stroke strictly inside tile (0, 0)
+    fullRecord.putImageDataCalls.length = 0;
+    for (const t of allTiles) {
+      t.putImageDataCalls.length = 0;
+    }
+
+    session.beginStroke(doc, { tool: 'raise', diameterDoc: 40, intensity: 1.0 }, 400, 400);
+    const raiseRes = session.commit(doc)!;
+    expect(raiseRes).not.toBeNull();
+    doc.terrainVersion += 1;
+    renderer.renderRegion(doc, raiseRes.dirtyRect);
+
+    // Monolithic canvas must NEVER be touched during renderRegion
+    expect(fullRecord.putImageDataCalls).toHaveLength(0);
+
+    // Only tile (0, 0) (1-4 tiles max) was updated with partial <=256x256 ImageData
+    const updatedTiles = allTiles.filter((t) => t.putImageDataCalls.length > 0);
+    expect(updatedTiles.length).toBeGreaterThanOrEqual(1);
+    expect(updatedTiles.length).toBeLessThanOrEqual(4);
+    for (const ut of updatedTiles) {
+      for (const call of ut.putImageDataCalls) {
+        expect(call.dirtyW).toBeLessThanOrEqual(256);
+        expect(call.dirtyH).toBeLessThanOrEqual(256);
+      }
+    }
+
+    // Calling getCanvas() after renderRegion blits ONLY the dirty tiles (not all 6)
+    renderer.getCanvas();
+    expect(fullRecord.putImageDataCalls.length).toBe(updatedTiles.length);
+    expect(countByteMismatches(fullRecord.rgba, renderer.getPixelData().rgba)).toBe(0);
+
+    // Calling getCanvas() again without further edits does zero extra blits
+    fullRecord.putImageDataCalls.length = 0;
+    renderer.getCanvas();
+    expect(fullRecord.putImageDataCalls).toHaveLength(0);
+
+    // dispose() frees full canvas and every 256x256 tile canvas
+    renderer.dispose();
+    expect(fullRecord.width).toBe(0);
+    expect(fullRecord.height).toBe(0);
+    for (const t of allTiles) {
+      expect(t.width).toBe(0);
+      expect(t.height).toBe(0);
+    }
   });
 
   it('renders sample world document and flat theme cleanly', () => {

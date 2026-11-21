@@ -1126,12 +1126,15 @@ export class EditorStore {
       this.seaOnlyHintVisible = false;
     }
 
+    const effectiveIntensity =
+      tool === 'raise' || tool === 'lower' ? this.brushIntensity : 1.0;
+
     const dirtyRect = this.strokeSession.beginStroke(
       this.doc,
       {
         tool,
         diameterDoc: this.brushDiameterDoc,
-        intensity: this.brushIntensity
+        intensity: effectiveIntensity
       },
       docX,
       docY
@@ -1247,31 +1250,43 @@ export class EditorStore {
     this.notify();
   }
 
-  async downloadArchive(): Promise<Uint8Array> {
-    if (this.strokeSession.isActive()) {
-      this.commitTerrainStroke();
+  async downloadArchive(): Promise<Uint8Array | null> {
+    try {
+      if (this.strokeSession.isActive()) {
+        this.commitTerrainStroke();
+      }
+      const bytes = await this.persistence.exportArchive(this.doc, this.extraAssetBlobs);
+      if (typeof document !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
+        const safeName =
+          this.doc.manifest.title
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9àèéìòù_-]+/gi, '-')
+            .replace(/^-+|-+$/g, '') || 'carta';
+        const buffer = new ArrayBuffer(bytes.byteLength);
+        new Uint8Array(buffer).set(bytes);
+        const blob = new Blob([buffer], { type: 'application/zip' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `${safeName}.zip`;
+        document.body.appendChild(a);
+        a.click();
+        document.body.removeChild(a);
+        setTimeout(() => URL.revokeObjectURL(url), 1000);
+      }
+      return bytes;
+    } catch (err) {
+      this.statusNotice = {
+        tone: 'error',
+        text:
+          err instanceof Error && err.message
+            ? err.message
+            : 'Errore durante la creazione dell’archivio.'
+      };
+      this.notify();
+      return null;
     }
-    const bytes = await this.persistence.exportArchive(this.doc, this.extraAssetBlobs);
-    if (typeof document !== 'undefined' && typeof URL !== 'undefined' && typeof URL.createObjectURL === 'function') {
-      const safeName =
-        this.doc.manifest.title
-          .trim()
-          .toLowerCase()
-          .replace(/[^a-z0-9àèéìòù_-]+/gi, '-')
-          .replace(/^-+|-+$/g, '') || 'carta';
-      const buffer = new ArrayBuffer(bytes.byteLength);
-      new Uint8Array(buffer).set(bytes);
-      const blob = new Blob([buffer], { type: 'application/zip' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `${safeName}.zip`;
-      document.body.appendChild(a);
-      a.click();
-      document.body.removeChild(a);
-      setTimeout(() => URL.revokeObjectURL(url), 1000);
-    }
-    return bytes;
   }
 
   async importArchiveFile(bytes: Uint8Array): Promise<ArchiveImportResult | null> {

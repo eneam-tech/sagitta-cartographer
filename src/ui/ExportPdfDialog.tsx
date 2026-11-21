@@ -9,7 +9,7 @@ import {
   mmToPrintPx
 } from '../model/coordinates';
 import { MapDocument } from '../model/document';
-import { composeDocumentToCanvas } from '../render/composeDocument';
+import { composeDocumentToCanvas, ensureDocumentFontsLoaded } from '../render/composeDocument';
 import { EditorSnapshot, EditorStore } from '../state/editorStore';
 import { TerrainRenderer } from '../terrain';
 import { ITerrainRenderer } from '../terrain/types';
@@ -162,9 +162,7 @@ export function ExportPdfDialog({
 
     const generatePreview = async () => {
       try {
-        if (typeof document !== 'undefined' && document.fonts?.ready) {
-          await document.fonts.ready;
-        }
+        await ensureDocumentFontsLoaded(doc);
         loadedAssets = await loadAssetsForDocument(doc, extraAssetBlobs);
         if (cancelled) return;
 

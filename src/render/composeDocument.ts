@@ -3,6 +3,7 @@ import { LoadedAssetMap } from '../assets/types';
 import { MapDocument } from '../model/document';
 import { TerrainRenderer } from '../terrain';
 import { ITerrainRenderer } from '../terrain/types';
+import { getFontSpec } from '../theme/theme';
 import { drawMapObjectsToContext } from './objectMetrics';
 
 export interface ComposeDocumentOptions {
@@ -89,6 +90,21 @@ function createTempCanvasWithPixels(
   return tmpCanvas;
 }
 
+interface TerrainRendererFreshnessProbe {
+  matchesDocument?: (doc: MapDocument) => boolean;
+}
+
+function isRendererFreshForDocument(
+  renderer: ITerrainRenderer,
+  doc: MapDocument
+): boolean {
+  const probe = renderer as unknown as TerrainRendererFreshnessProbe;
+  if (typeof probe.matchesDocument === 'function') {
+    return probe.matchesDocument(doc) !== false;
+  }
+  return true;
+}
+
 function hasMatchingPixelData(
   renderer: ITerrainRenderer,
   expectedWidth: number,
@@ -103,9 +119,53 @@ function hasMatchingPixelData(
 }
 
 /**
+ * Explicitly loads all unique font variants used by label objects (plus the
+ * theme default font) via `document.fonts.load(...)` and awaits `document.fonts.ready`.
+ */
+export async function ensureDocumentFontsLoaded(doc: MapDocument): Promise<void> {
+  if (typeof document === 'undefined' || !document.fonts) {
+    return;
+  }
+
+  const fontIds = new Set<string>([doc.theme.fonts.defaultFontId]);
+  const sampleTextByFontId = new Map<string, string>();
+  for (const obj of doc.manifest.objects) {
+    if (obj.type === 'label') {
+      fontIds.add(obj.fontId);
+      if (obj.text) {
+        const existing = sampleTextByFontId.get(obj.fontId) ?? '';
+        sampleTextByFontId.set(obj.fontId, existing ? `${existing} ${obj.text}` : obj.text);
+      }
+    }
+  }
+
+  const descriptorSamples = new Map<string, string>();
+  for (const fontId of fontIds) {
+    const spec = getFontSpec(doc.theme, fontId);
+    const descriptor = `${spec.italic ? 'italic ' : ''}${spec.weight} 32px ${spec.family}`;
+    const sample = sampleTextByFontId.get(fontId) ?? '';
+    const prev = descriptorSamples.get(descriptor) ?? '';
+    const merged = sample ? (prev ? `${prev} ${sample}` : sample) : prev;
+    descriptorSamples.set(descriptor, merged);
+  }
+
+  if (typeof document.fonts.load === 'function') {
+    await Promise.allSettled(
+      Array.from(descriptorSamples.entries(), ([descriptor, sample]) =>
+        sample ? document.fonts.load(descriptor, sample) : document.fonts.load(descriptor)
+      )
+    );
+  }
+
+  if (document.fonts.ready) {
+    await document.fonts.ready;
+  }
+}
+
+/**
  * Produces the exact terrain RGBA buffer using `TerrainRenderer` (reusing
- * `existingTerrainRenderer` when dimensions match, otherwise creating and
- * disposing a dedicated `TerrainRenderer` instance).
+ * `existingTerrainRenderer` when dimensions and document freshness match,
+ * otherwise creating and disposing a dedicated `TerrainRenderer` instance).
  */
 export function composeDocumentTerrainRgba(
   doc: MapDocument,
@@ -114,7 +174,11 @@ export function composeDocumentTerrainRgba(
   const expectedWidth = assertPositiveInt(doc.terrain.widthPx, 'terrain.widthPx');
   const expectedHeight = assertPositiveInt(doc.terrain.heightPx, 'terrain.heightPx');
 
-  if (existingTerrainRenderer && hasMatchingPixelData(existingTerrainRenderer, expectedWidth, expectedHeight)) {
+  if (
+    existingTerrainRenderer &&
+    isRendererFreshForDocument(existingTerrainRenderer, doc) &&
+    hasMatchingPixelData(existingTerrainRenderer, expectedWidth, expectedHeight)
+  ) {
     const existing = existingTerrainRenderer.getPixelData();
     return {
       width: existing.width,
@@ -304,8 +368,13 @@ export function composeDocumentToCanvas(
 
   try {
     let terrainSource: HTMLCanvasElement | null = null;
+    const canReuseExisting =
+      options.existingTerrainRenderer !== undefined &&
+      isRendererFreshForDocument(options.existingTerrainRenderer, doc);
 
-    const existingCanvas = options.existingTerrainRenderer?.getCanvas() ?? null;
+    const existingCanvas = canReuseExisting
+      ? options.existingTerrainRenderer?.getCanvas() ?? null
+      : null;
     if (
       existingCanvas &&
       existingCanvas.width === terrainW &&
@@ -313,6 +382,7 @@ export function composeDocumentToCanvas(
     ) {
       terrainSource = existingCanvas;
     } else if (
+      canReuseExisting &&
       options.existingTerrainRenderer &&
       hasMatchingPixelData(options.existingTerrainRenderer, terrainW, terrainH)
     ) {

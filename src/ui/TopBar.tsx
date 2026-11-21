@@ -130,16 +130,17 @@ export function TopBar({ store }: TopBarProps) {
           <button
             ref={projectBtnRef}
             type="button"
-            className="btn btn-secondary"
+            className="btn btn-secondary has-tooltip-bottom has-tooltip-bottom-start"
             aria-haspopup="menu"
             aria-expanded={menuOpen}
             aria-controls="project-menu-dropdown"
             aria-label="Menu progetto"
+            data-tooltip="Menu progetto"
             onClick={() => setMenuOpen((prev) => !prev)}
           >
             <ProjectIcon size={20} />
             <span className="topbar-btn-label">Progetto</span>
-            <ChevronDownIcon size={18} />
+            <ChevronDownIcon size={18} className="topbar-project-chevron" />
           </button>
 
           {menuOpen ? (
