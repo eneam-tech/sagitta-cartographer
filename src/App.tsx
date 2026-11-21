@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from 'react';
 import { BUILTIN_POI_CATALOG } from './assets/catalog';
+import { encodeMaskPng } from './core/png';
 import { MapViewport, ViewportLayersHandle } from './canvas/MapViewport';
 import { exportDocumentToPdf } from './export';
 import { createEmptyDocument, MapObject } from './model/document';
@@ -42,6 +43,9 @@ interface BenchmarkPassStats {
   p95Ms: number;
   maxMs: number;
   meanMs: number;
+  workMedianMs: number;
+  workP95Ms: number;
+  workMaxMs: number;
   scale: number;
 }
 
@@ -52,6 +56,8 @@ interface BenchmarkReport {
   devicePixelRatio: number;
   normalZoom: BenchmarkPassStats;
   zoomedIn: BenchmarkPassStats;
+  pngEncodeMs: number;
+  pngBytes: number;
   pdfExportMs: number;
   pdfBytes: number;
   pdfPageWidthPt: number;
@@ -60,20 +66,42 @@ interface BenchmarkReport {
   jsHeapLimitMiB: number | null;
 }
 
-function summarizeFrameTimes(samples: number[], scale: number): BenchmarkPassStats {
+function summarizeFrameTimes(
+  samples: number[],
+  workSamples: number[],
+  scale: number
+): BenchmarkPassStats {
   if (samples.length === 0) {
-    return { frames: 0, medianMs: 0, p95Ms: 0, maxMs: 0, meanMs: 0, scale };
+    return {
+      frames: 0,
+      medianMs: 0,
+      p95Ms: 0,
+      maxMs: 0,
+      meanMs: 0,
+      workMedianMs: 0,
+      workP95Ms: 0,
+      workMaxMs: 0,
+      scale
+    };
   }
   const sorted = [...samples].sort((a, b) => a - b);
   const medianIdx = Math.floor(sorted.length * 0.5);
   const p95Idx = Math.min(sorted.length - 1, Math.floor(sorted.length * 0.95));
   const sum = sorted.reduce((acc, v) => acc + v, 0);
+
+  const sortedWork = [...workSamples].sort((a, b) => a - b);
+  const wMedIdx = Math.floor(sortedWork.length * 0.5);
+  const wP95Idx = Math.min(sortedWork.length - 1, Math.floor(sortedWork.length * 0.95));
+
   return {
     frames: sorted.length,
     medianMs: Number(sorted[medianIdx].toFixed(2)),
     p95Ms: Number(sorted[p95Idx].toFixed(2)),
     maxMs: Number(sorted[sorted.length - 1].toFixed(2)),
     meanMs: Number((sum / sorted.length).toFixed(2)),
+    workMedianMs: sortedWork.length > 0 ? Number(sortedWork[wMedIdx].toFixed(2)) : 0,
+    workP95Ms: sortedWork.length > 0 ? Number(sortedWork[wP95Idx].toFixed(2)) : 0,
+    workMaxMs: sortedWork.length > 0 ? Number(sortedWork[sortedWork.length - 1].toFixed(2)) : 0,
     scale: Number(scale.toFixed(4))
   };
 }
@@ -87,6 +115,7 @@ function runBrushPassForDuration(
     const { width, height } = doc.manifest.space;
     const scale = store.getSnapshot().camera.scale;
     const frameDeltas: number[] = [];
+    const workSamples: number[] = [];
 
     store.setTool('raise');
     store.setBrushDiameter(96);
@@ -116,11 +145,13 @@ function runBrushPassForDuration(
       const t = step * 0.08;
       const x = width * (0.28 + 0.44 * (0.5 + 0.5 * Math.sin(t)));
       const y = height * (0.38 + 0.24 * Math.cos(t * 1.3));
+      const workStart = performance.now();
       store.moveTerrainStroke(x, y);
+      workSamples.push(performance.now() - workStart);
 
       if (now - startTime >= durationMs) {
         store.commitTerrainStroke();
-        resolve(summarizeFrameTimes(frameDeltas, scale));
+        resolve(summarizeFrameTimes(frameDeltas, workSamples, scale));
         return;
       }
       requestAnimationFrame(tick);
@@ -333,9 +364,18 @@ export default function App() {
 
       const zoomedIn = await runBrushPassForDuration(store, 10_000);
 
+      const currentDoc = store.getDocument();
+      const pngStart = performance.now();
+      const maskPngBytes = encodeMaskPng(
+        currentDoc.terrain.mask,
+        currentDoc.terrain.widthPx,
+        currentDoc.terrain.heightPx
+      );
+      const pngEncodeMs = Number((performance.now() - pngStart).toFixed(1));
+
       const renderer = store.getRenderer();
       const exportStart = performance.now();
-      const pdfRes = await exportDocumentToPdf(store.getDocument(), {
+      const pdfRes = await exportDocumentToPdf(currentDoc, {
         ppi: 300,
         extraAssetBlobs: store.getExtraAssetBlobs(),
         existingTerrainRenderer: renderer instanceof TerrainRenderer ? renderer : undefined
@@ -349,12 +389,14 @@ export default function App() {
       ).memory;
 
       setBenchmarkReport({
-        objectCount: store.getDocument().manifest.objects.length,
+        objectCount: currentDoc.manifest.objects.length,
         userAgent: navigator.userAgent,
         viewport: { width: window.innerWidth, height: window.innerHeight },
         devicePixelRatio: window.devicePixelRatio || 1,
         normalZoom,
         zoomedIn,
+        pngEncodeMs,
+        pngBytes: maskPngBytes.byteLength,
         pdfExportMs,
         pdfBytes: pdfRes.bytes.byteLength,
         pdfPageWidthPt: Number(pdfRes.pageWidthPt.toFixed(2)),
