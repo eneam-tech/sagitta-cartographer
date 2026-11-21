@@ -2,11 +2,13 @@ import Konva from 'konva';
 import { useCallback, useEffect, useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { CameraState, clampNumber, screenToDoc } from '../model/coordinates';
+import { DEFAULT_LAYER_TERRAIN_ID } from '../model/document';
 import {
   EditorStore,
   isTerrainBrushTool,
   useEditorStore
 } from '../state/editorStore';
+import { LockClosedIcon } from '../ui/icons';
 
 export interface ViewportLayersHandle {
   stage: Konva.Stage;
@@ -75,8 +77,17 @@ export function MapViewport({
     hasLand,
     spacePanActive,
     seaOnlyHintVisible,
-    activePoiId
+    activePoiId,
+    documentVersionTick,
+    terrainRenderTick
   } = snap;
+
+  const terrainLayerMeta = doc.manifest.layers.find(
+    (l) => l.id === DEFAULT_LAYER_TERRAIN_ID || l.kind === 'terrain'
+  );
+  const terrainVisible = terrainLayerMeta ? terrainLayerMeta.visible : true;
+  const terrainOpacity = terrainLayerMeta ? clampNumber(terrainLayerMeta.opacity, 0, 1) : 1;
+  const terrainLocked = terrainLayerMeta ? terrainLayerMeta.locked : false;
 
   const containerRef = useRef<HTMLDivElement>(null);
   const stageHostRef = useRef<HTMLDivElement>(null);
@@ -387,7 +398,11 @@ export function MapViewport({
       scaleY: camera.scale
     };
 
-    terrainLayer.setAttrs(layerTransform);
+    terrainLayer.setAttrs({
+      ...layerTransform,
+      visible: terrainVisible,
+      opacity: terrainOpacity
+    });
     objectsLayer.setAttrs({
       ...layerTransform,
       clipX: 0,
@@ -443,6 +458,10 @@ export function MapViewport({
   }, [
     camera,
     doc,
+    documentVersionTick,
+    terrainRenderTick,
+    terrainVisible,
+    terrainOpacity,
     effectiveTool,
     brushDiameterDoc,
     store,
@@ -616,6 +635,7 @@ export function MapViewport({
     }
 
     store.updateCursorSeaHint(coords.docX, coords.docY);
+    store.setCursorDoc({ x: coords.docX, y: coords.docY });
     updateSeaHintPosition(coords.cssX, coords.cssY, coords.rect);
     onCursorDocMove?.({ x: coords.docX, y: coords.docY });
     syncOverlayCursor();
@@ -662,6 +682,7 @@ export function MapViewport({
     if (activeGestureRef.current) return;
     cursorRef.current.inside = false;
     store.clearCursorSeaHint();
+    store.setCursorDoc(null);
     onCursorDocMove?.(null);
     syncOverlayCursor();
   };
@@ -683,7 +704,7 @@ export function MapViewport({
   let cursorStyle = 'default';
   if (effectiveTool === 'hand') {
     cursorStyle = activeGestureRef.current?.mode === 'pan' ? 'grabbing' : 'grab';
-  } else if (isTerrainBrushTool(effectiveTool)) {
+  } else if (isTerrainBrushTool(effectiveTool) || effectiveTool === 'path') {
     cursorStyle = 'crosshair';
   } else if (effectiveTool === 'poi') {
     cursorStyle = 'copy';
@@ -708,6 +729,19 @@ export function MapViewport({
       <div ref={stageHostRef} className="editor-stage-host" />
 
       {inlineEditorSlot}
+
+      {terrainLocked || (!terrainVisible && isTerrainBrushTool(effectiveTool)) ? (
+        <div className="stage-terrain-lock-pill" role="status" aria-live="polite">
+          <LockClosedIcon size={15} />
+          <span>
+            {terrainLocked && !terrainVisible
+              ? 'Terreno bloccato e nascosto'
+              : terrainLocked
+                ? 'Livello terreno bloccato'
+                : 'Livello terreno nascosto'}
+          </span>
+        </div>
+      ) : null}
 
       {!hasLand ? (
         <div className="stage-empty-aid" role="status" aria-live="polite">

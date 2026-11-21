@@ -12,9 +12,21 @@ import {
   exportDocumentToPdf,
   triggerPdfDownload
 } from '../../src/export';
-import { ensureDocumentFontsLoaded } from '../../src/render/composeDocument';
-import { createEmptyDocument } from '../../src/model/document';
+import {
+  MAX_MASK_DIM_PX,
+  MAX_MASK_PIXELS,
+  clampPrintDimensions
+} from '../../src/model/coordinates';
+import {
+  DEFAULT_LAYER_LABELS_ID,
+  DEFAULT_LAYER_POI_ID,
+  DEFAULT_LAYER_TERRAIN_ID,
+  DEFAULT_LAYER_VECTORS_ID,
+  createEmptyDocument
+} from '../../src/model/document';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
+import { createPathObject } from '../../src/objects/objectCommands';
+import { ensureDocumentFontsLoaded } from '../../src/render/composeDocument';
 import { EditorStore } from '../../src/state/editorStore';
 import { TerrainRenderer } from '../../src/terrain';
 import { ITerrainRenderer } from '../../src/terrain/types';
@@ -56,39 +68,100 @@ function extractPageImageXObjects(
   return images;
 }
 
+interface RecordedCanvasCall {
+  method: string;
+  args: unknown[];
+  globalAlpha: number;
+  strokeStyle: unknown;
+  fillStyle: unknown;
+  lineWidth: number;
+  lineDash: number[];
+}
+
 function createMockCanvas2DRecorder() {
-  const calls: Array<{ method: string; args: unknown[] }> = [];
+  const calls: RecordedCanvasCall[] = [];
   const canvases: Array<{ width: number; height: number }> = [];
 
   const makeContext = () => {
+    const stack: Array<{
+      globalAlpha: number;
+      strokeStyle: unknown;
+      fillStyle: unknown;
+      lineWidth: number;
+      lineDash: number[];
+    }> = [];
+    let currentDash: number[] = [];
+
     const ctx: Record<string, unknown> = {
       imageSmoothingEnabled: false,
       imageSmoothingQuality: 'low',
+      globalAlpha: 1,
       font: '',
       textBaseline: 'alphabetic',
       textAlign: 'start',
+      lineCap: 'butt',
       lineJoin: 'miter',
       lineWidth: 1,
       strokeStyle: '#000',
       fillStyle: '#000',
-      save: () => calls.push({ method: 'save', args: [] }),
-      restore: () => calls.push({ method: 'restore', args: [] }),
-      clearRect: (...args: unknown[]) => calls.push({ method: 'clearRect', args }),
-      beginPath: () => calls.push({ method: 'beginPath', args: [] }),
-      rect: (...args: unknown[]) => calls.push({ method: 'rect', args }),
-      clip: () => calls.push({ method: 'clip', args: [] }),
-      translate: (...args: unknown[]) => calls.push({ method: 'translate', args }),
-      rotate: (...args: unknown[]) => calls.push({ method: 'rotate', args }),
-      drawImage: (...args: unknown[]) => calls.push({ method: 'drawImage', args }),
-      strokeText: (...args: unknown[]) => calls.push({ method: 'strokeText', args }),
-      fillText: (...args: unknown[]) => calls.push({ method: 'fillText', args }),
+      save: () => {
+        stack.push({
+          globalAlpha: ctx.globalAlpha as number,
+          strokeStyle: ctx.strokeStyle,
+          fillStyle: ctx.fillStyle,
+          lineWidth: ctx.lineWidth as number,
+          lineDash: [...currentDash]
+        });
+        record('save', []);
+      },
+      restore: () => {
+        const prev = stack.pop();
+        if (prev) {
+          ctx.globalAlpha = prev.globalAlpha;
+          ctx.strokeStyle = prev.strokeStyle;
+          ctx.fillStyle = prev.fillStyle;
+          ctx.lineWidth = prev.lineWidth;
+          currentDash = prev.lineDash;
+        }
+        record('restore', []);
+      },
+      clearRect: (...args: unknown[]) => record('clearRect', args),
+      fillRect: (...args: unknown[]) => record('fillRect', args),
+      beginPath: () => record('beginPath', []),
+      rect: (...args: unknown[]) => record('rect', args),
+      clip: () => record('clip', []),
+      translate: (...args: unknown[]) => record('translate', args),
+      rotate: (...args: unknown[]) => record('rotate', args),
+      moveTo: (...args: unknown[]) => record('moveTo', args),
+      lineTo: (...args: unknown[]) => record('lineTo', args),
+      stroke: () => record('stroke', []),
+      setLineDash: (segments: number[]) => {
+        currentDash = [...segments];
+        record('setLineDash', [segments]);
+      },
+      drawImage: (...args: unknown[]) => record('drawImage', args),
+      strokeText: (...args: unknown[]) => record('strokeText', args),
+      fillText: (...args: unknown[]) => record('fillText', args),
       createImageData: (w: number, h: number) => ({
         width: w,
         height: h,
         data: new Uint8ClampedArray(w * h * 4)
       }),
-      putImageData: (...args: unknown[]) => calls.push({ method: 'putImageData', args })
+      putImageData: (...args: unknown[]) => record('putImageData', args)
     };
+
+    const record = (method: string, args: unknown[]) => {
+      calls.push({
+        method,
+        args,
+        globalAlpha: ctx.globalAlpha as number,
+        strokeStyle: ctx.strokeStyle,
+        fillStyle: ctx.fillStyle,
+        lineWidth: ctx.lineWidth as number,
+        lineDash: [...currentDash]
+      });
+    };
+
     return ctx as unknown as CanvasRenderingContext2D;
   };
 
@@ -634,5 +707,288 @@ describe('PDF export & shared document composition', () => {
     expect(staleRenderer.matchesDocument).toHaveBeenCalledWith(doc);
     expect(renderFullSpy).toHaveBeenCalledTimes(1);
     expect(disposeSpy).toHaveBeenCalledTimes(1);
+  });
+
+  it(
+    'exports exact PDF points and safe clamped raster dimensions for A3, A1, and 2000×2000 mm across 150/200/300 ppi',
+    async () => {
+      // 1. A3 (420 × 297 mm) a 300 ppi -> 1190.55 × 841.89 pt, raster 4961 × 3508 px
+      const a3Doc = createEmptyDocument({
+        title: 'Atlante A3',
+        page: { widthMm: 420, heightMm: 297 },
+        widthPx: 120,
+        heightPx: 85
+      });
+      const a3Res = await exportDocumentToPdf(a3Doc, {
+        ppi: 300,
+        renderRasterPngFn: ({ widthPx, heightPx }) =>
+          encodeRgbaPng(new Uint8Array([255, 255, 255, 255]), 1, 1, widthPx, heightPx)
+      });
+
+      expect(a3Res.pageWidthPt).toBeCloseTo(1190.55, 2);
+      expect(a3Res.pageHeightPt).toBeCloseTo(841.89, 2);
+      expect(a3Res.rasterWidthPx).toBe(4961);
+      expect(a3Res.rasterHeightPx).toBe(3508);
+      expect(a3Res.rasterWidthPx).toBeLessThanOrEqual(MAX_MASK_DIM_PX);
+      expect(a3Res.rasterHeightPx).toBeLessThanOrEqual(MAX_MASK_DIM_PX);
+      expect(a3Res.rasterWidthPx * a3Res.rasterHeightPx).toBeLessThanOrEqual(MAX_MASK_PIXELS);
+
+      const loadedA3 = await PDFDocument.load(a3Res.bytes);
+      const a3PageSize = loadedA3.getPage(0).getSize();
+      expect(Math.abs(a3PageSize.width - 1190.55)).toBeLessThan(0.1);
+      expect(Math.abs(a3PageSize.height - 841.89)).toBeLessThan(0.1);
+      const a3Images = extractPageImageXObjects(loadedA3, 0);
+      expect(a3Images).toHaveLength(1);
+      expect(a3Images[0].width).toBe(4961);
+      expect(a3Images[0].height).toBe(3508);
+
+      // 2. A1 (841 × 594 mm) a 300 ppi -> clampPrintDimensions riduce entro 8192 px e 32M px mantenendo punti PDF esatti
+      const a1Doc = createEmptyDocument({
+        title: 'Mappa Murale A1',
+        page: { widthMm: 841, heightMm: 594 },
+        widthPx: 120,
+        heightPx: 85
+      });
+      const expectedA1 = clampPrintDimensions(a1Doc.manifest.page, 300);
+      expect(expectedA1.effectivePpi).toBeLessThan(300);
+      expect(expectedA1.widthPx).toBeLessThanOrEqual(MAX_MASK_DIM_PX);
+      expect(expectedA1.heightPx).toBeLessThanOrEqual(MAX_MASK_DIM_PX);
+      expect(expectedA1.widthPx * expectedA1.heightPx).toBeLessThanOrEqual(MAX_MASK_PIXELS);
+
+      const a1Res = await exportDocumentToPdf(a1Doc, {
+        ppi: 300,
+        renderRasterPngFn: ({ widthPx, heightPx }) =>
+          encodeRgbaPng(new Uint8Array([255, 255, 255, 255]), 1, 1, widthPx, heightPx)
+      });
+
+      expect(a1Res.pageWidthPt).toBeCloseTo((841 * 72) / 25.4, 2);
+      expect(a1Res.pageHeightPt).toBeCloseTo((594 * 72) / 25.4, 2);
+      expect(a1Res.rasterWidthPx).toBe(expectedA1.widthPx);
+      expect(a1Res.rasterHeightPx).toBe(expectedA1.heightPx);
+
+      const loadedA1 = await PDFDocument.load(a1Res.bytes);
+      const a1Images = extractPageImageXObjects(loadedA1, 0);
+      expect(a1Images[0].width).toBe(expectedA1.widthPx);
+      expect(a1Images[0].height).toBe(expectedA1.heightPx);
+
+      // 3. Formato massimo 2000 × 2000 mm a 300 ppi -> dentro limiti sicuri
+      const giantDoc = createEmptyDocument({
+        title: 'Continente 2000',
+        page: { widthMm: 2000, heightMm: 2000 },
+        widthPx: 96,
+        heightPx: 96
+      });
+      const expectedGiant = clampPrintDimensions(giantDoc.manifest.page, 300);
+      const giantRes = await exportDocumentToPdf(giantDoc, {
+        ppi: 300,
+        renderRasterPngFn: ({ widthPx, heightPx }) =>
+          encodeRgbaPng(new Uint8Array([255, 255, 255, 255]), 1, 1, widthPx, heightPx)
+      });
+      expect(giantRes.pageWidthPt).toBeCloseTo((2000 * 72) / 25.4, 2);
+      expect(giantRes.pageHeightPt).toBeCloseTo((2000 * 72) / 25.4, 2);
+      expect(giantRes.rasterWidthPx).toBe(expectedGiant.widthPx);
+      expect(giantRes.rasterHeightPx).toBe(expectedGiant.heightPx);
+      expect(giantRes.rasterWidthPx).toBeLessThanOrEqual(MAX_MASK_DIM_PX);
+      expect(giantRes.rasterWidthPx * giantRes.rasterHeightPx).toBeLessThanOrEqual(MAX_MASK_PIXELS);
+
+      // 4. Confronto PPI (150 vs 300 ppi) su A4: stessa pagina PDF in pt, pixel raster proporzionali
+      const a4Doc = createEmptyDocument({
+        page: { widthMm: 297, heightMm: 210 },
+        widthPx: 96,
+        heightPx: 68
+      });
+      const res150 = await exportDocumentToPdf(a4Doc, { ppi: 150 });
+      const res300 = await exportDocumentToPdf(a4Doc, { ppi: 300 });
+      expect(res150.pageWidthPt).toBeCloseTo(res300.pageWidthPt, 5);
+      expect(res150.pageHeightPt).toBeCloseTo(res300.pageHeightPt, 5);
+      expect(res150.rasterWidthPx).toBe(1754);
+      expect(res150.rasterHeightPx).toBe(1240);
+      expect(res300.rasterWidthPx).toBe(3508);
+      expect(res300.rasterHeightPx).toBe(2480);
+    },
+    25000
+  );
+
+  it('honors terrain layer visibility/opacity, hides objects on invisible layers, and renders PathObject rivers and borders', async () => {
+    const doc = createSampleWorldDocument({ widthPx: 148, heightPx: 105 });
+    const river = createPathObject({
+      id: 'path-river-1',
+      kind: 'river',
+      points: [400, 300, 900, 480, 1450, 720],
+      theme: doc.theme
+    });
+    const border = createPathObject({
+      id: 'path-border-1',
+      kind: 'border',
+      points: [600, 200, 1100, 360, 1600, 420],
+      theme: doc.theme
+    });
+    doc.manifest.objects.push(river, border);
+
+    const recorder = createMockCanvas2DRecorder();
+    vi.stubGlobal('document', {
+      createElement: (tag: string) => {
+        if (tag === 'canvas') return recorder.makeCanvas();
+        throw new Error(`Unexpected tag: ${tag}`);
+      }
+    });
+
+    const fakeAssets: LoadedAssetMap = new Map();
+    for (const entry of doc.manifest.assets) {
+      fakeAssets.set(entry.id, {
+        entry,
+        image: { id: entry.id } as unknown as HTMLImageElement
+      });
+    }
+
+    // Caso 1: terreno visibile con opacità 0.45 + PathObject river/border
+    const terrainLayer = doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!;
+    terrainLayer.opacity = 0.45;
+
+    composeDocumentToCanvas(doc, fakeAssets, {
+      widthPx: 800,
+      heightPx: 566,
+      targetCanvas: recorder.makeCanvas()
+    });
+
+    const fillRectCalls = recorder.calls.filter((c) => c.method === 'fillRect');
+    expect(fillRectCalls.some((c) => c.fillStyle === '#FFFFFF')).toBe(true);
+
+    const drawImageCalls = recorder.calls.filter((c) => c.method === 'drawImage');
+    expect(drawImageCalls).toHaveLength(3); // 1 terreno + 2 timbri POI
+    expect(drawImageCalls[0].globalAlpha).toBeCloseTo(0.45, 5);
+    expect(drawImageCalls[1].globalAlpha).toBe(1);
+    expect(drawImageCalls[2].globalAlpha).toBe(1);
+
+    const strokeCalls = recorder.calls.filter((c) => c.method === 'stroke');
+    const riverStrokes = strokeCalls.filter((c) => c.strokeStyle === doc.theme.colors.pathRiver);
+    const borderStrokes = strokeCalls.filter((c) => c.strokeStyle === doc.theme.colors.pathBorder);
+    expect(riverStrokes.length).toBeGreaterThan(1); // tapered river segment strokes
+    expect(riverStrokes[riverStrokes.length - 1].lineWidth).toBeGreaterThan(
+      riverStrokes[0].lineWidth
+    );
+    expect(borderStrokes).toHaveLength(1);
+    expect(borderStrokes[0].lineDash.length).toBe(2);
+
+    // Caso 2: terrainLayer.visible === false -> non renderizza il terreno ma disegna fondo carta e oggetti visibili
+    recorder.calls.length = 0;
+    const renderFullSpy = vi.spyOn(TerrainRenderer.prototype, 'renderFull');
+    terrainLayer.visible = false;
+    terrainLayer.opacity = 1;
+
+    composeDocumentToCanvas(doc, fakeAssets, {
+      widthPx: 800,
+      heightPx: 566,
+      targetCanvas: recorder.makeCanvas()
+    });
+
+    expect(renderFullSpy).not.toHaveBeenCalled();
+    expect(recorder.calls.filter((c) => c.method === 'fillRect')).toHaveLength(1);
+    expect(recorder.calls.filter((c) => c.method === 'drawImage')).toHaveLength(2); // solo 2 POI, nessun terreno
+    expect(recorder.calls.filter((c) => c.method === 'fillText')).toHaveLength(1);
+    expect(recorder.calls.filter((c) => c.method === 'stroke').length).toBeGreaterThan(0);
+
+    // Caso 3: layer-vectors e layer-labels nascosti -> esclude PathObject e LabelObject
+    recorder.calls.length = 0;
+    doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_VECTORS_ID)!.visible = false;
+    doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_LABELS_ID)!.visible = false;
+
+    composeDocumentToCanvas(doc, fakeAssets, {
+      widthPx: 800,
+      heightPx: 566,
+      targetCanvas: recorder.makeCanvas()
+    });
+
+    expect(recorder.calls.filter((c) => c.method === 'stroke')).toHaveLength(0);
+    expect(recorder.calls.filter((c) => c.method === 'fillText')).toHaveLength(0);
+    expect(recorder.calls.filter((c) => c.method === 'drawImage')).toHaveLength(2);
+
+    // Caso 4 (Node senza DOM): PathObject su layer visibile rifiuta senza DOM né renderRasterPngFn;
+    // se tutti gli oggetti sono su layer nascosti, esporta regolarmente il terreno (o carta pulita)
+    vi.unstubAllGlobals();
+    const pathOnlyDoc = createEmptyDocument({ widthPx: 96, heightPx: 68 });
+    pathOnlyDoc.manifest.objects.push(
+      createPathObject({
+        id: 'path-visible-river',
+        kind: 'river',
+        points: [100, 100, 400, 300],
+        theme: pathOnlyDoc.theme
+      })
+    );
+    await expect(exportDocumentToPdf(pathOnlyDoc)).rejects.toThrow(
+      'Impossibile esportare una carta contenente oggetti o etichette in un ambiente privo di superficie Canvas 2D (DOM) o renderer raster personalizzato.'
+    );
+
+    pathOnlyDoc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_VECTORS_ID)!.visible = false;
+    pathOnlyDoc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!.visible = false;
+    const hiddenOnlyResult = await exportDocumentToPdf(pathOnlyDoc, { ppi: 150 });
+    expect(hiddenOnlyResult.rasterWidthPx).toBe(1754);
+    expect(hiddenOnlyResult.rasterHeightPx).toBe(1240);
+    expect(hiddenOnlyResult.bytes.byteLength).toBeGreaterThan(0);
+
+    // Con terreno visibile e opacity < 1 in Node fallback, i byte dell'immagine differiscono rispetto a opacity = 1
+    pathOnlyDoc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!.visible = true;
+    pathOnlyDoc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!.opacity = 1;
+    const fullOpacityNodePdf = await PDFDocument.load(
+      (await exportDocumentToPdf(pathOnlyDoc, { ppi: 72 })).bytes
+    );
+    pathOnlyDoc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!.opacity = 0.5;
+    const halfOpacityNodePdf = await PDFDocument.load(
+      (await exportDocumentToPdf(pathOnlyDoc, { ppi: 72 })).bytes
+    );
+    expect(
+      bytesEqual(
+        extractPageImageXObjects(fullOpacityNodePdf, 0)[0].contents,
+        extractPageImageXObjects(halfOpacityNodePdf, 0)[0].contents
+      )
+    ).toBe(false);
+
+    // Anche il percorso composeDocumentToCanvas con layer-poi nascosto esclude i timbri
+    doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_POI_ID)!.visible = false;
+    vi.stubGlobal('document', {
+      createElement: (tag: string) => {
+        if (tag === 'canvas') return recorder.makeCanvas();
+        throw new Error(`Unexpected tag: ${tag}`);
+      }
+    });
+    recorder.calls.length = 0;
+    composeDocumentToCanvas(doc, fakeAssets, {
+      widthPx: 800,
+      heightPx: 566,
+      targetCanvas: recorder.makeCanvas()
+    });
+    expect(recorder.calls.filter((c) => c.method === 'drawImage')).toHaveLength(0);
+  });
+
+  it('renders ExportPdfDialog PPI options, clamped giant-format notice, and hidden layers warning', () => {
+    const a4Doc = createSampleWorldDocument({ widthPx: 96, heightPx: 68 });
+    const a4Html = renderToStaticMarkup(createElement(ExportPdfDialog, { doc: a4Doc, ppi: 150 }));
+    expect(a4Html).toContain('Risoluzione di stampa');
+    expect(a4Html).toContain('150 ppi (Bozza / Veloce)');
+    expect(a4Html).toContain('200 ppi (Bilanciato)');
+    expect(a4Html).toContain('300 ppi (Stampa editoriale)');
+    expect(a4Html).toContain('150 ppi · 1754 × 1240 px');
+    expect(a4Html).not.toContain('livello nascosto');
+    expect(a4Html).not.toContain('livelli nascosti');
+
+    const a1Doc = createEmptyDocument({
+      title: 'Regno A1',
+      page: { widthMm: 841, heightMm: 594 },
+      widthPx: 96,
+      heightPx: 68
+    });
+    a1Doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!.visible = false;
+    a1Doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_VECTORS_ID)!.visible = false;
+
+    const clampedA1 = clampPrintDimensions(a1Doc.manifest.page, 300);
+    const a1Html = renderToStaticMarkup(createElement(ExportPdfDialog, { doc: a1Doc }));
+    expect(a1Html).toContain('841 × 594 mm');
+    expect(a1Html).toContain(
+      `${clampedA1.effectivePpi} ppi · ${clampedA1.widthPx} × ${clampedA1.heightPx} px`
+    );
+    expect(a1Html).toContain('adattata automaticamente');
+    expect(a1Html).toContain('2 livelli nascosti esclusi dalla stampa');
+    expect(a1Html).toContain('Terreno e Rilievo');
+    expect(a1Html).toContain('Fiumi e Strade');
   });
 });

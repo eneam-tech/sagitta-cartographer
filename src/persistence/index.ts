@@ -26,13 +26,15 @@ export {
   MAX_ARCHIVE_UNCOMPRESSED_BYTES,
   buildLicensesText,
   exportProjectArchive,
-  importProjectArchive
+  importProjectArchive,
+  validateMapTheme
 } from './archive';
 
 export {
   assertSupportedSchemaVersion,
   deriveStableSeed,
   initializeV1TerrainBuffers,
+  migrateManifestToV3,
   migrateManifestV1ToV2
 } from './migration';
 

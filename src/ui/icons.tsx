@@ -240,3 +240,114 @@ export function ChevronDownIcon({ size = 24, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Fiumi e Strade: tracciato sinuoso con diramazione ed estremi di controllo.
+ */
+export function PathIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4.8 18.5c2.2-4 3.4-6.8 7-6 3.5.8 4.3-3.4 7.4-7" />
+      <path d="M12.2 12.6c1.4 1.6 3.3 2.4 6.2 2.4" />
+      <circle cx="4.8" cy="18.5" r="1.4" />
+      <circle cx="19.2" cy="5.5" r="1.4" />
+    </svg>
+  );
+}
+
+export function ResizeCanvasIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4.5 9V5.5a1 1 0 0 1 1-1H9" />
+      <path d="M15 4.5h3.5a1 1 0 0 1 1 1V9" />
+      <path d="M19.5 15v3.5a1 1 0 0 1-1 1H15" />
+      <path d="M9 19.5H5.5a1 1 0 0 1-1-1V15" />
+      <path d="m9.5 14.5 5-5" />
+      <path d="M11.5 9.5h3v3" />
+      <path d="M12.5 14.5h-3v-3" />
+    </svg>
+  );
+}
+
+export function ThemePaletteIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M12 3.8a8.2 8.2 0 1 0 0 16.4h1.3a1.7 1.7 0 0 0 1.3-2.8l-.2-.3a1.5 1.5 0 0 1 1.2-2.4h2a4.3 4.3 0 0 0 4.3-4.3A8.2 8.2 0 0 0 12 3.8Z" />
+      <circle cx="8.5" cy="10" r="1" />
+      <circle cx="12" cy="7.8" r="1" />
+      <circle cx="15.8" cy="9.8" r="1" />
+      <circle cx="8.8" cy="14.2" r="1" />
+    </svg>
+  );
+}
+
+export function ShortcutsIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M9.5 9.4a2.6 2.6 0 0 1 5 .8c0 1.6-2.5 2.1-2.5 3.6" />
+      <path d="M12 16.8v.4" />
+    </svg>
+  );
+}
+
+export function SwapOrientationIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M7.5 18.5v-13" />
+      <path d="m4.5 8.5 3-3 3 3" />
+      <path d="M16.5 5.5v13" />
+      <path d="m13.5 15.5 3 3 3-3" />
+    </svg>
+  );
+}
+
+export function LockClosedIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <rect x="5.5" y="11" width="13" height="9" rx="2" />
+      <path d="M8.5 11V8a3.5 3.5 0 1 1 7 0v3" />
+    </svg>
+  );
+}
+
+export function RaiseIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4.5 18.5 12 7l7.5 11.5" />
+      <path d="M12 12v6.5" />
+      <path d="m9.5 14.5 2.5-2.5 2.5 2.5" />
+    </svg>
+  );
+}
+
+export function LowerIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4.5 6.5 12 18l7.5-11.5" />
+      <path d="M12 5.5V12" />
+      <path d="m9.5 9.5 2.5 2.5 2.5-2.5" />
+    </svg>
+  );
+}
+
+export function FlattenIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4.5 12h15" />
+      <path d="M12 4.8v4.4" />
+      <path d="m9.5 6.8 2.5 2.4 2.5-2.4" />
+      <path d="M12 19.2v-4.4" />
+      <path d="m9.5 17.2 2.5-2.4 2.5 2.4" />
+    </svg>
+  );
+}
+
+export function SmoothIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4 15.5c2.5-4.5 5-4.5 8 0s5.5 4.5 8 0" />
+      <path d="M4 9.5c2.5-2.8 5-2.8 8 0s5.5 2.8 8 0" />
+    </svg>
+  );
+}

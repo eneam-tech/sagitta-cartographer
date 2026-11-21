@@ -8,8 +8,8 @@ import {
 import { LoadedAssetMap } from '../assets/types';
 import {
   DEFAULT_EXPORT_PPI,
+  clampPrintDimensions,
   mmToPdfPoints,
-  mmToPrintPx,
   validatePageSizeMm
 } from '../model/coordinates';
 import { AssetManifestEntry, MapDocument } from '../model/document';
@@ -17,7 +17,9 @@ import {
   composeDocumentTerrainRgba,
   composeDocumentToCanvas,
   encodeRgbaPng,
-  ensureDocumentFontsLoaded
+  ensureDocumentFontsLoaded,
+  getVisibleMapObjects,
+  resolveTerrainLayerState
 } from '../render/composeDocument';
 import { ITerrainRenderer } from '../terrain/types';
 import { PdfExportOptions, PdfExportResult } from './types';
@@ -136,6 +138,19 @@ async function canvasToPngUint8Array(canvas: HTMLCanvasElement): Promise<Uint8Ar
   return new Uint8Array(await blob.arrayBuffer());
 }
 
+function blendRgbaOverWhite(rgba: Uint8ClampedArray, opacity: number): Uint8ClampedArray {
+  const out = new Uint8ClampedArray(rgba.length);
+  for (let i = 0; i < rgba.length; i += 4) {
+    const a = (rgba[i + 3] / 255) * opacity;
+    const whitePart = 255 * (1 - a);
+    out[i] = Math.round(rgba[i] * a + whitePart);
+    out[i + 1] = Math.round(rgba[i + 1] * a + whitePart);
+    out[i + 2] = Math.round(rgba[i + 2] * a + whitePart);
+    out[i + 3] = 255;
+  }
+  return out;
+}
+
 /**
  * Exports a confirmed `MapDocument` snapshot to an exact physical-dimension PDF
  * using the shared document compositor (or pure-TS RGBA PNG fallback in Node).
@@ -161,8 +176,10 @@ export async function exportDocumentToPdf(
 
     validatePageSizeMm(doc.manifest.page);
 
-    const rasterWidthPx = mmToPrintPx(doc.manifest.page.widthMm, ppi);
-    const rasterHeightPx = mmToPrintPx(doc.manifest.page.heightMm, ppi);
+    const { widthPx: rasterWidthPx, heightPx: rasterHeightPx } = clampPrintDimensions(
+      doc.manifest.page,
+      ppi
+    );
     const pageWidthPt = mmToPdfPoints(doc.manifest.page.widthMm);
     const pageHeightPt = mmToPdfPoints(doc.manifest.page.heightMm);
 
@@ -201,19 +218,29 @@ export async function exportDocumentToPdf(
       });
       pngBytes = await canvasToPngUint8Array(tempCanvas);
     } else {
-      if (doc.manifest.objects.length > 0) {
+      if (getVisibleMapObjects(doc).length > 0) {
         throw new Error(
           'Impossibile esportare una carta contenente oggetti o etichette in un ambiente privo di superficie Canvas 2D (DOM) o renderer raster personalizzato.'
         );
       }
-      const terrain = composeDocumentTerrainRgba(doc, options?.existingTerrainRenderer);
-      pngBytes = encodeRgbaPng(
-        terrain.rgba,
-        terrain.width,
-        terrain.height,
-        rasterWidthPx,
-        rasterHeightPx
-      );
+      const terrainLayerState = resolveTerrainLayerState(doc);
+      if (!terrainLayerState.visible) {
+        const whitePixel = new Uint8Array([255, 255, 255, 255]);
+        pngBytes = encodeRgbaPng(whitePixel, 1, 1, rasterWidthPx, rasterHeightPx);
+      } else {
+        const terrain = composeDocumentTerrainRgba(doc, options?.existingTerrainRenderer);
+        const sourceRgba =
+          terrainLayerState.opacity < 1
+            ? blendRgbaOverWhite(terrain.rgba, terrainLayerState.opacity)
+            : terrain.rgba;
+        pngBytes = encodeRgbaPng(
+          sourceRgba,
+          terrain.width,
+          terrain.height,
+          rasterWidthPx,
+          rasterHeightPx
+        );
+      }
     }
 
     const pdfDoc = await PDFDocument.create();

@@ -1,12 +1,12 @@
-import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from 'react';
 import { disposeLoadedAssets, loadAssetsForDocument } from '../assets/catalog';
 import { LoadedAssetMap } from '../assets/types';
 import { buildPdfFilename, exportDocumentToPdf, triggerPdfDownload } from '../export/pdfExporter';
 import { PdfExportResult } from '../export/types';
 import {
   DEFAULT_EXPORT_PPI,
-  mmToPdfPoints,
-  mmToPrintPx
+  clampPrintDimensions,
+  mmToPdfPoints
 } from '../model/coordinates';
 import { MapDocument } from '../model/document';
 import { composeDocumentToCanvas, ensureDocumentFontsLoaded } from '../render/composeDocument';
@@ -26,6 +26,12 @@ export interface ExportPdfDialogProps {
   onClose?: () => void;
   onExportSuccess?: (result: PdfExportResult) => void;
 }
+
+const PRINT_PPI_OPTIONS: ReadonlyArray<{ value: number; label: string }> = [
+  { value: 150, label: '150 ppi (Bozza / Veloce)' },
+  { value: 200, label: '200 ppi (Bilanciato)' },
+  { value: 300, label: '300 ppi (Stampa editoriale)' }
+];
 
 const PREVIEW_MAX_WIDTH_CSS = 440;
 const PREVIEW_MAX_HEIGHT_CSS = 240;
@@ -114,12 +120,15 @@ export function ExportPdfDialog({
   const snap = useOptionalEditorStore(store);
   const doc = docProp ?? snap?.doc;
 
+  const ppiSelectId = useId();
+  const ppiNoticeId = useId();
   const exportBtnRef = useRef<HTMLButtonElement>(null);
   const isExportingRef = useRef(false);
   const mountedRef = useRef(true);
   const exportRunIdRef = useRef(0);
   const previewUrlRef = useRef<{ url: string; isObjectUrl: boolean } | null>(null);
 
+  const [selectedPpi, setSelectedPpi] = useState<number>(ppi);
   const [previewUrl, setPreviewUrl] = useState<string | null>(null);
   const [isPreviewLoading, setIsPreviewLoading] = useState(true);
   const [previewError, setPreviewError] = useState<string | null>(null);
@@ -131,6 +140,10 @@ export function ExportPdfDialog({
   const existingTerrainRenderer =
     existingRendererProp ??
     (storeRenderer instanceof TerrainRenderer ? storeRenderer : undefined);
+
+  useEffect(() => {
+    setSelectedPpi(ppi);
+  }, [ppi]);
 
   const revokeCurrentPreview = () => {
     const current = previewUrlRef.current;
@@ -229,6 +242,7 @@ export function ExportPdfDialog({
     doc?.terrainVersion,
     doc?.manifest.page.widthMm,
     doc?.manifest.page.heightMm,
+    doc?.manifest.layers,
     extraAssetBlobs,
     existingTerrainRenderer
   ]);
@@ -237,8 +251,13 @@ export function ExportPdfDialog({
 
   const { page, title } = doc.manifest;
   const orientation = getOrientationLabel(page.widthMm, page.heightMm);
-  const rasterWidthPx = mmToPrintPx(page.widthMm, ppi);
-  const rasterHeightPx = mmToPrintPx(page.heightMm, ppi);
+  const {
+    widthPx: rasterWidthPx,
+    heightPx: rasterHeightPx,
+    effectivePpi
+  } = clampPrintDimensions(page, selectedPpi);
+  const isPpiClamped = effectivePpi < Math.round(selectedPpi);
+  const hiddenLayers = (doc.manifest.layers ?? []).filter((layer) => !layer.visible);
   const pageWidthPt = mmToPdfPoints(page.widthMm);
   const pageHeightPt = mmToPdfPoints(page.heightMm);
   const filename = buildPdfFilename(title);
@@ -270,7 +289,7 @@ export function ExportPdfDialog({
         (store ? () => store.getStrokeSession().isActive() : undefined);
 
       const result = await exportDocumentToPdf(doc, {
-        ppi,
+        ppi: selectedPpi,
         extraAssetBlobs,
         existingTerrainRenderer,
         isGestureActive: gestureCheck
@@ -381,6 +400,52 @@ export function ExportPdfDialog({
         )}
       </div>
 
+      <div className="form-field">
+        <label className="field-label" htmlFor={ppiSelectId}>
+          Risoluzione di stampa
+        </label>
+        <select
+          id={ppiSelectId}
+          className="select-input"
+          value={selectedPpi}
+          disabled={isExporting}
+          aria-describedby={isPpiClamped ? ppiNoticeId : undefined}
+          onChange={(e) => {
+            const next = Number(e.target.value);
+            if (Number.isFinite(next) && next > 0) {
+              setSelectedPpi(next);
+              setExportError(null);
+            }
+          }}
+        >
+          {PRINT_PPI_OPTIONS.map((opt) => (
+            <option key={opt.value} value={opt.value}>
+              {opt.label}
+            </option>
+          ))}
+          {!PRINT_PPI_OPTIONS.some((opt) => opt.value === selectedPpi) ? (
+            <option value={selectedPpi}>{selectedPpi} ppi (Personalizzato)</option>
+          ) : null}
+        </select>
+        {isPpiClamped ? (
+          <p
+            id={ppiNoticeId}
+            role="status"
+            className="panel-hint"
+            style={{ color: 'var(--ui-text)' }}
+          >
+            Per il formato {formatMmValue(page.widthMm)} × {formatMmValue(page.heightMm)} mm, la
+            risoluzione effettiva viene adattata automaticamente da{' '}
+            <span className="tabular-nums">{Math.round(selectedPpi)}</span> a{' '}
+            <span className="tabular-nums">{effectivePpi} ppi</span> (
+            <span className="tabular-nums">
+              {rasterWidthPx} × {rasterHeightPx} px
+            </span>
+            ) per restare entro i limiti sicuri di stampa.
+          </p>
+        ) : null}
+      </div>
+
       <dl
         className="inspector-summary-grid"
         style={{
@@ -397,17 +462,17 @@ export function ExportPdfDialog({
         </dd>
 
         <dt className="inspector-summary-key">Formato fisico</dt>
-        <dd className="inspector-summary-val" style={{ margin: 0 }}>
+        <dd className="inspector-summary-val tabular-nums" style={{ margin: 0 }}>
           {formatMmValue(page.widthMm)} × {formatMmValue(page.heightMm)} mm
         </dd>
 
         <dt className="inspector-summary-key">Risoluzione</dt>
-        <dd className="inspector-summary-val" style={{ margin: 0 }}>
-          {ppi} ppi · {rasterWidthPx} × {rasterHeightPx} px
+        <dd className="inspector-summary-val tabular-nums" style={{ margin: 0 }}>
+          {effectivePpi} ppi · {rasterWidthPx} × {rasterHeightPx} px
         </dd>
 
         <dt className="inspector-summary-key">Formato pagina PDF</dt>
-        <dd className="inspector-summary-val" style={{ margin: 0 }}>
+        <dd className="inspector-summary-val tabular-nums" style={{ margin: 0 }}>
           {formatPtItalian(pageWidthPt)} × {formatPtItalian(pageHeightPt)} pt
         </dd>
 
@@ -425,6 +490,28 @@ export function ExportPdfDialog({
           {filename}
         </dd>
       </dl>
+
+      {hiddenLayers.length > 0 ? (
+        <p
+          role="status"
+          style={{
+            margin: 0,
+            padding: 'var(--ui-space-2) var(--ui-space-3)',
+            backgroundColor: 'rgba(23, 35, 45, 0.55)',
+            border: 'var(--ui-border-w) solid var(--ui-line-subtle)',
+            borderRadius: 'var(--ui-radius-control)',
+            color: 'var(--ui-muted)',
+            fontSize: 13,
+            lineHeight: '18px'
+          }}
+        >
+          {hiddenLayers.length === 1
+            ? `1 livello nascosto escluso dalla stampa: «${hiddenLayers[0].name}».`
+            : `${hiddenLayers.length} livelli nascosti esclusi dalla stampa: ${hiddenLayers
+                .map((l) => `«${l.name}»`)
+                .join(', ')}.`}
+        </p>
+      ) : null}
 
       {activeError ? (
         <div

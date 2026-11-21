@@ -10,9 +10,11 @@ import {
   createPoiStampObject,
   InlineLabelEditor,
   InlineLabelEditRequest,
+  LayersPanel,
   ObjectInspector,
   ObjectListPanel,
   ObjectsLayerController,
+  PathToolPanel,
   PoiLibraryPanel
 } from './objects';
 import { PersistenceService } from './persistence';
@@ -452,6 +454,8 @@ export default function App() {
         />
         <PropertiesPanel
           store={store}
+          layersSlot={<LayersPanel store={store} />}
+          pathToolSlot={<PathToolPanel store={store} />}
           poiLibrarySlot={<PoiLibraryPanel store={store} />}
           objectInspectorSlot={<ObjectInspector store={store} />}
           objectListSlot={<ObjectListPanel store={store} />}

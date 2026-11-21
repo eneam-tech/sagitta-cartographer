@@ -72,6 +72,11 @@ export interface EditorStatusNotice {
   text: string;
 }
 
+export interface CursorDocPoint {
+  x: number;
+  y: number;
+}
+
 export const MIN_BRUSH_DIAMETER_DOC = 10;
 export const MAX_BRUSH_DIAMETER_DOC = 400;
 export const DEFAULT_BRUSH_DIAMETER_DOC = 80;
@@ -815,6 +820,8 @@ export class EditorStore {
 
   private listeners = new Set<() => void>();
   private terrainRedrawListeners = new Set<() => void>();
+  private cursorListeners = new Set<() => void>();
+  private cursorDoc: CursorDocPoint | null = null;
   private snapshot: EditorSnapshot;
 
   constructor(options: EditorStoreOptions = {}) {
@@ -864,6 +871,41 @@ export class EditorStore {
       this.terrainRedrawListeners.delete(listener);
     };
   };
+
+  subscribeCursor = (listener: () => void): (() => void) => {
+    this.cursorListeners.add(listener);
+    return () => {
+      this.cursorListeners.delete(listener);
+    };
+  };
+
+  getCursorDoc = (): CursorDocPoint | null => {
+    return this.cursorDoc;
+  };
+
+  setCursorDoc(point: CursorDocPoint | null): void {
+    if (!point) {
+      if (this.cursorDoc === null) return;
+      this.cursorDoc = null;
+      for (const listener of this.cursorListeners) {
+        listener();
+      }
+      return;
+    }
+    const nextX = Math.round(point.x);
+    const nextY = Math.round(point.y);
+    if (
+      this.cursorDoc &&
+      Math.round(this.cursorDoc.x) === nextX &&
+      Math.round(this.cursorDoc.y) === nextY
+    ) {
+      return;
+    }
+    this.cursorDoc = { x: point.x, y: point.y };
+    for (const listener of this.cursorListeners) {
+      listener();
+    }
+  }
 
   getSnapshot = (): EditorSnapshot => {
     return this.snapshot;
@@ -1463,6 +1505,7 @@ export class EditorStore {
     this.selectedObjectId = null;
     this.seaOnlyHintVisible = false;
     this.statusNotice = null;
+    this.setCursorDoc(null);
     this.hasLand = computeHasLand(this.doc);
     this.ensureValidActiveLayer();
     if (this.pathKind === 'river') this.pathColor = this.doc.theme.colors.pathRiver;
@@ -1705,6 +1748,7 @@ export class EditorStore {
     this.unsubPersistence = null;
     this.listeners.clear();
     this.terrainRedrawListeners.clear();
+    this.cursorListeners.clear();
   }
 
   private buildSnapshot(): EditorSnapshot {

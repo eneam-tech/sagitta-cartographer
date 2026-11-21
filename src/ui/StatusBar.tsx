@@ -1,4 +1,8 @@
+import { useSyncExternalStore } from 'react';
+import { COVER_MATERIALS, MapDocument } from '../model/document';
 import { EditorStore, useEditorStore } from '../state/editorStore';
+import { inspectCellAtDoc } from '../terrain';
+import type { BiomeKind } from '../terrain/types';
 import {
   AlertErrorIcon,
   CheckSavedIcon,
@@ -12,10 +16,77 @@ export interface StatusBarProps {
   store: EditorStore;
 }
 
+const COVER_LABEL_BY_CODE = new Map<number, string>(
+  COVER_MATERIALS.map((m) => [m.code, m.label])
+);
+
+const BIOME_LABELS: Record<BiomeKind, string> = {
+  sea: 'Acqua',
+  beach: 'Spiaggia',
+  plain: 'Pianura',
+  hill: 'Collina',
+  mountain: 'Montagna'
+};
+
+function CursorTelemetry({ store, doc }: { store: EditorStore; doc: MapDocument }) {
+  const cursorDoc = useSyncExternalStore(
+    store.subscribeCursor,
+    store.getCursorDoc,
+    store.getCursorDoc
+  );
+
+  if (!cursorDoc) {
+    return (
+      <span className="statusbar-cursor-readout is-muted tabular-nums">
+        (—, —) u
+      </span>
+    );
+  }
+
+  const xRound = Math.round(cursorDoc.x);
+  const yRound = Math.round(cursorDoc.y);
+  const cell = inspectCellAtDoc(doc, cursorDoc.x, cursorDoc.y);
+
+  if (!cell) {
+    return (
+      <span className="statusbar-cursor-readout is-muted tabular-nums">
+        ({xRound}, {yRound}) u · Fuori foglio
+      </span>
+    );
+  }
+
+  if (!cell.isLand) {
+    return (
+      <span
+        className="statusbar-cursor-readout tabular-nums"
+        title={`Coordinate (${xRound}, ${yRound}) u · Acqua`}
+      >
+        ({xRound}, {yRound}) u · Acqua
+      </span>
+    );
+  }
+
+  const coverLabel = COVER_LABEL_BY_CODE.get(cell.cover) ?? 'Naturale';
+  const biomeLabel = BIOME_LABELS[cell.classification.biome] ?? 'Pianura';
+
+  return (
+    <span
+      className="statusbar-cursor-readout tabular-nums"
+      title={`Coordinate (${xRound}, ${yRound}) u · ${biomeLabel} · Quota ${cell.height}/255 · ${coverLabel}`}
+    >
+      ({xRound}, {yRound}) u · Quota {cell.height} · {coverLabel}
+    </span>
+  );
+}
+
 export function StatusBar({ store }: StatusBarProps) {
   const snap = useEditorStore(store);
-  const { camera, doc, persistenceState, statusNotice } = snap;
+  const { camera, doc, activeLayerId, persistenceState, statusNotice } = snap;
   const zoomPercent = Math.round(camera.scale * 100);
+  const pageWidthMm = Math.round(doc.manifest.page.widthMm);
+  const pageHeightMm = Math.round(doc.manifest.page.heightMm);
+  const activeLayer = doc.manifest.layers.find((l) => l.id === activeLayerId);
+  const activeLayerName = activeLayer?.name ?? doc.manifest.layers[0]?.name ?? 'Livello';
 
   const renderLeftStatus = () => {
     if (persistenceState.status === 'error') {
@@ -106,6 +177,18 @@ export function StatusBar({ store }: StatusBarProps) {
     <footer className="editor-statusbar" aria-label="Barra di stato e controlli vista">
       <div className="statusbar-left" role="status" aria-live="polite">
         {renderLeftStatus()}
+      </div>
+
+      <div className="statusbar-telemetry" aria-label="Informazioni foglio, livello e cursore">
+        <span className="statusbar-meta-chip tabular-nums">
+          {pageWidthMm}×{pageHeightMm} mm
+        </span>
+        <span className="statusbar-meta-divider" aria-hidden="true" />
+        <span className="statusbar-meta-chip statusbar-layer-chip" title={`Livello attivo: ${activeLayerName}`}>
+          Livello: <strong className="statusbar-layer-name">{activeLayerName}</strong>
+        </span>
+        <span className="statusbar-meta-divider" aria-hidden="true" />
+        <CursorTelemetry store={store} doc={doc} />
       </div>
 
       <div className="statusbar-right" role="group" aria-label="Controlli della camera">

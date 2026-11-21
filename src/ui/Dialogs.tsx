@@ -8,6 +8,8 @@ import {
 } from '../model/coordinates';
 import { SavedProjectSummary } from '../persistence/types';
 import { EditorStore, useEditorStore } from '../state/editorStore';
+import { MAP_THEMES, MapTheme, getBuiltinThemeById } from '../theme/theme';
+import { ResizeCanvasDialog } from './ResizeCanvasDialog';
 import { AlertErrorIcon, CloseIcon } from './icons';
 
 const FOCUSABLE_SELECTOR = [
@@ -169,7 +171,10 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
   const [presetId, setPresetId] = useState<string>(PAGE_PRESETS[0].id);
   const [customWidthMm, setCustomWidthMm] = useState('297');
   const [customHeightMm, setCustomHeightMm] = useState('210');
+  const [themeId, setThemeId] = useState<string>(MAP_THEMES[0].id);
   const [error, setError] = useState<string | null>(null);
+
+  const selectedTheme: MapTheme = getBuiltinThemeById(themeId) ?? MAP_THEMES[0];
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -203,7 +208,7 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
     }
 
     setError(null);
-    store.newProject({ title: cleanTitle, page });
+    store.newProject({ title: cleanTitle, page, theme: selectedTheme });
   };
 
   return (
@@ -279,7 +284,7 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
                   setError(null);
                 }}
               />
-              <span>Misure personalizzate (mm)</span>
+              <span>Misure personalizzate (50–2000 mm)</span>
             </label>
           </div>
         </fieldset>
@@ -316,6 +321,40 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
             </div>
           </div>
         ) : null}
+
+        <fieldset className="form-field" style={{ border: 'none', margin: 0, padding: 0 }}>
+          <legend className="field-label" style={{ marginBottom: 8 }}>
+            Tema cartografico iniziale
+          </legend>
+          <div className="theme-preset-grid">
+            {MAP_THEMES.map((theme) => {
+              const isSelected = themeId === theme.id;
+              const accentColor =
+                theme.id === 'vulcanica' ? theme.colors.lava : theme.colors.forest;
+              return (
+                <label
+                  key={theme.id}
+                  className={`theme-preset-card ${isSelected ? 'is-selected' : ''}`}
+                >
+                  <input
+                    type="radio"
+                    name="initialTheme"
+                    value={theme.id}
+                    checked={isSelected}
+                    onChange={() => setThemeId(theme.id)}
+                    style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }}
+                  />
+                  <span className="theme-dots-row" aria-hidden="true">
+                    <span className="theme-dot" style={{ backgroundColor: theme.colors.sea }} />
+                    <span className="theme-dot" style={{ backgroundColor: theme.colors.land }} />
+                    <span className="theme-dot" style={{ backgroundColor: accentColor }} />
+                  </span>
+                  <span className="theme-preset-name">{theme.name}</span>
+                </label>
+              );
+            })}
+          </div>
+        </fieldset>
 
         {error ? <p className="form-error" role="alert">{error}</p> : null}
       </form>
@@ -552,6 +591,83 @@ function ConflictDialog({ store }: { store: EditorStore }) {
 }
 
 /* -------------------------------------------------------------------------- */
+/* Guida alle scorciatoie da tastiera (?)                                     */
+/* -------------------------------------------------------------------------- */
+
+const SHORTCUT_GROUPS: ReadonlyArray<{
+  title: string;
+  items: ReadonlyArray<{ keys: string; label: string }>;
+}> = [
+  {
+    title: 'Strumenti cartografici',
+    items: [
+      { keys: 'L / B', label: 'Terra' },
+      { keys: 'W', label: 'Acqua' },
+      { keys: 'E', label: 'Rilievo (Alza / Abbassa / Appiattisci / Ammorbidisci)' },
+      { keys: 'C', label: 'Superfici (10 materiali)' },
+      { keys: 'R', label: 'Fiumi e Strade' },
+      { keys: 'P', label: 'Simboli (POI)' },
+      { keys: 'T', label: 'Testo (etichette)' },
+      { keys: 'V', label: 'Seleziona' },
+      { keys: 'H / Spazio', label: 'Mano (spostamento vista)' }
+    ]
+  },
+  {
+    title: 'Pennello, oggetti e cronologia',
+    items: [
+      { keys: '[ / ]', label: 'Riduci / Aumenta diametro pennello' },
+      { keys: 'Ctrl/Cmd + Z', label: 'Annulla ultima modifica' },
+      { keys: 'Ctrl/Cmd + Shift + Z', label: 'Ripristina modifica' },
+      { keys: 'Canc', label: 'Elimina oggetto selezionato' },
+      { keys: 'Esc', label: 'Annulla gesto / Deseleziona / Chiudi finestra' },
+      { keys: '?', label: 'Apri questa guida alle scorciatoie' }
+    ]
+  }
+];
+
+function ShortcutsDialog({ store }: { store: EditorStore }) {
+  const closeFooterRef = useRef<HTMLButtonElement>(null);
+
+  return (
+    <ModalDialog
+      title="Scorciatoie da tastiera"
+      onClose={() => store.closeDialog()}
+      initialFocusRef={closeFooterRef}
+      footer={
+        <button
+          ref={closeFooterRef}
+          type="button"
+          className="btn btn-primary"
+          onClick={() => store.closeDialog()}
+        >
+          Chiudi
+        </button>
+      }
+    >
+      <p className="panel-hint">
+        Le scorciatoie restano inattive mentre digiti all’interno di campi di testo o etichette.
+      </p>
+
+      {SHORTCUT_GROUPS.map((group) => (
+        <section key={group.title} className="panel-group" style={{ gap: 'var(--ui-space-2)' }}>
+          <h3 className="panel-subheading">{group.title}</h3>
+          <dl className="shortcuts-list">
+            {group.items.map((item) => (
+              <div key={item.keys} className="shortcuts-row">
+                <dt className="shortcuts-label">{item.label}</dt>
+                <dd className="shortcuts-keys">
+                  <kbd className="shortcut-kbd">{item.keys}</kbd>
+                </dd>
+              </div>
+            ))}
+          </dl>
+        </section>
+      ))}
+    </ModalDialog>
+  );
+}
+
+/* -------------------------------------------------------------------------- */
 /* Host unificato dialoghi                                                    */
 /* -------------------------------------------------------------------------- */
 
@@ -571,6 +687,12 @@ export function DialogsHost({ store, exportPdfDialogSlot }: DialogsHostProps) {
   }
   if (activeDialog === 'openProject') {
     return <OpenProjectDialog store={store} />;
+  }
+  if (activeDialog === 'resizeCanvas') {
+    return <ResizeCanvasDialog store={store} />;
+  }
+  if (activeDialog === 'shortcuts') {
+    return <ShortcutsDialog store={store} />;
   }
   if (activeDialog === 'storageError') {
     return <StorageErrorDialog store={store} />;

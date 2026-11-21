@@ -1,5 +1,6 @@
 import { useCallback, useId, useState } from 'react';
 import type { FocusEvent, MouseEvent, ReactNode } from 'react';
+import { COVER_MATERIALS } from '../model/document';
 import { EditorSnapshot, EditorStore, useEditorStore } from '../state/editorStore';
 import {
   CoverIcon,
@@ -7,6 +8,7 @@ import {
   HandIcon,
   LabelIcon,
   LandIcon,
+  PathIcon,
   PoiIcon,
   SelectIcon,
   WaterIcon
@@ -25,6 +27,8 @@ interface ToolDef {
   icon: ReactNode;
   dividerAfter?: boolean;
 }
+
+const COVER_TOOL_SET = new Set<string>(COVER_MATERIALS.map((m) => m.tool));
 
 const TOOL_DEFS: readonly ToolDef[] = [
   {
@@ -64,20 +68,31 @@ const TOOL_DEFS: readonly ToolDef[] = [
     id: 'elevation',
     label: 'Rilievo',
     shortcut: 'E',
-    isActive: (s) => !s.spacePanActive && (s.activeTool === 'raise' || s.activeTool === 'lower'),
+    isActive: (s) =>
+      !s.spacePanActive &&
+      (s.activeTool === 'raise' ||
+        s.activeTool === 'lower' ||
+        s.activeTool === 'flatten' ||
+        s.activeTool === 'smooth'),
     onSelect: (store) => store.selectElevationGroup(),
     icon: <ElevationIcon />
   },
   {
     id: 'cover',
-    label: 'Copertura',
+    label: 'Superfici',
     shortcut: 'C',
-    isActive: (s) =>
-      !s.spacePanActive &&
-      (s.activeTool === 'forest' || s.activeTool === 'fields' || s.activeTool === 'natural'),
+    isActive: (s) => !s.spacePanActive && COVER_TOOL_SET.has(s.activeTool),
     onSelect: (store) => store.selectCoverGroup(),
     icon: <CoverIcon />,
     dividerAfter: true
+  },
+  {
+    id: 'path',
+    label: 'Fiumi e Strade',
+    shortcut: 'R',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'path',
+    onSelect: (store) => store.setTool('path'),
+    icon: <PathIcon />
   },
   {
     id: 'poi',

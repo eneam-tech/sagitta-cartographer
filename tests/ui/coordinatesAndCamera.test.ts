@@ -1,12 +1,27 @@
+import { createElement } from 'react';
+import { renderToStaticMarkup } from 'react-dom/server';
 import { describe, expect, it } from 'vitest';
 import {
   CameraState,
+  PAGE_PRESETS,
+  ResizeAnchor,
+  computeAnchorOffset,
   docToMaskX,
   docToMaskY,
+  pageMmToInteractiveMaskDimensions,
   screenToDoc,
   zoomAtPoint
 } from '../../src/model/coordinates';
-import { createEmptyDocument } from '../../src/model/document';
+import { UpdateLayerCommand } from '../../src/model/commands';
+import {
+  COVER_LAVA,
+  COVER_MATERIALS,
+  DEFAULT_LAYER_TERRAIN_ID,
+  LabelObject,
+  PathObject,
+  StampObject,
+  createEmptyDocument
+} from '../../src/model/document';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
 import {
   EditorStore,
@@ -15,6 +30,13 @@ import {
   shouldIgnoreShortcut
 } from '../../src/state/editorStore';
 import { LAND_MASK_THRESHOLD, TerrainStrokeSession } from '../../src/terrain';
+import { MAP_THEMES, NORDICA_THEME, VULCANICA_THEME } from '../../src/theme/theme';
+import { DialogsHost } from '../../src/ui/Dialogs';
+import { PropertiesPanel } from '../../src/ui/PropertiesPanel';
+import { buildResizeCanvasCommand, resizeMapObjects } from '../../src/ui/ResizeCanvasDialog';
+import { StatusBar } from '../../src/ui/StatusBar';
+import { ToolRail } from '../../src/ui/ToolRail';
+import { TopBar } from '../../src/ui/TopBar';
 
 interface RectLike {
   left: number;
@@ -363,5 +385,366 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
       tone: 'error',
       text: 'Errore creazione archivio ZIP'
     });
+  });
+
+  it('resizes canvas, terrain buffers, and Stamp/Label/Path objects across 9 anchors with ResizeCanvasCommand and Undo/Redo', () => {
+    const doc = createEmptyDocument({
+      page: { widthMm: 297, heightMm: 210 },
+      widthPx: 297,
+      heightPx: 210
+    });
+
+    // Dipingi una zona centrale di terra con quota 140 e copertura Lava (9)
+    for (let y = 80; y < 130; y += 1) {
+      for (let x = 100; x < 180; x += 1) {
+        const idx = y * doc.terrain.widthPx + x;
+        doc.terrain.mask[idx] = 255;
+        doc.terrain.height[idx] = 140;
+        doc.terrain.cover[idx] = COVER_LAVA;
+      }
+    }
+
+    const stamp: StampObject = {
+      id: 'stamp-1',
+      type: 'stamp',
+      role: 'poi',
+      assetId: 'poi-tower',
+      x: 1000,
+      y: 800,
+      width: 120,
+      height: 120,
+      rotationDeg: 15
+    };
+    const label: LabelObject = {
+      id: 'label-1',
+      type: 'label',
+      text: 'Rocca Rossa',
+      x: 500,
+      y: 400,
+      fontId: 'spectral-semibold',
+      fontSize: 40,
+      color: '#263C40',
+      rotationDeg: 0
+    };
+    const path: PathObject = {
+      id: 'path-1',
+      type: 'path',
+      kind: 'river',
+      x: 1400,
+      y: 1000,
+      rotationDeg: 0,
+      points: [-100, -50, 0, 0, 100, 50],
+      strokeWidthDoc: 12,
+      color: '#5E95A0',
+      smooth: true,
+      tapered: true
+    };
+    doc.manifest.objects = [stamp, label, path];
+
+    // Verifica matematica di tutte e 9 le ancore
+    const allAnchors: ResizeAnchor[] = [
+      'top-left',
+      'top',
+      'top-right',
+      'left',
+      'center',
+      'right',
+      'bottom-left',
+      'bottom',
+      'bottom-right'
+    ];
+    for (const anchor of allAnchors) {
+      const { dx, dy } = computeAnchorOffset(2970, 2100, 4200, 2970, anchor);
+      const moved = resizeMapObjects([stamp, label, path], { width: 2970, height: 2100 }, { width: 4200, height: 2970 }, 'expand-crop', anchor);
+      expect(moved[0].x).toBeCloseTo(1000 + dx, 2);
+      expect(moved[0].y).toBeCloseTo(800 + dy, 2);
+      expect(moved[1].x).toBeCloseTo(500 + dx, 2);
+      expect(moved[2].x).toBeCloseTo(1400 + dx, 2);
+      expect(moved[2].y).toBeCloseTo(1000 + dy, 2);
+    }
+
+    const store = new EditorStore({ initialDocument: doc });
+    store.setViewportSize(1200, 800);
+
+    // 1. Espandi / Ritaglia ancorato in basso a destra (dx = 1230, dy = 870)
+    const expandCmd = buildResizeCanvasCommand(store.getDocument(), {
+      page: { widthMm: 420, heightMm: 297 },
+      mode: 'expand-crop',
+      anchor: 'bottom-right'
+    });
+    store.executeCommand(expandCmd);
+
+    const expanded = store.getDocument();
+    expect(expanded.manifest.page).toEqual({ widthMm: 420, heightMm: 297 });
+    expect(expanded.manifest.space).toEqual({ width: 4200, height: 2970 });
+    expect(expanded.terrain.widthPx).toBe(420);
+    expect(expanded.terrain.heightPx).toBe(297);
+    expect(expanded.manifest.objects[0].x).toBe(2230);
+    expect(expanded.manifest.objects[0].y).toBe(1670);
+    expect(expanded.manifest.objects[1].x).toBe(1730);
+    expect(expanded.manifest.objects[1].y).toBe(1270);
+    expect(expanded.manifest.objects[2].x).toBe(2630);
+    expect(expanded.manifest.objects[2].y).toBe(1870);
+    // Il margine superiore sinistro esposto deve essere mare (0)
+    expect(expanded.terrain.mask[0]).toBe(0);
+    // La terra spostata in basso a destra mantiene maschera, quota e lava
+    const shiftedCenterPxX = Math.floor(docToMaskX(1230 + 1400, expanded.manifest.space, expanded.terrain));
+    const shiftedCenterPxY = Math.floor(docToMaskY(870 + 1050, expanded.manifest.space, expanded.terrain));
+    const shiftedIdx = shiftedCenterPxY * expanded.terrain.widthPx + shiftedCenterPxX;
+    expect(expanded.terrain.mask[shiftedIdx]).toBe(255);
+    expect(expanded.terrain.height[shiftedIdx]).toBe(140);
+    expect(expanded.terrain.cover[shiftedIdx]).toBe(COVER_LAVA);
+
+    // Undo ripristina esattamente formato, buffer e oggetti originali
+    expect(store.undo()).toBe(true);
+    const reverted = store.getDocument();
+    expect(reverted.manifest.page).toEqual({ widthMm: 297, heightMm: 210 });
+    expect(reverted.terrain.widthPx).toBe(297);
+    expect(reverted.terrain.heightPx).toBe(210);
+    expect(reverted.manifest.objects[0].x).toBe(1000);
+    expect(reverted.manifest.objects[2].x).toBe(1400);
+
+    // Redo riapplica il ridimensionamento
+    expect(store.redo()).toBe(true);
+    expect(store.getDocument().manifest.page).toEqual({ widthMm: 420, heightMm: 297 });
+
+    // 2. Scala contenuto: scala proporzionalmente oggetti, punti PathObject e raster terreno
+    const scaleCmd = buildResizeCanvasCommand(store.getDocument(), {
+      page: { widthMm: 840, heightMm: 594 },
+      mode: 'scale-content',
+      anchor: 'center'
+    });
+    store.executeCommand(scaleCmd);
+
+    const scaled = store.getDocument();
+    expect(scaled.manifest.page).toEqual({ widthMm: 840, heightMm: 594 });
+    const scaledStamp = scaled.manifest.objects[0] as StampObject;
+    const scaledLabel = scaled.manifest.objects[1] as LabelObject;
+    const scaledPath = scaled.manifest.objects[2] as PathObject;
+    expect(scaledStamp.x).toBe(4460);
+    expect(scaledStamp.width).toBe(240);
+    expect(scaledLabel.fontSize).toBe(80);
+    expect(scaledPath.x).toBe(5260);
+    expect(scaledPath.points).toEqual([-200, -100, 0, 0, 200, 100]);
+    expect(scaledPath.strokeWidthDoc).toBe(24);
+    const expectedA1Mask = pageMmToInteractiveMaskDimensions({ widthMm: 841, heightMm: 594 });
+    expect(expectedA1Mask.widthPx * expectedA1Mask.heightPx).toBeLessThanOrEqual(12_000_000);
+  });
+
+  it('switches themes via store.setTheme with Undo/Redo and skips redundant theme updates', () => {
+    const store = new EditorStore();
+    expect(store.getDocument().theme.id).toBe('base');
+
+    const rev0 = store.getDocument().manifest.revision;
+    store.setTheme(MAP_THEMES[0]);
+    expect(store.getDocument().manifest.revision).toBe(rev0);
+
+    store.setTheme(VULCANICA_THEME);
+    expect(store.getDocument().theme.id).toBe('vulcanica');
+    expect(store.getDocument().manifest.theme.id).toBe('vulcanica');
+    expect(store.getDocument().manifest.revision).toBe(rev0 + 1);
+
+    store.setTheme(NORDICA_THEME);
+    expect(store.getDocument().theme.id).toBe('nordica');
+
+    expect(store.undo()).toBe(true);
+    expect(store.getDocument().theme.id).toBe('vulcanica');
+
+    expect(store.undo()).toBe(true);
+    expect(store.getDocument().theme.id).toBe('base');
+
+    expect(store.redo()).toBe(true);
+    expect(store.getDocument().theme.id).toBe('vulcanica');
+  });
+
+  it('blocks terrain brush strokes when layer-terrain is locked or hidden', () => {
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 96 });
+    const store = new EditorStore({ initialDocument: doc });
+    const terrainLayer = doc.manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!;
+
+    // 1. Blocca livello terreno
+    store.executeCommand(
+      new UpdateLayerCommand(terrainLayer, { ...terrainLayer, locked: true }, 'Blocca terreno')
+    );
+    const revLocked = store.getDocument().manifest.revision;
+    expect(store.beginTerrainStroke(1485, 1050)).toBe(false);
+    expect(store.getStrokeSession().isActive()).toBe(false);
+    expect(store.getSnapshot().statusNotice?.text).toContain('bloccato');
+    expect(store.getDocument().manifest.revision).toBe(revLocked);
+    expect(doc.terrain.mask.some((v) => v > 0)).toBe(false);
+
+    // 2. Sblocca ma nascondi livello terreno
+    const lockedLayer = store.getDocument().manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!;
+    store.executeCommand(
+      new UpdateLayerCommand(
+        lockedLayer,
+        { ...lockedLayer, locked: false, visible: false },
+        'Nascondi terreno'
+      )
+    );
+    expect(store.beginTerrainStroke(1485, 1050)).toBe(false);
+    expect(doc.terrain.mask.some((v) => v > 0)).toBe(false);
+
+    // 3. Ripristina visibile e sbloccato -> pennellata consentita
+    const hiddenLayer = store.getDocument().manifest.layers.find((l) => l.id === DEFAULT_LAYER_TERRAIN_ID)!;
+    store.executeCommand(
+      new UpdateLayerCommand(
+        hiddenLayer,
+        { ...hiddenLayer, visible: true, locked: false },
+        'Mostra terreno'
+      )
+    );
+    expect(store.beginTerrainStroke(1485, 1050)).toBe(true);
+    store.commitTerrainStroke();
+    expect(doc.terrain.mask.some((v) => v > 0)).toBe(true);
+  });
+
+  it('handles Wave 2 keyboard shortcuts (R, [, ], ?) and ignores them inside INPUT elements', () => {
+    const store = new EditorStore();
+    expect(store.getSnapshot().brushDiameterDoc).toBe(80);
+
+    // R attiva Fiumi e Strade ('path')
+    expect(store.handleKeyDown({ key: 'r', target: null })).toBe(true);
+    expect(store.getSnapshot().activeTool).toBe('path');
+
+    // [ e ] regolano il diametro pennello
+    expect(store.handleKeyDown({ key: '[', target: null })).toBe(true);
+    expect(store.getSnapshot().brushDiameterDoc).toBe(68);
+    expect(store.handleKeyDown({ key: ']', target: null })).toBe(true);
+    expect(store.getSnapshot().brushDiameterDoc).toBe(78);
+
+    // ? apre la modale scorciatoie, Esc la chiude
+    expect(store.handleKeyDown({ key: '?', target: null })).toBe(true);
+    expect(store.getSnapshot().activeDialog).toBe('shortcuts');
+    expect(store.handleKeyDown({ key: 'Escape', target: null })).toBe(true);
+    expect(store.getSnapshot().activeDialog).toBeNull();
+
+    // Disabilitate dentro INPUT
+    const inputTarget = { tagName: 'INPUT' } as unknown as EventTarget;
+    expect(store.handleKeyDown({ key: 'b', target: inputTarget })).toBe(false);
+    expect(store.handleKeyDown({ key: '[', target: inputTarget })).toBe(false);
+    expect(store.handleKeyDown({ key: ']', target: inputTarget })).toBe(false);
+    expect(store.handleKeyDown({ key: '?', target: inputTarget })).toBe(false);
+    expect(store.getSnapshot().activeTool).toBe('path');
+    expect(store.getSnapshot().brushDiameterDoc).toBe(78);
+    expect(store.getSnapshot().activeDialog).toBeNull();
+  });
+
+  it('renders Wave 2 ToolRail, TopBar, PropertiesPanel 3 tabs & 10 materials, StatusBar telemetry, and Dialogs in SSR', () => {
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 96 });
+    const centerPx = 48 * 128 + 64;
+    doc.terrain.mask[centerPx] = 255;
+    doc.terrain.height[centerPx] = 152;
+    doc.terrain.cover[centerPx] = COVER_LAVA;
+
+    const store = new EditorStore({ initialDocument: doc });
+
+    // ToolRail: Fiumi e Strade + Rilievo su flatten + Superfici su lava
+    store.setTool('flatten');
+    const railFlatten = renderToStaticMarkup(createElement(ToolRail, { store }));
+    expect(railFlatten).toContain('Fiumi e Strade (R)');
+    expect(railFlatten).toContain('aria-pressed="true" aria-label="Rilievo (E)"');
+
+    store.setTool('lava');
+    const railLava = renderToStaticMarkup(createElement(ToolRail, { store }));
+    expect(railLava).toContain('aria-pressed="true" aria-label="Superfici (C)"');
+
+    // PropertiesPanel: Rilievo (4 modalità + 3 preset intensità + diametro)
+    store.setTool('raise');
+    const propRaise = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    expect(propRaise).toContain('Strumento');
+    expect(propRaise).toContain('Livelli');
+    expect(propRaise).toContain('Oggetti');
+    expect(propRaise).toContain('Alza');
+    expect(propRaise).toContain('Abbassa');
+    expect(propRaise).toContain('Appiattisci');
+    expect(propRaise).toContain('Ammorbidisci');
+    expect(propRaise).toContain('Leggero');
+    expect(propRaise).toContain('Medio');
+    expect(propRaise).toContain('Forte');
+
+    // PropertiesPanel: 10 materiali in Superfici
+    store.setTool('lava');
+    const propCover = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    for (const mat of COVER_MATERIALS) {
+      expect(propCover).toContain(mat.label);
+    }
+
+    // PropertiesPanel: scheda Strumento con pathToolSlot, scheda Livelli con layersSlot, scheda Oggetti
+    store.setTool('path');
+    const propPath = renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        store,
+        pathToolSlot: createElement('div', null, 'SLOT_PATH_TEST')
+      })
+    );
+    expect(propPath).toContain('SLOT_PATH_TEST');
+
+    store.setInspectorTab('layers');
+    const propLayers = renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        store,
+        layersSlot: createElement('div', null, 'SLOT_LAYERS_TEST')
+      })
+    );
+    expect(propLayers).toContain('SLOT_LAYERS_TEST');
+
+    store.setInspectorTab('objects');
+    const propObjects = renderToStaticMarkup(
+      createElement(PropertiesPanel, {
+        store,
+        objectInspectorSlot: createElement('div', null, 'SLOT_INSPECTOR_TEST'),
+        objectListSlot: createElement('div', null, 'SLOT_LIST_TEST')
+      })
+    );
+    expect(propObjects).toContain('SLOT_LIST_TEST');
+
+    // TopBar: Tela 297×210 mm + 4 temi + Scorciatoie
+    const topHtml = renderToStaticMarkup(createElement(TopBar, { store }));
+    expect(topHtml).toContain('297×210 mm');
+    expect(topHtml).toContain('Carta di stracci classica');
+    expect(topHtml).toContain('Scorciatoie da tastiera (?)');
+
+    // StatusBar: formato mm, livello attivo, cursore + ispezione cella (acqua e lava)
+    store.setCursorDoc({ x: 10, y: 10 });
+    const statusSea = renderToStaticMarkup(createElement(StatusBar, { store }));
+    expect(statusSea).toContain('297×210 mm');
+    expect(statusSea).toContain('Livello:');
+    expect(statusSea).toContain('Acqua');
+
+    store.setCursorDoc({ x: doc.manifest.space.width * 0.505, y: doc.manifest.space.height * 0.505 });
+    const statusLand = renderToStaticMarkup(createElement(StatusBar, { store }));
+    expect(statusLand).toContain('Quota 152');
+    expect(statusLand).toContain('Lava');
+
+    // DialogsHost: newProject (7 preset + 4 temi), resizeCanvas, shortcuts
+    store.openDialog('newProject');
+    const newProjHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
+    for (const preset of PAGE_PRESETS) {
+      expect(newProjHtml).toContain(preset.label);
+    }
+    for (const theme of MAP_THEMES) {
+      expect(newProjHtml).toContain(theme.name);
+    }
+
+    store.openDialog('resizeCanvas');
+    const resizeHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
+    expect(resizeHtml).toContain('Ridimensiona tela');
+    expect(resizeHtml).toContain('Espandi / Ritaglia');
+    expect(resizeHtml).toContain('Scala contenuto');
+    expect(resizeHtml).toContain('Griglia ancora a 9 punti');
+
+    store.openDialog('shortcuts');
+    const shortcutsHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
+    expect(shortcutsHtml).toContain('Scorciatoie da tastiera');
+    expect(shortcutsHtml).toContain('L / B');
+    expect(shortcutsHtml).toContain('Fiumi e Strade');
+
+    // Verifica assenza di dimensioni fuori scala tipografica (11, 12, 14 px)
+    for (const html of [propRaise, propCover, topHtml, statusLand, resizeHtml, shortcutsHtml]) {
+      expect(html).not.toContain('font-size:11px');
+      expect(html).not.toContain('font-size:12px');
+      expect(html).not.toContain('font-size:14px');
+    }
   });
 });

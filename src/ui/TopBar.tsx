@@ -1,12 +1,16 @@
 import { useEffect, useRef, useState } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { EditorStore, useEditorStore } from '../state/editorStore';
+import { MAP_THEMES, MapTheme } from '../theme/theme';
 import {
+  CheckSavedIcon,
   ChevronDownIcon,
   ExportPdfIcon,
   ProjectIcon,
   PropertiesIcon,
   RedoIcon,
+  ResizeCanvasIcon,
+  ShortcutsIcon,
   UndoIcon
 } from './icons';
 
@@ -14,17 +18,28 @@ export interface TopBarProps {
   store: EditorStore;
 }
 
+function getThemePreviewDots(theme: MapTheme): [string, string, string] {
+  const accent = theme.id === 'vulcanica' ? theme.colors.lava : theme.colors.forest;
+  return [theme.colors.sea, theme.colors.land, accent];
+}
+
 export function TopBar({ store }: TopBarProps) {
   const snap = useEditorStore(store);
   const { doc, canUndo, canRedo, nextUndoLabel, nextRedoLabel, propertiesDrawerOpen } = snap;
 
   const [menuOpen, setMenuOpen] = useState(false);
+  const [themeMenuOpen, setThemeMenuOpen] = useState(false);
   const [isEditingTitle, setIsEditingTitle] = useState(false);
   const [draftTitle, setDraftTitle] = useState(doc.manifest.title);
 
   const projectMenuWrapRef = useRef<HTMLDivElement>(null);
   const projectBtnRef = useRef<HTMLButtonElement>(null);
   const menuItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
+  const themeMenuWrapRef = useRef<HTMLDivElement>(null);
+  const themeBtnRef = useRef<HTMLButtonElement>(null);
+  const themeItemRefs = useRef<Array<HTMLButtonElement | null>>([]);
+
   const fileInputRef = useRef<HTMLInputElement>(null);
   const titleInputRef = useRef<HTMLInputElement>(null);
   const initialTitleRef = useRef(doc.manifest.title);
@@ -60,7 +75,30 @@ export function TopBar({ store }: TopBarProps) {
     };
   }, [menuOpen]);
 
-  // Sposta il focus sul primo elemento quando si apre il menu da tastiera
+  // Chiude il menu Tema cliccando fuori o premendo Esc
+  useEffect(() => {
+    if (!themeMenuOpen) return;
+    const handlePointerDown = (e: PointerEvent) => {
+      if (themeMenuWrapRef.current && !themeMenuWrapRef.current.contains(e.target as Node)) {
+        setThemeMenuOpen(false);
+      }
+    };
+    const handleKeyDown = (e: globalThis.KeyboardEvent) => {
+      if (e.key === 'Escape') {
+        e.stopPropagation();
+        setThemeMenuOpen(false);
+        themeBtnRef.current?.focus();
+      }
+    };
+    window.addEventListener('pointerdown', handlePointerDown);
+    window.addEventListener('keydown', handleKeyDown, true);
+    return () => {
+      window.removeEventListener('pointerdown', handlePointerDown);
+      window.removeEventListener('keydown', handleKeyDown, true);
+    };
+  }, [themeMenuOpen]);
+
+  // Sposta il focus sul primo elemento quando si apre il menu Progetto
   useEffect(() => {
     if (menuOpen) {
       requestAnimationFrame(() => {
@@ -69,8 +107,21 @@ export function TopBar({ store }: TopBarProps) {
     }
   }, [menuOpen]);
 
-  const handleMenuKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
-    const items = menuItemRefs.current.filter((el): el is HTMLButtonElement => el !== null);
+  // Sposta il focus sul tema corrente quando si apre il menu Tema
+  useEffect(() => {
+    if (themeMenuOpen) {
+      requestAnimationFrame(() => {
+        const activeIdx = MAP_THEMES.findIndex((t) => t.id === doc.theme.id);
+        themeItemRefs.current[activeIdx >= 0 ? activeIdx : 0]?.focus();
+      });
+    }
+  }, [themeMenuOpen, doc.theme.id]);
+
+  const handleDropdownKeyDown = (
+    e: KeyboardEvent<HTMLDivElement>,
+    refs: Array<HTMLButtonElement | null>
+  ) => {
+    const items = refs.filter((el): el is HTMLButtonElement => el !== null);
     if (items.length === 0) return;
     const idx = items.indexOf(document.activeElement as HTMLButtonElement);
     if (e.key === 'ArrowDown') {
@@ -123,6 +174,11 @@ export function TopBar({ store }: TopBarProps) {
     await store.importArchiveFile(new Uint8Array(buf));
   };
 
+  const pageWidthMm = Math.round(doc.manifest.page.widthMm);
+  const pageHeightMm = Math.round(doc.manifest.page.heightMm);
+  const activeTheme = doc.theme;
+  const activeDots = getThemePreviewDots(activeTheme);
+
   return (
     <header className="editor-topbar" aria-label="Barra degli strumenti superiore">
       <div className="topbar-left">
@@ -136,7 +192,10 @@ export function TopBar({ store }: TopBarProps) {
             aria-controls="project-menu-dropdown"
             aria-label="Menu progetto"
             data-tooltip="Menu progetto"
-            onClick={() => setMenuOpen((prev) => !prev)}
+            onClick={() => {
+              setThemeMenuOpen(false);
+              setMenuOpen((prev) => !prev);
+            }}
           >
             <ProjectIcon size={20} />
             <span className="topbar-btn-label">Progetto</span>
@@ -149,7 +208,7 @@ export function TopBar({ store }: TopBarProps) {
               className="dropdown-menu"
               role="menu"
               aria-label="Azioni sul progetto"
-              onKeyDown={handleMenuKeyDown}
+              onKeyDown={(e) => handleDropdownKeyDown(e, menuItemRefs.current)}
             >
               <button
                 ref={(el) => {
@@ -181,10 +240,28 @@ export function TopBar({ store }: TopBarProps) {
               >
                 <span>Apri locale…</span>
               </button>
-              <div className="dropdown-divider" role="separator" />
               <button
                 ref={(el) => {
                   menuItemRefs.current[2] = el;
+                }}
+                type="button"
+                role="menuitem"
+                className="dropdown-item"
+                onClick={() => {
+                  projectBtnRef.current?.focus();
+                  setMenuOpen(false);
+                  store.openDialog('resizeCanvas');
+                }}
+              >
+                <span>Ridimensiona tela…</span>
+                <span className="dropdown-item-meta tabular-nums">
+                  {pageWidthMm}×{pageHeightMm}
+                </span>
+              </button>
+              <div className="dropdown-divider" role="separator" />
+              <button
+                ref={(el) => {
+                  menuItemRefs.current[3] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -198,7 +275,7 @@ export function TopBar({ store }: TopBarProps) {
               </button>
               <button
                 ref={(el) => {
-                  menuItemRefs.current[3] = el;
+                  menuItemRefs.current[4] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -210,6 +287,23 @@ export function TopBar({ store }: TopBarProps) {
                 }}
               >
                 <span>Scarica progetto (.zip)</span>
+              </button>
+              <div className="dropdown-divider" role="separator" />
+              <button
+                ref={(el) => {
+                  menuItemRefs.current[5] = el;
+                }}
+                type="button"
+                role="menuitem"
+                className="dropdown-item"
+                onClick={() => {
+                  projectBtnRef.current?.focus();
+                  setMenuOpen(false);
+                  store.openDialog('shortcuts');
+                }}
+              >
+                <span>Scorciatoie da tastiera</span>
+                <span className="dropdown-item-meta">?</span>
               </button>
             </div>
           ) : null}
@@ -261,7 +355,7 @@ export function TopBar({ store }: TopBarProps) {
           onClick={() => store.undo()}
         >
           <UndoIcon size={20} />
-          <span className="topbar-btn-label">Annulla</span>
+          <span className="topbar-btn-label topbar-hide-medium">Annulla</span>
         </button>
 
         <button
@@ -277,7 +371,98 @@ export function TopBar({ store }: TopBarProps) {
           onClick={() => store.redo()}
         >
           <RedoIcon size={20} />
-          <span className="topbar-btn-label">Ripristina</span>
+          <span className="topbar-btn-label topbar-hide-medium">Ripristina</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary topbar-canvas-btn has-tooltip-bottom"
+          aria-label={`Tela ${pageWidthMm} per ${pageHeightMm} millimetri. Ridimensiona tela`}
+          data-tooltip={`Tela ${pageWidthMm}×${pageHeightMm} mm`}
+          onClick={() => store.openDialog('resizeCanvas')}
+        >
+          <ResizeCanvasIcon size={18} />
+          <span className="topbar-canvas-label tabular-nums">
+            {pageWidthMm}×{pageHeightMm} mm
+          </span>
+        </button>
+
+        {/* Selettore dei 4 temi cartografici con 3 pallini cromatici */}
+        <div className="topbar-theme-wrap" ref={themeMenuWrapRef}>
+          <button
+            ref={themeBtnRef}
+            type="button"
+            className="btn btn-secondary topbar-theme-btn has-tooltip-bottom"
+            aria-haspopup="menu"
+            aria-expanded={themeMenuOpen}
+            aria-controls="theme-menu-dropdown"
+            aria-label={`Tema della carta: ${activeTheme.name}`}
+            data-tooltip={`Tema: ${activeTheme.name}`}
+            onClick={() => {
+              setMenuOpen(false);
+              setThemeMenuOpen((prev) => !prev);
+            }}
+          >
+            <span className="theme-dots-row" aria-hidden="true">
+              {activeDots.map((hex, i) => (
+                <span key={i} className="theme-dot" style={{ backgroundColor: hex }} />
+              ))}
+            </span>
+            <span className="topbar-theme-label">{activeTheme.name}</span>
+            <ChevronDownIcon size={16} className="topbar-theme-chevron" />
+          </button>
+
+          {themeMenuOpen ? (
+            <div
+              id="theme-menu-dropdown"
+              className="dropdown-menu dropdown-menu--right"
+              role="menu"
+              aria-label="Seleziona tema della carta"
+              onKeyDown={(e) => handleDropdownKeyDown(e, themeItemRefs.current)}
+            >
+              {MAP_THEMES.map((theme, idx) => {
+                const isSelected = doc.theme.id === theme.id;
+                const dots = getThemePreviewDots(theme);
+                return (
+                  <button
+                    key={theme.id}
+                    ref={(el) => {
+                      themeItemRefs.current[idx] = el;
+                    }}
+                    type="button"
+                    role="menuitemradio"
+                    aria-checked={isSelected}
+                    className={`dropdown-item ${isSelected ? 'is-active' : ''}`}
+                    onClick={() => {
+                      store.setTheme(theme);
+                      themeBtnRef.current?.focus();
+                      setThemeMenuOpen(false);
+                    }}
+                  >
+                    <span className="theme-menu-item-main">
+                      <span className="theme-dots-row" aria-hidden="true">
+                        {dots.map((hex, i) => (
+                          <span key={i} className="theme-dot" style={{ backgroundColor: hex }} />
+                        ))}
+                      </span>
+                      <span className="theme-menu-item-name">{theme.name}</span>
+                    </span>
+                    {isSelected ? <CheckSavedIcon size={16} className="theme-menu-check" /> : null}
+                  </button>
+                );
+              })}
+            </div>
+          ) : null}
+        </div>
+
+        <button
+          type="button"
+          className="btn btn-ghost btn-icon-only topbar-shortcuts-btn has-tooltip-bottom"
+          aria-label="Scorciatoie da tastiera (?)"
+          data-tooltip="Scorciatoie (?)"
+          onClick={() => store.openDialog('shortcuts')}
+        >
+          <ShortcutsIcon size={20} />
         </button>
 
         <button
@@ -295,11 +480,13 @@ export function TopBar({ store }: TopBarProps) {
 
         <button
           type="button"
-          className="btn btn-primary"
+          className="btn btn-primary topbar-export-btn"
+          aria-label="Esporta PDF"
           onClick={() => store.openDialog('exportPdf')}
         >
           <ExportPdfIcon size={20} />
-          <span>Esporta PDF</span>
+          <span className="topbar-export-full">Esporta PDF</span>
+          <span className="topbar-export-short">PDF</span>
         </button>
       </div>
     </header>

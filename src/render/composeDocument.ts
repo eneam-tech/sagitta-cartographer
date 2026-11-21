@@ -1,6 +1,13 @@
 import { zlibSync } from 'fflate';
 import { LoadedAssetMap } from '../assets/types';
-import { MapDocument } from '../model/document';
+import {
+  DEFAULT_LAYER_TERRAIN_ID,
+  MapDocument,
+  MapLayer,
+  MapObject,
+  createDefaultLayers,
+  resolveObjectLayerId
+} from '../model/document';
 import { TerrainRenderer } from '../terrain';
 import { ITerrainRenderer } from '../terrain/types';
 import { getFontSpec } from '../theme/theme';
@@ -116,6 +123,62 @@ function hasMatchingPixelData(
     data.height === expectedHeight &&
     data.rgba.length === expectedWidth * expectedHeight * 4
   );
+}
+
+/**
+ * Finds the document's terrain layer (`layer-terrain` or `kind === 'terrain'`).
+ */
+export function getTerrainLayer(doc: MapDocument): MapLayer | undefined {
+  return doc.manifest.layers?.find(
+    (l) => l.id === DEFAULT_LAYER_TERRAIN_ID || l.kind === 'terrain'
+  );
+}
+
+/**
+ * Resolves effective visibility and clamped `[0..1]` opacity for the terrain layer.
+ */
+export function resolveTerrainLayerState(doc: MapDocument): {
+  visible: boolean;
+  opacity: number;
+} {
+  const terrainLayer = getTerrainLayer(doc);
+  if (!terrainLayer) {
+    return { visible: true, opacity: 1 };
+  }
+  const opacity = Number.isFinite(terrainLayer.opacity)
+    ? Math.min(1, Math.max(0, terrainLayer.opacity))
+    : 1;
+  return {
+    visible: Boolean(terrainLayer.visible) && opacity > 0,
+    opacity
+  };
+}
+
+/**
+ * Returns objects (`stamp`, `label`, `path`) that belong to visible non-terrain
+ * layers with positive opacity.
+ */
+export function getVisibleMapObjects(doc: MapDocument): MapObject[] {
+  if (!doc.manifest.objects || doc.manifest.objects.length === 0) {
+    return [];
+  }
+  const layers: readonly MapLayer[] =
+    doc.manifest.layers && doc.manifest.layers.length > 0
+      ? doc.manifest.layers
+      : createDefaultLayers();
+  const layerById = new Map<string, MapLayer>();
+  for (const layer of layers) {
+    layerById.set(layer.id, layer);
+  }
+  return doc.manifest.objects.filter((obj) => {
+    if (obj.type === 'path' && obj.opacity !== undefined && obj.opacity <= 0) {
+      return false;
+    }
+    const layerId = resolveObjectLayerId(obj, layers);
+    const layer = layerById.get(layerId);
+    if (!layer) return true;
+    return layer.kind !== 'terrain' && layer.visible && layer.opacity > 0;
+  });
 }
 
 /**
@@ -239,6 +302,24 @@ export function encodeRgbaPng(
       raw[rowOut] = 0; // Filter None
       const rowIn = y * dstStride;
       raw.set(rgba.subarray(rowIn, rowIn + dstStride), rowOut + 1);
+    }
+  } else if (sW === 1 && sH === 1) {
+    const r = rgba[0];
+    const g = rgba[1];
+    const b = rgba[2];
+    const a = rgba[3];
+    const rowBytes = dstStride + 1;
+    const rowTemplate = new Uint8Array(rowBytes);
+    rowTemplate[0] = 0; // Filter None
+    for (let x = 0; x < dW; x += 1) {
+      const off = 1 + x * 4;
+      rowTemplate[off] = r;
+      rowTemplate[off + 1] = g;
+      rowTemplate[off + 2] = b;
+      rowTemplate[off + 3] = a;
+    }
+    for (let y = 0; y < dH; y += 1) {
+      raw.set(rowTemplate, y * rowBytes);
     }
   } else {
     const srcX0 = new Int32Array(dW);
@@ -367,49 +448,53 @@ export function composeDocumentToCanvas(
   let tempTerrainCanvas: HTMLCanvasElement | null = null;
 
   try {
+    const terrainLayerState = resolveTerrainLayerState(doc);
     let terrainSource: HTMLCanvasElement | null = null;
-    const canReuseExisting =
-      options.existingTerrainRenderer !== undefined &&
-      isRendererFreshForDocument(options.existingTerrainRenderer, doc);
 
-    const existingCanvas = canReuseExisting
-      ? options.existingTerrainRenderer?.getCanvas() ?? null
-      : null;
-    if (
-      existingCanvas &&
-      existingCanvas.width === terrainW &&
-      existingCanvas.height === terrainH
-    ) {
-      terrainSource = existingCanvas;
-    } else if (
-      canReuseExisting &&
-      options.existingTerrainRenderer &&
-      hasMatchingPixelData(options.existingTerrainRenderer, terrainW, terrainH)
-    ) {
-      const data = options.existingTerrainRenderer.getPixelData();
-      tempTerrainCanvas = createTempCanvasWithPixels(data.rgba, data.width, data.height);
-      terrainSource = tempTerrainCanvas;
-    } else {
-      localRenderer = new TerrainRenderer();
-      localRenderer.renderFull(doc);
-      const localCanvas = localRenderer.getCanvas();
+    if (terrainLayerState.visible) {
+      const canReuseExisting =
+        options.existingTerrainRenderer !== undefined &&
+        isRendererFreshForDocument(options.existingTerrainRenderer, doc);
+
+      const existingCanvas = canReuseExisting
+        ? options.existingTerrainRenderer?.getCanvas() ?? null
+        : null;
       if (
-        localCanvas &&
-        localCanvas.width === terrainW &&
-        localCanvas.height === terrainH
+        existingCanvas &&
+        existingCanvas.width === terrainW &&
+        existingCanvas.height === terrainH
       ) {
-        terrainSource = localCanvas;
-      } else {
-        const data = localRenderer.getPixelData();
-        if (
-          data.width !== terrainW ||
-          data.height !== terrainH ||
-          data.rgba.length !== terrainW * terrainH * 4
-        ) {
-          throw new Error('Buffer terreno generato con dimensioni non valide.');
-        }
+        terrainSource = existingCanvas;
+      } else if (
+        canReuseExisting &&
+        options.existingTerrainRenderer &&
+        hasMatchingPixelData(options.existingTerrainRenderer, terrainW, terrainH)
+      ) {
+        const data = options.existingTerrainRenderer.getPixelData();
         tempTerrainCanvas = createTempCanvasWithPixels(data.rgba, data.width, data.height);
         terrainSource = tempTerrainCanvas;
+      } else {
+        localRenderer = new TerrainRenderer();
+        localRenderer.renderFull(doc);
+        const localCanvas = localRenderer.getCanvas();
+        if (
+          localCanvas &&
+          localCanvas.width === terrainW &&
+          localCanvas.height === terrainH
+        ) {
+          terrainSource = localCanvas;
+        } else {
+          const data = localRenderer.getPixelData();
+          if (
+            data.width !== terrainW ||
+            data.height !== terrainH ||
+            data.rgba.length !== terrainW * terrainH * 4
+          ) {
+            throw new Error('Buffer terreno generato con dimensioni non valide.');
+          }
+          tempTerrainCanvas = createTempCanvasWithPixels(data.rgba, data.width, data.height);
+          terrainSource = tempTerrainCanvas;
+        }
       }
     }
 
@@ -419,12 +504,24 @@ export function composeDocumentToCanvas(
     ctx.rect(0, 0, widthPx, heightPx);
     ctx.clip();
 
-    ctx.imageSmoothingEnabled = true;
-    if ('imageSmoothingQuality' in ctx) {
-      ctx.imageSmoothingQuality = 'high';
+    // Fondo carta pulito sotto il terreno (visibile se il livello terreno è nascosto o semi-trasparente)
+    if (typeof ctx.fillRect === 'function') {
+      ctx.fillStyle = '#FFFFFF';
+      ctx.fillRect(0, 0, widthPx, heightPx);
     }
-    ctx.drawImage(terrainSource, 0, 0, widthPx, heightPx);
 
+    if (terrainSource) {
+      ctx.save();
+      ctx.globalAlpha = terrainLayerState.opacity;
+      ctx.imageSmoothingEnabled = true;
+      if ('imageSmoothingQuality' in ctx) {
+        ctx.imageSmoothingQuality = 'high';
+      }
+      ctx.drawImage(terrainSource, 0, 0, widthPx, heightPx);
+      ctx.restore();
+    }
+
+    ctx.globalAlpha = 1;
     const scaleX = widthPx / doc.manifest.space.width;
     const scaleY = heightPx / doc.manifest.space.height;
     drawMapObjectsToContext(ctx, doc, assets, scaleX, scaleY);
