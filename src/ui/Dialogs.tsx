@@ -623,6 +623,17 @@ const SHORTCUT_GROUPS: ReadonlyArray<{
       { keys: 'Esc', label: 'Annulla gesto / Deseleziona / Chiudi finestra' },
       { keys: '?', label: 'Apri questa guida alle scorciatoie' }
     ]
+  },
+  {
+    title: 'Gesti iPad e Apple Pencil',
+    items: [
+      { keys: '2 dita (pizzica)', label: 'Zoom e spostamento simultaneo della carta' },
+      { keys: 'Tocco 2 dita', label: 'Annulla ultima modifica' },
+      { keys: 'Tocco 3 dita', label: 'Ripristina modifica' },
+      { keys: 'Solo Apple Pencil', label: 'Disegno con la penna e scorrimento con 1 dito' },
+      { keys: 'Pressione penna', label: 'Modula diametro e intensità del pennello' },
+      { keys: 'Doppio tocco', label: 'Modifica etichetta esistente sulla carta' }
+    ]
   }
 ];
 

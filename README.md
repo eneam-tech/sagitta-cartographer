@@ -35,6 +35,18 @@ npm run preview        # Anteprima locale della build di produzione
 
 > Prima della prima esecuzione E2E su una nuova macchina, installare il browser Playwright con `npx playwright install chromium`.
 
+## Uso su iPad con Apple Pencil (Wi-Fi locale da Mac)
+
+1. Avvia lo script **`Avvia-Il-Tavolo-del-Cartografo.command`** sul Mac: ricompila automaticamente se necessario, pubblica il server sulla rete Wi-Fi (`--host 0.0.0.0`) e stampa nel Terminale sia l’indirizzo IP locale (`http://<IP-Mac>:5173/`) sia l’indirizzo Bonjour (`http://<Nome-Mac>.local:5173/`).
+2. Su **iPad** (sulla stessa rete Wi-Fi), apri uno degli indirizzi mostrati in Safari.
+3. Opzionale: tocca **Condividi → «Aggiungi alla schermata Home»** per utilizzare l’editor a schermo intero senza barre di navigazione Safari.
+
+Funzionalità integrate per **iPad e Apple Pencil**:
+- **Modalità `Solo penna`** (`Solo Apple Pencil`, accessibile in barra superiore, nel menu `Progetto` e in `Proprietà`): disegna e seleziona solo con la Apple Pencil, mentre **1 dito sposta liberamente la carta**.
+- **Rifiuto del palmo (`palm rejection`)**: ignora i tocchi della mano appoggiata sullo schermo mentre la Apple Pencil è attiva.
+- **Sensibilità alla pressione Apple Pencil**: modula dinamicamente diametro e intensità dei pennelli di terreno, rilievo e superfici (con campionamento ad alta frequenza `getCoalescedEvents`).
+- **Gesti multi-touch**: **pizzico a 2 dita** per zoom e spostamento simultaneo, **tocco a 2 dita** per Annulla e **tocco a 3 dita** per Ripristina.
+
 ## Funzionalità incluse (v0.3 · Incremento 3)
 
 - **Pennelli intelligenti sensibili al contesto (`Intelligente` / `Geometrico`)**: *Terra* e *Acqua* generano coste frastagliate con isolotti satelliti, rilievo naturale verso l’interno e rispetto di scogliere o insenature esistenti (con slider **Frastagliatura costa** `0–100%` e modalità classica *Geometrico*/*Uniforme* sempre selezionabile). Tutte le **10 superfici/materiali** (*Naturale*, *Foresta*, *Campi*, *Prateria*, *Sabbia*, *Roccia*, *Neve*, *Palude*, *Mattoni*, *Lava*) integrano ora il piazzamento geografico intelligente con cursore **Organicità bordo** (`0–100%`): *Foresta* forma radure ed evita spiagge basse e vette estreme; *Campi* si allineano a parcelle agricole su pianure/colline dolci; *Sabbia* livella e spande spiagge costiere e dune al vento; *Palude* scava conche umide in pianura; *Roccia* aderisce a scogliere e pendii; *Neve* segue la quota nivale; *Mattoni* si allinea a isolati urbani; *Lava* solidifica in roccia lavica al contatto col mare. Il ciclo di pennellata usa rendering incrementale per canale, accorpamento rAF e livello statico separato per garantire tracciamento fluido ad alto framerate.
@@ -45,4 +57,4 @@ npm run preview        # Anteprima locale della build di produzione
 - **Libreria ampliata a 38 POI ed etichettatura rapida**: **38** simboli cartografici originali `CC0-1.0` (inclusi *Metropoli murata*, *Rocca collinare*, *Drakkar nordico*, *Rosa con cartiglio*, *Banco di nubi*, *Santuario* e *Tana di mostro*) con ricerca istantanea, filtri per 6 categorie, posa **Singola** o **Scatter**, opzione **`Etichetta alla posa`** e pulsante **`Aggiungi etichetta`** nell’ispettore.
 - **Persistenza e retrocompatibilità v1/v2 -> v3**: autosalvataggio IndexedDB con rilevamento conflitti ed archivi `.zip` portabili con migrazione automatica di progetti `schemaVersion = 1` e `2` verso `schemaVersion = 3`.
 - **Esportazione PDF**: anteprima completa della carta (inclusa eventuale cornice d’atlante), selettore **150 / 200 / 300 ppi** con adattamento sicuro fino a `32M px` / `8192 px`, senza maniglie né livelli nascosti.
-- **Verifica automatica**: 79 test unitari/integrazione Vitest + 5 suite end-to-end Playwright (`e2e/01`–`e2e/05`).
+- **Verifica automatica**: 81 test unitari/integrazione Vitest + 6 suite end-to-end Playwright (`e2e/01`–`e2e/06`).

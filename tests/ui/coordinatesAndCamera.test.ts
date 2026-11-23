@@ -913,4 +913,64 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
 
     store.dispose();
   });
+
+  it('supporta modalità Solo Apple Pencil, pressione configurabile, batch coalescenti e pinch atomico', () => {
+    const store = new EditorStore({
+      initialDocument: createEmptyDocument({ widthPx: 128, heightPx: 128, seed: 505 }),
+      strokeSession: new TerrainStrokeSession()
+    });
+
+    // Stato iniziale predefinito
+    expect(store.getSnapshot().pencilOnlyMode).toBe(false);
+    expect(store.getSnapshot().pressureSensitivity).toBe(true);
+
+    store.setPencilOnlyMode(true);
+    expect(store.getSnapshot().pencilOnlyMode).toBe(true);
+    store.setPressureSensitivity(false);
+    expect(store.getSnapshot().pressureSensitivity).toBe(false);
+
+    // Quando pressureSensitivity è disattivato, pressure viene ignorata e begin/moveBatch usano intensità nominale
+    store.setTool('land');
+    store.setBrushDiameter(300);
+    store.setBrushMode('classic');
+    store.beginTerrainStroke(600, 600, 0.1);
+    store.moveTerrainStrokeBatch([
+      { docX: 700, docY: 600, pressure: 0.1 },
+      { docX: 800, docY: 600, pressure: 0.1 }
+    ]);
+    store.commitTerrainStroke();
+    expect(store.getSnapshot().hasLand).toBe(true);
+
+    // Pinch atomico: sposta la camera di panDelta e scala attorno al centro d'ancora
+    store.setCamera({ offsetX: 100, offsetY: 80, scale: 1.0 });
+    const preAnchorDoc = screenToDoc(300, 240, store.getSnapshot().camera);
+    store.applyPinchTransform(324, 258, 24, 18, 1.5);
+    const camAfter = store.getSnapshot().camera;
+    expect(camAfter.scale).toBeCloseTo(1.5, 4);
+    const postAnchorDoc = screenToDoc(324, 258, camAfter);
+    expect(postAnchorDoc.x).toBeCloseTo(preAnchorDoc.x, 3);
+    expect(postAnchorDoc.y).toBeCloseTo(preAnchorDoc.y, 3);
+
+    // Verifica UI SSR: TopBar, PropertiesPanel e DialogsHost (Gesti iPad) senza font 11/12/14px
+    store.openDialog('shortcuts');
+    const topHtml = renderToStaticMarkup(createElement(TopBar, { store }));
+    const propHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    const shortcutsHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
+
+    expect(topHtml).toContain('Solo penna');
+    expect(topHtml).toContain('Solo Apple Pencil');
+    expect(propHtml).toContain('Apple Pencil e tocco');
+    expect(propHtml).toContain('Sensibilità pressione Apple Pencil');
+    expect(shortcutsHtml).toContain('Gesti iPad e Apple Pencil');
+    expect(shortcutsHtml).toContain('Tocco 2 dita');
+    expect(shortcutsHtml).toContain('Tocco 3 dita');
+
+    for (const html of [topHtml, propHtml, shortcutsHtml]) {
+      expect(html).not.toContain('font-size:11px');
+      expect(html).not.toContain('font-size:12px');
+      expect(html).not.toContain('font-size:14px');
+    }
+
+    store.dispose();
+  });
 });

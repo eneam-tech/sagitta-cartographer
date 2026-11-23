@@ -18,6 +18,13 @@ export interface ViewportLayersHandle {
   overlayLayer: Konva.Layer;
 }
 
+export interface CoalescedPointerPoint {
+  cssX: number;
+  cssY: number;
+  docX: number;
+  docY: number;
+}
+
 export interface ViewportPointerContext {
   docX: number;
   docY: number;
@@ -25,6 +32,7 @@ export interface ViewportPointerContext {
   cssY: number;
   camera: CameraState;
   event: PointerEvent | MouseEvent;
+  coalescedPoints?: ReadonlyArray<CoalescedPointerPoint>;
 }
 
 export interface MapViewportProps {
@@ -34,14 +42,109 @@ export interface MapViewportProps {
   onObjectPointerMove?: (ctx: ViewportPointerContext) => void;
   onObjectPointerUp?: (ctx: ViewportPointerContext) => void;
   onObjectDoubleClick?: (ctx: ViewportPointerContext) => void;
+  onObjectCancelInteraction?: () => boolean;
+  onObjectPointerLeave?: () => void;
   onCursorDocMove?: (docPoint: { x: number; y: number } | null) => void;
   inlineEditorSlot?: ReactNode;
 }
 
 type ActiveGesture =
-  | { mode: 'pan'; pointerId: number; lastClientX: number; lastClientY: number }
-  | { mode: 'brush'; pointerId: number }
+  | {
+      mode: 'pan';
+      pointerId: number;
+      pointerType: string;
+      startClientX: number;
+      startClientY: number;
+      lastClientX: number;
+      lastClientY: number;
+      movedPx: number;
+      fromPencilOnly: boolean;
+    }
+  | {
+      mode: 'brush';
+      pointerId: number;
+      pointerType: string;
+      startTimeMs: number;
+      startClientX: number;
+      startClientY: number;
+      movedPx: number;
+    }
+  | {
+      mode: 'object';
+      pointerId: number;
+      pointerType: string;
+      startTimeMs: number;
+      startClientX: number;
+      startClientY: number;
+      movedPx: number;
+    }
+  | {
+      mode: 'pinch';
+      startTimeMs: number;
+      prevCenterCssX: number;
+      prevCenterCssY: number;
+      prevDistPx: number;
+      didTransform: boolean;
+      maxTouchCount: number;
+      maxFingerMovePx: number;
+    }
   | null;
+
+interface ActiveTouchPointer {
+  startCssX: number;
+  startCssY: number;
+  cssX: number;
+  cssY: number;
+  maxMovePx: number;
+}
+
+function getNowMs(): number {
+  return typeof performance !== 'undefined' ? performance.now() : Date.now();
+}
+
+function isTouchOrCoarseDevice(): boolean {
+  if (
+    typeof window !== 'undefined' &&
+    typeof window.matchMedia === 'function' &&
+    window.matchMedia('(pointer: coarse)').matches
+  ) {
+    return true;
+  }
+  return typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0;
+}
+
+function isEditableControlTarget(target: EventTarget | null): boolean {
+  if (!(target instanceof Element)) return false;
+  const tag = target.tagName;
+  if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return true;
+  return Boolean(
+    target.closest('[contenteditable="true"], [contenteditable=""], [contenteditable="plaintext-only"]')
+  );
+}
+
+function computeTwoTouchMetrics(
+  pointers: Map<number, ActiveTouchPointer>
+): { centerCssX: number; centerCssY: number; distPx: number; maxMovePx: number } | null {
+  if (pointers.size < 2) return null;
+  let p1: ActiveTouchPointer | null = null;
+  let p2: ActiveTouchPointer | null = null;
+  let maxMovePx = 0;
+  for (const pt of pointers.values()) {
+    if (pt.maxMovePx > maxMovePx) maxMovePx = pt.maxMovePx;
+    if (!p1) {
+      p1 = pt;
+    } else if (!p2) {
+      p2 = pt;
+    }
+  }
+  if (!p1 || !p2) return null;
+  return {
+    centerCssX: (p1.cssX + p2.cssX) * 0.5,
+    centerCssY: (p1.cssY + p2.cssY) * 0.5,
+    distPx: Math.hypot(p2.cssX - p1.cssX, p2.cssY - p1.cssY),
+    maxMovePx
+  };
+}
 
 interface CursorState {
   inside: boolean;
@@ -66,6 +169,8 @@ export function MapViewport({
   onObjectPointerMove,
   onObjectPointerUp,
   onObjectDoubleClick,
+  onObjectCancelInteraction,
+  onObjectPointerLeave,
   onCursorDocMove,
   inlineEditorSlot
 }: MapViewportProps) {
@@ -116,6 +221,17 @@ export function MapViewport({
   const fallbackGhostRectRef = useRef<Konva.Rect | null>(null);
 
   const activeGestureRef = useRef<ActiveGesture>(null);
+  const activeTouchPointersRef = useRef<Map<number, ActiveTouchPointer>>(new Map());
+  const activePenPointerIdRef = useRef<number | null>(null);
+  const lastPenActivityMsRef = useRef<number>(-10_000);
+  const shownPencilOnlyHintRef = useRef<boolean>(false);
+  const lastTouchTapRef = useRef<{
+    timeMs: number;
+    cssX: number;
+    cssY: number;
+    pointerType: string;
+  } | null>(null);
+  const lastDoubleTapHandledMsRef = useRef<number>(-10_000);
   const cursorRef = useRef<CursorState>({ inside: false, cssX: 0, cssY: 0, docX: 0, docY: 0 });
   const lastTelemetrySentMsRef = useRef<number>(0);
   const seaHintCoordsRef = useRef<{ x: number; y: number }>({ x: 16, y: 16 });
@@ -192,6 +308,22 @@ export function MapViewport({
     const container = containerRef.current;
     const stageHost = stageHostRef.current;
     if (!container || !stageHost) return;
+
+    const dpr = typeof window !== 'undefined' ? window.devicePixelRatio || 1 : 1;
+    Konva.pixelRatio = isTouchOrCoarseDevice() ? Math.min(2, dpr) : Math.min(2.5, dpr);
+
+    const preventStageDefault = (e: Event) => {
+      if (isEditableControlTarget(e.target)) return;
+      if (e.cancelable) {
+        e.preventDefault();
+      }
+    };
+    stageHost.addEventListener('touchstart', preventStageDefault, { passive: false });
+    stageHost.addEventListener('touchmove', preventStageDefault, { passive: false });
+    stageHost.addEventListener('gesturestart', preventStageDefault, { passive: false });
+    stageHost.addEventListener('gesturechange', preventStageDefault, { passive: false });
+    stageHost.addEventListener('gestureend', preventStageDefault, { passive: false });
+    stageHost.addEventListener('contextmenu', preventStageDefault);
 
     const initW = Math.max(1, container.clientWidth);
     const initH = Math.max(1, container.clientHeight);
@@ -385,6 +517,12 @@ export function MapViewport({
 
     return () => {
       resizeObserver.disconnect();
+      stageHost.removeEventListener('touchstart', preventStageDefault);
+      stageHost.removeEventListener('touchmove', preventStageDefault);
+      stageHost.removeEventListener('gesturestart', preventStageDefault);
+      stageHost.removeEventListener('gesturechange', preventStageDefault);
+      stageHost.removeEventListener('gestureend', preventStageDefault);
+      stageHost.removeEventListener('contextmenu', preventStageDefault);
       onLayersReadyRef.current?.(null);
       stage.destroy();
       stageRef.current = null;
@@ -560,6 +698,14 @@ export function MapViewport({
     }
   };
 
+  const trySetPointerCapture = (target: Element, pointerId: number) => {
+    try {
+      target.setPointerCapture(pointerId);
+    } catch {
+      // Ignora su eventi sintetici o browser che non supportano la cattura per questo puntatore
+    }
+  };
+
   const releaseCaptureIfHeld = (pointerId: number) => {
     const container = containerRef.current;
     if (!container) return;
@@ -572,9 +718,144 @@ export function MapViewport({
     }
   };
 
+  const hideTouchCursorOverlay = () => {
+    cursorRef.current.inside = false;
+    lastTelemetrySentMsRef.current = 0;
+    store.clearCursorSeaHint();
+    store.setCursorDoc(null);
+    onCursorDocMove?.(null);
+    onObjectPointerLeave?.();
+    syncOverlayCursor();
+  };
+
+  const handlePointerDownCapture = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const stage = stageRef.current;
+    if (!stage) return;
+    const now = getNowMs();
+    if (e.pointerType === 'touch') {
+      const snap = store.getSnapshot();
+      const isBlockedTouch =
+        snap.pencilOnlyMode ||
+        activePenPointerIdRef.current !== null ||
+        activeTouchPointersRef.current.size >= 1 ||
+        (activeTouchPointersRef.current.size === 0 && now - lastPenActivityMsRef.current < 280);
+      stage.listening(!isBlockedTouch);
+      return;
+    }
+    stage.listening(true);
+  };
+
   const handlePointerDown = (e: ReactPointerEvent<HTMLDivElement>) => {
     const coords = computePointerCoords(e.clientX, e.clientY);
     if (!coords) return;
+    const now = getNowMs();
+    const pointerType = e.pointerType || 'mouse';
+
+    if (pointerType === 'pen') {
+      lastPenActivityMsRef.current = now;
+      activePenPointerIdRef.current = e.pointerId;
+      if (activeGestureRef.current?.mode === 'pinch') {
+        activeGestureRef.current = null;
+        activeTouchPointersRef.current.clear();
+      }
+    } else if (pointerType === 'touch') {
+      if (activePenPointerIdRef.current !== null) {
+        return;
+      }
+
+      activeTouchPointersRef.current.set(e.pointerId, {
+        startCssX: coords.cssX,
+        startCssY: coords.cssY,
+        cssX: coords.cssX,
+        cssY: coords.cssY,
+        maxMovePx: 0
+      });
+
+      if (activeTouchPointersRef.current.size >= 2) {
+        const prevGesture = activeGestureRef.current;
+        if (prevGesture?.mode === 'brush') {
+          releaseCaptureIfHeld(prevGesture.pointerId);
+          if (now - prevGesture.startTimeMs <= 250 && prevGesture.movedPx < 36) {
+            store.cancelTerrainStroke();
+          } else {
+            store.commitTerrainStroke();
+          }
+        } else if (prevGesture?.mode === 'object') {
+          if (now - prevGesture.startTimeMs <= 250 && prevGesture.movedPx < 36) {
+            onObjectCancelInteraction?.();
+          } else {
+            onObjectPointerUp?.({
+              docX: coords.docX,
+              docY: coords.docY,
+              cssX: coords.cssX,
+              cssY: coords.cssY,
+              camera: coords.camera,
+              event: e.nativeEvent
+            });
+          }
+        } else if (prevGesture?.mode === 'pan') {
+          releaseCaptureIfHeld(prevGesture.pointerId);
+        }
+
+        const metrics = computeTwoTouchMetrics(activeTouchPointersRef.current);
+        trySetPointerCapture(e.currentTarget, e.pointerId);
+        if (prevGesture?.mode === 'pinch') {
+          prevGesture.maxTouchCount = Math.max(
+            prevGesture.maxTouchCount,
+            activeTouchPointersRef.current.size
+          );
+          if (metrics) {
+            prevGesture.prevCenterCssX = metrics.centerCssX;
+            prevGesture.prevCenterCssY = metrics.centerCssY;
+            prevGesture.prevDistPx = metrics.distPx;
+            prevGesture.maxFingerMovePx = Math.max(prevGesture.maxFingerMovePx, metrics.maxMovePx);
+          }
+        } else if (metrics) {
+          activeGestureRef.current = {
+            mode: 'pinch',
+            startTimeMs: now,
+            prevCenterCssX: metrics.centerCssX,
+            prevCenterCssY: metrics.centerCssY,
+            prevDistPx: metrics.distPx,
+            didTransform: false,
+            maxTouchCount: activeTouchPointersRef.current.size,
+            maxFingerMovePx: metrics.maxMovePx
+          };
+        }
+        hideTouchCursorOverlay();
+        return;
+      }
+
+      if (activeGestureRef.current?.mode === 'pinch') {
+        trySetPointerCapture(e.currentTarget, e.pointerId);
+        return;
+      }
+
+      const snapNow = store.getSnapshot();
+      if (snapNow.pencilOnlyMode) {
+        e.preventDefault();
+        trySetPointerCapture(e.currentTarget, e.pointerId);
+        activeGestureRef.current = {
+          mode: 'pan',
+          pointerId: e.pointerId,
+          pointerType,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          lastClientX: e.clientX,
+          lastClientY: e.clientY,
+          movedPx: 0,
+          fromPencilOnly: true
+        };
+        cursorRef.current.inside = false;
+        syncOverlayCursor();
+        return;
+      }
+
+      if (now - lastPenActivityMsRef.current < 280) {
+        // Tracciamento passivo del primo tocco vicino alla penna: ignora il palmo singolo, ma permette un pinch rapido a due dita
+        return;
+      }
+    }
 
     cursorRef.current = {
       inside: true,
@@ -587,27 +868,42 @@ export function MapViewport({
 
     const tool = effectiveToolRef.current;
 
-    if (e.button === 1 || (e.button === 0 && tool === 'hand')) {
+    if (e.button === 1 || ((e.button === 0 || pointerType !== 'mouse') && tool === 'hand')) {
       e.preventDefault();
-      e.currentTarget.setPointerCapture(e.pointerId);
+      trySetPointerCapture(e.currentTarget, e.pointerId);
       activeGestureRef.current = {
         mode: 'pan',
         pointerId: e.pointerId,
+        pointerType,
+        startClientX: e.clientX,
+        startClientY: e.clientY,
         lastClientX: e.clientX,
-        lastClientY: e.clientY
+        lastClientY: e.clientY,
+        movedPx: 0,
+        fromPencilOnly: false
       };
       return;
     }
 
-    if (e.button !== 0) return;
+    if (pointerType === 'mouse' && e.button !== 0) return;
 
     if (isTerrainBrushTool(tool)) {
       e.preventDefault();
       const target = e.currentTarget;
-      const started = store.beginTerrainStroke(coords.docX, coords.docY);
+      const penPressure =
+        pointerType === 'pen' && Number.isFinite(e.pressure) ? e.pressure : undefined;
+      const started = store.beginTerrainStroke(coords.docX, coords.docY, penPressure);
       if (started) {
-        target.setPointerCapture(e.pointerId);
-        activeGestureRef.current = { mode: 'brush', pointerId: e.pointerId };
+        trySetPointerCapture(target, e.pointerId);
+        activeGestureRef.current = {
+          mode: 'brush',
+          pointerId: e.pointerId,
+          pointerType,
+          startTimeMs: now,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          movedPx: 0
+        };
       }
       syncOverlayCursor();
       return;
@@ -623,6 +919,15 @@ export function MapViewport({
         event: e.nativeEvent
       });
       if (handled) {
+        activeGestureRef.current = {
+          mode: 'object',
+          pointerId: e.pointerId,
+          pointerType,
+          startTimeMs: now,
+          startClientX: e.clientX,
+          startClientY: e.clientY,
+          movedPx: 0
+        };
         return;
       }
     }
@@ -639,18 +944,102 @@ export function MapViewport({
   const handlePointerMove = (e: ReactPointerEvent<HTMLDivElement>) => {
     const coords = computePointerCoords(e.clientX, e.clientY);
     if (!coords) return;
+    const now = getNowMs();
+    const pointerType = e.pointerType || 'mouse';
+
+    if (pointerType === 'pen') {
+      lastPenActivityMsRef.current = now;
+    } else if (pointerType === 'touch') {
+      if (activePenPointerIdRef.current !== null) {
+        return;
+      }
+      const tracked = activeTouchPointersRef.current.get(e.pointerId);
+      if (tracked) {
+        tracked.cssX = coords.cssX;
+        tracked.cssY = coords.cssY;
+        const distFromStart = Math.hypot(
+          coords.cssX - tracked.startCssX,
+          coords.cssY - tracked.startCssY
+        );
+        if (distFromStart > tracked.maxMovePx) {
+          tracked.maxMovePx = distFromStart;
+        }
+      }
+
+      const currentGesture = activeGestureRef.current;
+      if (currentGesture?.mode === 'pinch') {
+        cursorRef.current.inside = false;
+        if (tracked && tracked.maxMovePx > currentGesture.maxFingerMovePx) {
+          currentGesture.maxFingerMovePx = tracked.maxMovePx;
+        }
+        const metrics = computeTwoTouchMetrics(activeTouchPointersRef.current);
+        if (metrics && currentGesture.prevDistPx > 4 && metrics.distPx > 4) {
+          if (metrics.maxMovePx > currentGesture.maxFingerMovePx) {
+            currentGesture.maxFingerMovePx = metrics.maxMovePx;
+          }
+          const panDx = metrics.centerCssX - currentGesture.prevCenterCssX;
+          const panDy = metrics.centerCssY - currentGesture.prevCenterCssY;
+          const distDelta = Math.abs(metrics.distPx - currentGesture.prevDistPx);
+          const scaleRatio = metrics.distPx / currentGesture.prevDistPx;
+          if (
+            currentGesture.didTransform ||
+            Math.hypot(panDx, panDy) > 2 ||
+            distDelta > 2
+          ) {
+            currentGesture.didTransform = true;
+            const curScale = store.getSnapshot().camera.scale;
+            store.applyPinchTransform(
+              metrics.centerCssX,
+              metrics.centerCssY,
+              panDx,
+              panDy,
+              curScale * scaleRatio
+            );
+            currentGesture.prevCenterCssX = metrics.centerCssX;
+            currentGesture.prevCenterCssY = metrics.centerCssY;
+            currentGesture.prevDistPx = metrics.distPx;
+          }
+        }
+        syncOverlayCursor();
+        return;
+      }
+
+      if (tracked && !currentGesture) {
+        // Primo tocco trattenuto solo come possibile inizio pinch durante la finestra post-penna
+        return;
+      }
+    }
+
+    const gesture = activeGestureRef.current;
+    const hideRingDuringFingerPan =
+      pointerType === 'touch' && gesture?.mode === 'pan' && gesture.fromPencilOnly;
 
     cursorRef.current = {
-      inside: true,
+      inside: !hideRingDuringFingerPan,
       cssX: coords.cssX,
       cssY: coords.cssY,
       docX: coords.docX,
       docY: coords.docY
     };
 
-    const gesture = activeGestureRef.current;
+    const nativeEvt = e.nativeEvent;
+    const rawCoalesced =
+      typeof nativeEvt.getCoalescedEvents === 'function' ? nativeEvt.getCoalescedEvents() : [];
+
     let isBrushing = false;
-    if (gesture && gesture.pointerId === e.pointerId) {
+    if (
+      gesture &&
+      gesture.mode !== 'pinch' &&
+      gesture.pointerId === e.pointerId
+    ) {
+      const moveDist = Math.hypot(
+        e.clientX - gesture.startClientX,
+        e.clientY - gesture.startClientY
+      );
+      if (moveDist > gesture.movedPx) {
+        gesture.movedPx = moveDist;
+      }
+
       if (gesture.mode === 'pan') {
         const dx = e.clientX - gesture.lastClientX;
         const dy = e.clientY - gesture.lastClientY;
@@ -659,53 +1048,226 @@ export function MapViewport({
         store.panBy(dx, dy);
       } else if (gesture.mode === 'brush') {
         isBrushing = true;
-        store.moveTerrainStroke(coords.docX, coords.docY);
+        const sampleEvents = rawCoalesced.length > 0 ? rawCoalesced : [nativeEvt];
+        const batch: Array<{ docX: number; docY: number; pressure?: number }> = [];
+        let lastBatchCoords = coords;
+        for (const ev of sampleEvents) {
+          const evCoords = computePointerCoords(ev.clientX, ev.clientY);
+          if (!evCoords) continue;
+          lastBatchCoords = evCoords;
+          batch.push({
+            docX: evCoords.docX,
+            docY: evCoords.docY,
+            pressure:
+              ev.pointerType === 'pen' && Number.isFinite(ev.pressure) ? ev.pressure : undefined
+          });
+        }
+        if (batch.length > 0) {
+          store.moveTerrainStrokeBatch(batch);
+          cursorRef.current.cssX = lastBatchCoords.cssX;
+          cursorRef.current.cssY = lastBatchCoords.cssY;
+          cursorRef.current.docX = lastBatchCoords.docX;
+          cursorRef.current.docY = lastBatchCoords.docY;
+        }
+      } else if (gesture.mode === 'object' && onObjectPointerMove) {
+        const coalescedPoints: CoalescedPointerPoint[] = [];
+        for (const ev of rawCoalesced) {
+          const evCoords = computePointerCoords(ev.clientX, ev.clientY);
+          if (!evCoords) continue;
+          coalescedPoints.push({
+            cssX: evCoords.cssX,
+            cssY: evCoords.cssY,
+            docX: evCoords.docX,
+            docY: evCoords.docY
+          });
+        }
+        onObjectPointerMove({
+          docX: coords.docX,
+          docY: coords.docY,
+          cssX: coords.cssX,
+          cssY: coords.cssY,
+          camera: coords.camera,
+          event: nativeEvt,
+          ...(coalescedPoints.length > 0 ? { coalescedPoints } : {})
+        });
       }
     } else if (onObjectPointerMove) {
+      const coalescedPoints: CoalescedPointerPoint[] = [];
+      for (const ev of rawCoalesced) {
+        const evCoords = computePointerCoords(ev.clientX, ev.clientY);
+        if (!evCoords) continue;
+        coalescedPoints.push({
+          cssX: evCoords.cssX,
+          cssY: evCoords.cssY,
+          docX: evCoords.docX,
+          docY: evCoords.docY
+        });
+      }
       onObjectPointerMove({
         docX: coords.docX,
         docY: coords.docY,
         cssX: coords.cssX,
         cssY: coords.cssY,
         camera: coords.camera,
-        event: e.nativeEvent
+        event: nativeEvt,
+        ...(coalescedPoints.length > 0 ? { coalescedPoints } : {})
       });
     }
 
-    if (!isBrushing) {
+    if (!isBrushing && !hideRingDuringFingerPan) {
       store.updateCursorSeaHint(coords.docX, coords.docY);
     }
-    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
-    if (!isBrushing || now - lastTelemetrySentMsRef.current >= 40) {
-      if (now - lastTelemetrySentMsRef.current >= 32) {
-        lastTelemetrySentMsRef.current = now;
-        store.setCursorDoc({ x: coords.docX, y: coords.docY });
+    if (!hideRingDuringFingerPan) {
+      if (!isBrushing || now - lastTelemetrySentMsRef.current >= 40) {
+        if (now - lastTelemetrySentMsRef.current >= 32) {
+          lastTelemetrySentMsRef.current = now;
+          store.setCursorDoc({ x: coords.docX, y: coords.docY });
+        }
       }
+      updateSeaHintPosition(coords.cssX, coords.cssY, coords.rect);
+      onCursorDocMove?.({ x: coords.docX, y: coords.docY });
     }
-    updateSeaHintPosition(coords.cssX, coords.cssY, coords.rect);
-    onCursorDocMove?.({ x: coords.docX, y: coords.docY });
     syncOverlayCursor();
   };
 
   const handlePointerUp = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const now = getNowMs();
+    const pointerType = e.pointerType || 'mouse';
+
+    if (pointerType === 'pen') {
+      lastPenActivityMsRef.current = now;
+      if (activePenPointerIdRef.current === e.pointerId) {
+        activePenPointerIdRef.current = null;
+      }
+    } else if (pointerType === 'touch') {
+      const tracked = activeTouchPointersRef.current.get(e.pointerId);
+      activeTouchPointersRef.current.delete(e.pointerId);
+
+      const gestureNow = activeGestureRef.current;
+      if (gestureNow?.mode === 'pinch') {
+        if (tracked && tracked.maxMovePx > gestureNow.maxFingerMovePx) {
+          gestureNow.maxFingerMovePx = tracked.maxMovePx;
+        }
+        releaseCaptureIfHeld(e.pointerId);
+        if (activeTouchPointersRef.current.size === 0) {
+          activeGestureRef.current = null;
+          if (stageRef.current) stageRef.current.listening(true);
+          if (
+            !gestureNow.didTransform &&
+            now - gestureNow.startTimeMs < 350 &&
+            gestureNow.maxFingerMovePx < 18
+          ) {
+            if (gestureNow.maxTouchCount === 2) {
+              store.undo();
+            } else if (gestureNow.maxTouchCount >= 3) {
+              store.redo();
+            }
+          }
+          hideTouchCursorOverlay();
+        }
+        return;
+      }
+    }
+
     const gesture = activeGestureRef.current;
-    if (gesture && gesture.pointerId === e.pointerId) {
+    if (gesture && gesture.mode !== 'pinch' && gesture.pointerId === e.pointerId) {
+      const moveDist = Math.hypot(
+        e.clientX - gesture.startClientX,
+        e.clientY - gesture.startClientY
+      );
+      if (moveDist > gesture.movedPx) {
+        gesture.movedPx = moveDist;
+      }
       activeGestureRef.current = null;
       releaseCaptureIfHeld(e.pointerId);
+      if (stageRef.current) stageRef.current.listening(true);
+
       if (gesture.mode === 'brush') {
         store.commitTerrainStroke();
         const coords = computePointerCoords(e.clientX, e.clientY);
-        if (coords) {
-          lastTelemetrySentMsRef.current =
-            typeof performance !== 'undefined' ? performance.now() : Date.now();
+        if (coords && pointerType !== 'touch') {
+          lastTelemetrySentMsRef.current = now;
           store.setCursorDoc({ x: coords.docX, y: coords.docY });
         }
+        if (pointerType === 'touch') {
+          hideTouchCursorOverlay();
+        } else {
+          syncOverlayCursor();
+        }
+        return;
       }
-      syncOverlayCursor();
-      return;
+
+      if (gesture.mode === 'pan') {
+        if (
+          gesture.fromPencilOnly &&
+          gesture.movedPx < 8 &&
+          !shownPencilOnlyHintRef.current &&
+          store.getEffectiveTool() !== 'hand'
+        ) {
+          shownPencilOnlyHintRef.current = true;
+          store.setStatusNotice({
+            tone: 'info',
+            text: 'Solo Apple Pencil attivo: usa la penna per disegnare o trascina con un dito per spostare la carta.'
+          });
+        }
+        if (pointerType === 'touch') {
+          hideTouchCursorOverlay();
+        } else {
+          syncOverlayCursor();
+        }
+        return;
+      }
+
+      if (gesture.mode === 'object') {
+        const coords = computePointerCoords(e.clientX, e.clientY);
+        if (coords && onObjectPointerUp) {
+          onObjectPointerUp({
+            docX: coords.docX,
+            docY: coords.docY,
+            cssX: coords.cssX,
+            cssY: coords.cssY,
+            camera: coords.camera,
+            event: e.nativeEvent
+          });
+        }
+        if (pointerType !== 'mouse' && coords && gesture.movedPx < 12 && onObjectDoubleClick) {
+          const prevTap = lastTouchTapRef.current;
+          if (
+            prevTap &&
+            prevTap.pointerType === pointerType &&
+            now - prevTap.timeMs < 360 &&
+            Math.hypot(coords.cssX - prevTap.cssX, coords.cssY - prevTap.cssY) < 28
+          ) {
+            lastTouchTapRef.current = null;
+            lastDoubleTapHandledMsRef.current = now;
+            onObjectDoubleClick({
+              docX: coords.docX,
+              docY: coords.docY,
+              cssX: coords.cssX,
+              cssY: coords.cssY,
+              camera: coords.camera,
+              event: e.nativeEvent
+            });
+          } else {
+            lastTouchTapRef.current = {
+              timeMs: now,
+              cssX: coords.cssX,
+              cssY: coords.cssY,
+              pointerType
+            };
+          }
+        }
+        if (pointerType === 'touch') {
+          hideTouchCursorOverlay();
+        } else {
+          syncOverlayCursor();
+        }
+        return;
+      }
     }
 
     releaseCaptureIfHeld(e.pointerId);
+    if (stageRef.current) stageRef.current.listening(true);
     const coords = computePointerCoords(e.clientX, e.clientY);
     if (coords && onObjectPointerUp) {
       onObjectPointerUp({
@@ -717,17 +1279,55 @@ export function MapViewport({
         event: e.nativeEvent
       });
     }
+    if (pointerType === 'touch' && activeTouchPointersRef.current.size === 0) {
+      hideTouchCursorOverlay();
+    }
   };
 
   const handlePointerCancel = (e: ReactPointerEvent<HTMLDivElement>) => {
+    const pointerType = e.pointerType || 'mouse';
+    const isLostCapture = e.type === 'lostpointercapture';
+
+    if (pointerType === 'touch') {
+      if (isLostCapture && !activeTouchPointersRef.current.has(e.pointerId)) {
+        return;
+      }
+      activeTouchPointersRef.current.delete(e.pointerId);
+      releaseCaptureIfHeld(e.pointerId);
+      if (activeGestureRef.current?.mode === 'pinch') {
+        if (activeTouchPointersRef.current.size === 0) {
+          activeGestureRef.current = null;
+          if (stageRef.current) stageRef.current.listening(true);
+          hideTouchCursorOverlay();
+        }
+        return;
+      }
+    }
+
+    if (pointerType === 'pen' && activePenPointerIdRef.current === e.pointerId) {
+      if (!isLostCapture) {
+        activePenPointerIdRef.current = null;
+        lastPenActivityMsRef.current = getNowMs();
+      }
+    }
+
     const gesture = activeGestureRef.current;
-    if (!gesture) return;
+    if (!gesture || gesture.mode === 'pinch') return;
+    if (isLostCapture && gesture.pointerId !== e.pointerId) return;
+
     activeGestureRef.current = null;
     releaseCaptureIfHeld(e.pointerId);
+    if (stageRef.current) stageRef.current.listening(true);
     if (gesture.mode === 'brush') {
       store.cancelTerrainStroke();
+    } else if (gesture.mode === 'object') {
+      onObjectCancelInteraction?.();
     }
-    syncOverlayCursor();
+    if (pointerType === 'touch') {
+      hideTouchCursorOverlay();
+    } else {
+      syncOverlayCursor();
+    }
   };
 
   const handlePointerLeave = () => {
@@ -737,11 +1337,13 @@ export function MapViewport({
     store.clearCursorSeaHint();
     store.setCursorDoc(null);
     onCursorDocMove?.(null);
+    onObjectPointerLeave?.();
     syncOverlayCursor();
   };
 
   const handleDoubleClick = (e: ReactMouseEvent<HTMLDivElement>) => {
     if (!onObjectDoubleClick) return;
+    if (getNowMs() - lastDoubleTapHandledMsRef.current < 180) return;
     const coords = computePointerCoords(e.clientX, e.clientY);
     if (!coords) return;
     onObjectDoubleClick({
@@ -771,6 +1373,7 @@ export function MapViewport({
       className="editor-stage-wrap"
       aria-label="Area di lavoro della carta"
       style={{ cursor: cursorStyle }}
+      onPointerDownCapture={handlePointerDownCapture}
       onPointerDown={handlePointerDown}
       onPointerMove={handlePointerMove}
       onPointerUp={handlePointerUp}

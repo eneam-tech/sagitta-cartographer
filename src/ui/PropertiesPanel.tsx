@@ -320,6 +320,8 @@ export function PropertiesPanel({
     brushMode,
     brushRoughness,
     plateauTargetHeight,
+    pencilOnlyMode,
+    pressureSensitivity,
     inspectorTab,
     activeLayerId,
     selectedObjectId,
@@ -807,6 +809,26 @@ export function PropertiesPanel({
                 </div>
               )
             ) : null}
+
+            <section className="panel-group panel-pencil-group" aria-label="Controlli Apple Pencil e tocco">
+              <h3 className="panel-subheading">Apple Pencil e tocco</h3>
+              <label className="pencil-check-row">
+                <input
+                  type="checkbox"
+                  checked={pencilOnlyMode}
+                  onChange={(e) => store.setPencilOnlyMode(e.target.checked)}
+                />
+                <span>Solo Apple Pencil (1 dito sposta la vista)</span>
+              </label>
+              <label className="pencil-check-row">
+                <input
+                  type="checkbox"
+                  checked={pressureSensitivity}
+                  onChange={(e) => store.setPressureSensitivity(e.target.checked)}
+                />
+                <span>Sensibilità pressione Apple Pencil</span>
+              </label>
+            </section>
 
             {/* Collegamento rapido contestuale a Oggetti / Livelli senza affollare */}
             <div className="panel-quick-links">

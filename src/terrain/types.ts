@@ -38,8 +38,14 @@ export interface StrokeCommitResult {
 }
 
 export interface ITerrainStrokeSession {
-  beginStroke(doc: MapDocument, params: BrushStrokeParams, startDocX: number, startDocY: number): DirtyRectPx | null;
-  addPoint(doc: MapDocument, docX: number, docY: number): DirtyRectPx | null;
+  beginStroke(
+    doc: MapDocument,
+    params: BrushStrokeParams,
+    startDocX: number,
+    startDocY: number,
+    pressure?: number
+  ): DirtyRectPx | null;
+  addPoint(doc: MapDocument, docX: number, docY: number, pressure?: number): DirtyRectPx | null;
   commit(doc: MapDocument): StrokeCommitResult | null;
   cancel(doc: MapDocument): DirtyRectPx | null;
   isActive(): boolean;

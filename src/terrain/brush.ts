@@ -169,14 +169,25 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     return this.capturedTiles.size;
   }
 
+  private lastPressure: number | undefined = undefined;
+
+  private normalizePenPressure(pressure?: number): number | undefined {
+    if (pressure === undefined || !Number.isFinite(pressure)) {
+      return undefined;
+    }
+    return clampNumber(pressure, 0.02, 1.0);
+  }
+
   beginStroke(
     doc: MapDocument,
     params: BrushStrokeParams,
     startDocX: number,
-    startDocY: number
+    startDocY: number,
+    pressure?: number
   ): DirtyRectPx | null {
     this.reset();
 
+    const pNorm = this.normalizePenPressure(pressure);
     const diameterDoc = Number.isFinite(params.diameterDoc) ? Math.max(1, params.diameterDoc) : 40;
     this.tool = params.tool;
     this.brushMode = params.brushMode === 'smart' ? 'smart' : 'classic';
@@ -188,9 +199,13 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     this.radiusDoc = diameterDoc * 0.5;
     this.intensity = clampNumber(Number.isFinite(params.intensity) ? params.intensity : 1, 0.05, 1.0);
     const isSmartNonElev = this.brushMode === 'smart' && !isElevationTool(this.tool);
-    this.stepDoc = Math.max(1.5, this.radiusDoc * (isSmartNonElev ? 0.28 : 0.2));
+    this.stepDoc = Math.max(
+      1.2,
+      this.radiusDoc * (pNorm !== undefined ? 0.14 : isSmartNonElev ? 0.28 : 0.2)
+    );
     this.lastDocX = startDocX;
     this.lastDocY = startDocY;
+    this.lastPressure = pNorm;
     this.distSinceLastStamp = 0;
     this.active = true;
 
@@ -206,11 +221,15 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
           : 185;
     }
 
-    return this.stampAt(doc, startDocX, startDocY);
+    return this.stampAt(doc, startDocX, startDocY, this.lastPressure);
   }
 
-  addPoint(doc: MapDocument, docX: number, docY: number): DirtyRectPx | null {
+  addPoint(doc: MapDocument, docX: number, docY: number, pressure?: number): DirtyRectPx | null {
     if (!this.active) return null;
+
+    const pEnd = this.normalizePenPressure(pressure);
+    const pStart = this.lastPressure ?? pEnd;
+    this.lastPressure = pEnd;
 
     const dx = docX - this.lastDocX;
     const dy = docY - this.lastDocY;
@@ -226,7 +245,12 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     while (d <= segLen) {
       const sx = this.lastDocX + ux * d;
       const sy = this.lastDocY + uy * d;
-      const stampDirty = this.stampAt(doc, sx, sy);
+      const t = d / segLen;
+      const pAtStamp =
+        pStart !== undefined && pEnd !== undefined
+          ? pStart + (pEnd - pStart) * t
+          : (pEnd ?? pStart);
+      const stampDirty = this.stampAt(doc, sx, sy, pAtStamp);
       dirty = unionDirtyRects(dirty, stampDirty);
       stampedAny = true;
       d += this.stepDoc;
@@ -387,6 +411,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
 
   private reset(): void {
     this.active = false;
+    this.lastPressure = undefined;
     this.brushMode = 'classic';
     this.roughness = 0.65;
     this.flattenTargetHeight = 0;
@@ -544,15 +569,24 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     return tile;
   }
 
-  private stampAt(doc: MapDocument, cxDoc: number, cyDoc: number): DirtyRectPx | null {
+  private stampAt(
+    doc: MapDocument,
+    cxDoc: number,
+    cyDoc: number,
+    pressure?: number
+  ): DirtyRectPx | null {
     const { space } = doc.manifest;
     const { widthPx, heightPx, mask, height, cover } = doc.terrain;
 
     const tool = this.tool;
     const isSmart = this.brushMode === 'smart';
     const roughness = this.roughness;
+    const pNorm = this.normalizePenPressure(pressure);
+    const pCurve = pNorm !== undefined ? Math.pow(pNorm, 0.75) : undefined;
+    const radiusDoc =
+      pCurve !== undefined ? Math.max(0.8, this.radiusDoc * (0.45 + 0.75 * pCurve)) : this.radiusDoc;
     const reachScale = isSmart && (tool === 'land' || tool === 'water') ? 1.32 : 1.0;
-    const reachRadiusDoc = this.radiusDoc * reachScale;
+    const reachRadiusDoc = radiusDoc * reachScale;
 
     const cxPx = docToMaskX(cxDoc, space, doc.terrain);
     const cyPx = docToMaskY(cyDoc, space, doc.terrain);
@@ -571,7 +605,6 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     const docPerPxX = space.width / widthPx;
     const docPerPxY = space.height / heightPx;
     const avgDocPerPx = 0.5 * (docPerPxX + docPerPxY);
-    const radiusDoc = this.radiusDoc;
     const invRadiusDoc = 1 / radiusDoc;
     const reachRadiusSq = reachRadiusDoc * reachRadiusDoc;
     const radiusSq = radiusDoc * radiusDoc;
@@ -589,7 +622,10 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     let changedMaxX = -1;
     let changedMaxY = -1;
 
-    const intensity = this.intensity;
+    const intensity =
+      pCurve !== undefined
+        ? clampNumber(this.intensity * (0.28 + 0.92 * pCurve), 0.05, 1.0)
+        : this.intensity;
     const targetCover = toolToCoverCode(tool);
     const flattenTarget = this.flattenTargetHeight;
     const plateauTarget = this.plateauTargetHeight;

@@ -1,5 +1,6 @@
 #!/bin/zsh
 set -euo pipefail
+setopt NO_BG_NICE
 
 export PATH="/opt/homebrew/bin:/usr/local/bin:$PATH"
 if [[ -s "$HOME/.nvm/nvm.sh" ]]; then
@@ -28,16 +29,43 @@ if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
 fi
 
 PORT=5173
-URL="http://127.0.0.1:${PORT}/"
+LOCAL_URL="http://127.0.0.1:${PORT}/"
+
+LAN_IP=""
+for iface in en0 en1 en2 bridge0; do
+  LAN_IP="$(ipconfig getifaddr "$iface" 2>/dev/null || true)"
+  if [[ -n "$LAN_IP" ]]; then
+    break
+  fi
+done
+LOCAL_HOST="$(scutil --get LocalHostName 2>/dev/null || true)"
+
+print_urls() {
+  echo "  Mac (locale):    ${LOCAL_URL}"
+  if [[ -n "$LAN_IP" ]]; then
+    echo "  iPad (Wi-Fi IP): http://${LAN_IP}:${PORT}/"
+  else
+    echo "  iPad (Wi-Fi IP): nessun indirizzo locale rilevato"
+  fi
+  if [[ -n "$LOCAL_HOST" ]]; then
+    echo "  iPad (Bonjour):  http://${LOCAL_HOST}.local:${PORT}/"
+  fi
+  echo "--------------------------------------------------"
+  echo "  Su iPad (stessa rete Wi-Fi del Mac):"
+  echo "  1. Apri uno degli indirizzi iPad in Safari."
+  echo "  2. Tocca Condividi -> «Aggiungi alla schermata Home» per schermo intero."
+  echo "=================================================="
+}
 
 echo "=================================================="
-echo "  Il tavolo del cartografo — Avvio locale"
+echo "  Il tavolo del cartografo — Avvio Mac + Wi-Fi iPad"
 echo "  Cartella: $PROJECT_DIR"
-echo "=================================================="
 
 if lsof -nP -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "L'applicazione è già in esecuzione su ${URL}."
-  open "$URL"
+  echo "  Stato: server già attivo sulla porta ${PORT}"
+  echo "--------------------------------------------------"
+  print_urls
+  open "$LOCAL_URL"
   exit 0
 fi
 
@@ -46,14 +74,21 @@ if [[ ! -d "node_modules" ]]; then
   npm install
 fi
 
+NEED_BUILD=0
 if [[ ! -f "dist/index.html" ]]; then
-  echo "Compilazione dell'applicazione..."
+  NEED_BUILD=1
+elif [[ -n "$(find src public index.html package.json vite.config.ts -newer dist/index.html -print -quit 2>/dev/null)" ]]; then
+  NEED_BUILD=1
+fi
+
+if [[ "$NEED_BUILD" -eq 1 ]]; then
+  echo "Compilazione aggiornata dell'applicazione (dist/)..."
   npm run build
 fi
 
-echo ""
-echo "Avvio su ${URL}"
-echo "Per arrestare il server, premi Ctrl + C oppure chiudi questa finestra."
-echo ""
+echo "--------------------------------------------------"
+print_urls
+echo "  Lascia questa finestra aperta mentre usi l'editor (Ctrl+C per chiudere)."
 
-npm run preview -- --host 127.0.0.1 --port "${PORT}" --strictPort --open
+(sleep 1 && open "$LOCAL_URL") >/dev/null 2>&1 &
+npm run preview -- --host 0.0.0.0 --port "${PORT}" --strictPort

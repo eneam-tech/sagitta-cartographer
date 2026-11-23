@@ -1806,4 +1806,88 @@ describe('Terrain engine & reactive rendering', () => {
     session.commit(doc);
     expect(doc.terrain.cover[128 * 256 + 128]).toBe(COVER_FOREST);
   });
+
+  it('modula diametro e intensità con pressione Apple Pencil preservando la compatibilità senza pressione', () => {
+    const docLight = createEmptyDocument({ widthPx: 128, heightPx: 128, seed: 303 });
+    const docHeavy = createEmptyDocument({ widthPx: 128, heightPx: 128, seed: 303 });
+    const docLegacy = createEmptyDocument({ widthPx: 128, heightPx: 128, seed: 303 });
+    const session = new TerrainStrokeSession();
+    const { width, height } = docLight.manifest.space;
+    const cx = width * 0.5;
+    const cy = height * 0.5;
+
+    // 1. Pressione leggera (0.15) vs forte (0.95) su pennello Terra -> area dipinta maggiore con pressione forte
+    session.beginStroke(
+      docLight,
+      { tool: 'land', diameterDoc: 360, intensity: 1.0, brushMode: 'classic' },
+      cx,
+      cy,
+      0.15
+    );
+    session.commit(docLight);
+
+    session.beginStroke(
+      docHeavy,
+      { tool: 'land', diameterDoc: 360, intensity: 1.0, brushMode: 'classic' },
+      cx,
+      cy,
+      0.95
+    );
+    session.commit(docHeavy);
+
+    let lightLandPx = 0;
+    let heavyLandPx = 0;
+    for (let i = 0; i < docLight.terrain.mask.length; i += 1) {
+      if (docLight.terrain.mask[i] > 0) lightLandPx += 1;
+      if (docHeavy.terrain.mask[i] > 0) heavyLandPx += 1;
+    }
+    expect(lightLandPx).toBeGreaterThan(0);
+    expect(heavyLandPx).toBeGreaterThan(lightLandPx * 2);
+
+    // 2. Pressione su Rilievo (raise) + addPoint interpolato -> quota maggiore con pressione alta
+    for (const d of [docLight, docHeavy, docLegacy]) {
+      d.terrain.mask.fill(255);
+      d.terrain.height.fill(40);
+    }
+    session.beginStroke(
+      docLight,
+      { tool: 'raise', diameterDoc: 280, intensity: 0.7 },
+      cx - 80,
+      cy,
+      0.12
+    );
+    session.addPoint(docLight, cx + 80, cy, 0.18);
+    session.commit(docLight);
+
+    session.beginStroke(
+      docHeavy,
+      { tool: 'raise', diameterDoc: 280, intensity: 0.7 },
+      cx - 80,
+      cy,
+      0.95
+    );
+    session.addPoint(docHeavy, cx + 80, cy, 0.95);
+    session.commit(docHeavy);
+
+    // Chiamata legacy senza pressure resta supportata invariata
+    session.beginStroke(
+      docLegacy,
+      { tool: 'raise', diameterDoc: 280, intensity: 0.7 },
+      cx - 80,
+      cy
+    );
+    session.addPoint(docLegacy, cx + 80, cy);
+    session.commit(docLegacy);
+
+    const avgDelta = (d: typeof docLight) => {
+      let sum = 0;
+      for (let i = 0; i < d.terrain.height.length; i += 1) {
+        sum += Math.max(0, d.terrain.height[i] - 40);
+      }
+      return sum;
+    };
+    expect(avgDelta(docLight)).toBeGreaterThan(0);
+    expect(avgDelta(docHeavy)).toBeGreaterThan(avgDelta(docLight) * 1.8);
+    expect(avgDelta(docLegacy)).toBeGreaterThan(avgDelta(docLight));
+  });
 });

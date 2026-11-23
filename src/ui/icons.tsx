@@ -372,3 +372,13 @@ export function GenerateWorldIcon({ size = 24, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function ApplePencilIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="m4.2 19.8 1.3-4.3L16.7 4.3a2.1 2.1 0 0 1 3 3L8.5 18.5l-4.3 1.3Z" />
+      <path d="m14.8 6.2 3 3" />
+      <path d="m5.5 15.5 3 3" />
+    </svg>
+  );
+}

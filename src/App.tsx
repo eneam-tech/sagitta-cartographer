@@ -443,6 +443,10 @@ export default function App() {
           onObjectPointerMove={(ctx) => objectsControllerRef.current?.handlePointerMove(ctx)}
           onObjectPointerUp={(ctx) => objectsControllerRef.current?.handlePointerUp(ctx)}
           onObjectDoubleClick={(ctx) => objectsControllerRef.current?.handleDoubleClick(ctx)}
+          onObjectCancelInteraction={() =>
+            objectsControllerRef.current?.cancelActiveInteraction() ?? false
+          }
+          onObjectPointerLeave={() => objectsControllerRef.current?.handlePointerLeave()}
           onCursorDocMove={(pt) => objectsControllerRef.current?.setCursorDocPoint(pt)}
           inlineEditorSlot={
             <InlineLabelEditor

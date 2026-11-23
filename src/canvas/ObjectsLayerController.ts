@@ -402,25 +402,30 @@ export class ObjectsLayerController {
   }
 
   private createTwoToneTransformer(): Konva.Transformer {
+    const isTouchOrCoarse =
+      (typeof window !== 'undefined' &&
+        typeof window.matchMedia === 'function' &&
+        window.matchMedia('(pointer: coarse)').matches) ||
+      (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
     const tr = new KonvaCtor.Transformer({
       visible: false,
       rotateEnabled: true,
       rotateLineVisible: true,
-      rotateAnchorOffset: 28,
+      rotateAnchorOffset: isTouchOrCoarse ? 36 : 28,
       rotationSnaps: [0, 45, 90, 135, 180, 225, 270, 315],
       rotationSnapTolerance: 3,
-      anchorSize: 12,
+      anchorSize: isTouchOrCoarse ? 20 : 12,
       anchorFill: '#F3EEDF',
       anchorStroke: '#17232D',
-      anchorStrokeWidth: 1.75,
-      anchorCornerRadius: 2,
+      anchorStrokeWidth: isTouchOrCoarse ? 2 : 1.75,
+      anchorCornerRadius: isTouchOrCoarse ? 4 : 2,
       borderEnabled: true,
       borderStroke: '#9CDEEF',
       borderStrokeWidth: 1.5,
       keepRatio: true,
       flipEnabled: false,
       ignoreStroke: true,
-      padding: 4,
+      padding: isTouchOrCoarse ? 6 : 4,
       boundBoxFunc: (oldBox, newBox) => {
         if (Math.abs(newBox.width) < 10 || Math.abs(newBox.height) < 10) {
           return oldBox;
@@ -1463,6 +1468,12 @@ export class ObjectsLayerController {
     this.layers.overlayLayer.batchDraw();
   }
 
+  cancelActiveInteraction(): boolean {
+    if (!this.pathDraft) return false;
+    this.cancelPathDraft();
+    return true;
+  }
+
   handlePointerDown(ctx: ViewportPointerContext): boolean {
     if (this.disposed) return false;
     this.cursorInside = true;
@@ -1623,13 +1634,23 @@ export class ObjectsLayerController {
 
     if (this.pathDraft && tool === 'path') {
       const { space } = snap.doc.manifest;
-      const clampedX = Number(clampNumber(ctx.docX, 0, space.width).toFixed(2));
-      const clampedY = Number(clampNumber(ctx.docY, 0, space.height).toFixed(2));
+      const samples =
+        ctx.coalescedPoints && ctx.coalescedPoints.length > 0
+          ? ctx.coalescedPoints
+          : [{ cssX: ctx.cssX, cssY: ctx.cssY, docX: ctx.docX, docY: ctx.docY }];
       const pts = this.pathDraft.points;
-      const lastX = pts[pts.length - 2];
-      const lastY = pts[pts.length - 1];
-      if (Math.hypot(clampedX - lastX, clampedY - lastY) >= 3) {
-        pts.push(clampedX, clampedY);
+      let appended = false;
+      for (const sample of samples) {
+        const clampedX = Number(clampNumber(sample.docX, 0, space.width).toFixed(2));
+        const clampedY = Number(clampNumber(sample.docY, 0, space.height).toFixed(2));
+        const lastX = pts[pts.length - 2];
+        const lastY = pts[pts.length - 1];
+        if (Math.hypot(clampedX - lastX, clampedY - lastY) >= 3) {
+          pts.push(clampedX, clampedY);
+          appended = true;
+        }
+      }
+      if (appended) {
         this.pathPreviewShape.moveToTop();
         this.layers.overlayLayer.batchDraw();
       }

@@ -107,6 +107,26 @@ export function InlineLabelEditor({ store, session, onClose }: InlineLabelEditor
   const inputRef = useRef<HTMLInputElement>(null);
   const settledRef = useRef(false);
   const [draft, setDraft] = useState(session?.initialText ?? '');
+  const [visualBox, setVisualBox] = useState<{ height: number; offsetTop: number } | null>(() =>
+    typeof window !== 'undefined' && window.visualViewport
+      ? { height: window.visualViewport.height, offsetTop: window.visualViewport.offsetTop }
+      : null
+  );
+
+  useEffect(() => {
+    if (typeof window === 'undefined' || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const syncViewport = () => {
+      setVisualBox({ height: vv.height, offsetTop: vv.offsetTop });
+    };
+    syncViewport();
+    vv.addEventListener('resize', syncViewport);
+    vv.addEventListener('scroll', syncViewport);
+    return () => {
+      vv.removeEventListener('resize', syncViewport);
+      vv.removeEventListener('scroll', syncViewport);
+    };
+  }, []);
 
   useEffect(() => {
     if (!session) return;
@@ -139,7 +159,16 @@ export function InlineLabelEditor({ store, session, onClose }: InlineLabelEditor
 
   const screenPos = docToScreen(session.docX, session.docY, snap.camera);
   const spec = getFontSpec(snap.doc.theme, session.fontId);
-  const screenFontPx = clampNumber(session.fontSize * snap.camera.scale, 13, 76);
+  const isTouchOrCoarse =
+    (typeof window !== 'undefined' &&
+      typeof window.matchMedia === 'function' &&
+      window.matchMedia('(pointer: coarse)').matches) ||
+    (typeof navigator !== 'undefined' && navigator.maxTouchPoints > 0);
+  const screenFontPx = clampNumber(
+    session.fontSize * snap.camera.scale,
+    isTouchOrCoarse ? 16 : 13,
+    76
+  );
 
   const finishClose = () => {
     session.onEnd?.();
@@ -160,8 +189,16 @@ export function InlineLabelEditor({ store, session, onClose }: InlineLabelEditor
   };
 
   const maxViewportW = snap.viewportSize.width > 0 ? snap.viewportSize.width : 800;
+  const maxViewportH = snap.viewportSize.height > 0 ? snap.viewportSize.height : 640;
   const clampedLeft = clampNumber(screenPos.x, 8, Math.max(8, maxViewportW - 220));
-  const clampedTop = Math.max(8, screenPos.y);
+  const stageTop =
+    inputRef.current?.parentElement?.getBoundingClientRect().top ??
+    (typeof window !== 'undefined' ? Math.max(0, window.innerHeight - maxViewportH) : 0);
+  const visibleBottom = visualBox
+    ? Math.min(maxViewportH, visualBox.offsetTop + visualBox.height - stageTop)
+    : maxViewportH;
+  const maxAllowedTop = Math.max(8, visibleBottom - Math.max(44, screenFontPx + 18));
+  const clampedTop = clampNumber(screenPos.y, 8, maxAllowedTop);
 
   return (
     <input

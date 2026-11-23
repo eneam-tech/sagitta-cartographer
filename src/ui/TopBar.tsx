@@ -3,6 +3,7 @@ import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { MAP_THEMES, MapTheme } from '../theme/theme';
 import {
+  ApplePencilIcon,
   CheckSavedIcon,
   ChevronDownIcon,
   ExportPdfIcon,
@@ -31,7 +32,15 @@ function getThemePreviewDots(theme: MapTheme): [string, string, string] {
 
 export function TopBar({ store }: TopBarProps) {
   const snap = useEditorStore(store);
-  const { doc, canUndo, canRedo, nextUndoLabel, nextRedoLabel, propertiesDrawerOpen } = snap;
+  const {
+    doc,
+    canUndo,
+    canRedo,
+    nextUndoLabel,
+    nextRedoLabel,
+    propertiesDrawerOpen,
+    pencilOnlyMode
+  } = snap;
 
   const [menuOpen, setMenuOpen] = useState(false);
   const [themeMenuOpen, setThemeMenuOpen] = useState(false);
@@ -384,6 +393,24 @@ export function TopBar({ store }: TopBarProps) {
                   menuItemRefs.current[6] = el;
                 }}
                 type="button"
+                role="menuitemcheckbox"
+                aria-checked={pencilOnlyMode}
+                className={`dropdown-item ${pencilOnlyMode ? 'is-active' : ''}`}
+                onClick={() => {
+                  store.setPencilOnlyMode(!pencilOnlyMode);
+                  projectBtnRef.current?.focus();
+                  setMenuOpen(false);
+                }}
+              >
+                <span>Solo Apple Pencil</span>
+                <span className="dropdown-item-meta">{pencilOnlyMode ? 'Attivo' : 'Spento'}</span>
+              </button>
+              <div className="dropdown-divider" role="separator" />
+              <button
+                ref={(el) => {
+                  menuItemRefs.current[7] = el;
+                }}
+                type="button"
                 role="menuitem"
                 className="dropdown-item"
                 onClick={() => {
@@ -486,6 +513,26 @@ export function TopBar({ store }: TopBarProps) {
           <span className="topbar-canvas-label tabular-nums">
             {pageWidthMm}×{pageHeightMm} mm
           </span>
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary topbar-pencil-btn has-tooltip-bottom"
+          aria-pressed={pencilOnlyMode}
+          aria-label={
+            pencilOnlyMode
+              ? 'Modalità Solo Apple Pencil attiva. Disattiva per disegnare anche con il dito'
+              : 'Attiva modalità Solo Apple Pencil per ignorare le dita mentre disegni'
+          }
+          data-tooltip={
+            pencilOnlyMode
+              ? 'Solo Apple Pencil attivo (1 dito sposta la vista)'
+              : 'Modalità Solo Apple Pencil'
+          }
+          onClick={() => store.setPencilOnlyMode(!pencilOnlyMode)}
+        >
+          <ApplePencilIcon size={18} />
+          <span className="topbar-pencil-label">Solo penna</span>
         </button>
 
         {/* Selettore dei 5 temi cartografici con 3 pallini cromatici */}

@@ -273,8 +273,36 @@ export function shouldIgnoreShortcut(target: EventTarget | null): boolean {
 }
 
 /* -------------------------------------------------------------------------- */
-/* Fallback leggeri per isolamento o integrazione progressiva                */
+/* Preferenze locali dispositivo e fallback leggeri                          */
 /* -------------------------------------------------------------------------- */
+
+const PENCIL_ONLY_STORAGE_KEY = 'cartografo:pencilOnlyMode';
+const PRESSURE_SENSITIVITY_STORAGE_KEY = 'cartografo:pressureSensitivity';
+
+function readStoredBoolean(key: string, defaultValue: boolean): boolean {
+  try {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      return defaultValue;
+    }
+    const raw = window.localStorage.getItem(key);
+    if (raw === 'true') return true;
+    if (raw === 'false') return false;
+    return defaultValue;
+  } catch {
+    return defaultValue;
+  }
+}
+
+function writeStoredBoolean(key: string, value: boolean): void {
+  try {
+    if (typeof window === 'undefined' || typeof window.localStorage === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(key, value ? 'true' : 'false');
+  } catch {
+    // Modalità privata o storage disabilitato
+  }
+}
 
 const FALLBACK_TILE_SIZE = 64;
 
@@ -315,6 +343,7 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
   private params: BrushStrokeParams | null = null;
   private lastDocX = 0;
   private lastDocY = 0;
+  private lastPressure: number | undefined = undefined;
   private tiles = new Map<string, FallbackTileSnapshot>();
   private dirtyRect: DirtyRectPx | null = null;
 
@@ -322,22 +351,35 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
     return this.active;
   }
 
-  beginStroke(doc: MapDocument, params: BrushStrokeParams, startDocX: number, startDocY: number): DirtyRectPx | null {
+  beginStroke(
+    doc: MapDocument,
+    params: BrushStrokeParams,
+    startDocX: number,
+    startDocY: number,
+    pressure?: number
+  ): DirtyRectPx | null {
     this.active = true;
     this.params = { ...params };
     this.lastDocX = startDocX;
     this.lastDocY = startDocY;
+    this.lastPressure =
+      pressure !== undefined && Number.isFinite(pressure) ? clampNumber(pressure, 0.02, 1.0) : undefined;
     this.tiles.clear();
     this.dirtyRect = null;
-    return this.stampCircle(doc, startDocX, startDocY);
+    return this.stampCircle(doc, startDocX, startDocY, this.lastPressure);
   }
 
-  addPoint(doc: MapDocument, docX: number, docY: number): DirtyRectPx | null {
+  addPoint(doc: MapDocument, docX: number, docY: number, pressure?: number): DirtyRectPx | null {
     if (!this.active || !this.params) return null;
+    const pEnd =
+      pressure !== undefined && Number.isFinite(pressure) ? clampNumber(pressure, 0.02, 1.0) : undefined;
+    const pStart = this.lastPressure ?? pEnd;
+    this.lastPressure = pEnd;
+
     const dx = docX - this.lastDocX;
     const dy = docY - this.lastDocY;
     const dist = Math.hypot(dx, dy);
-    const stepDoc = Math.max(1, this.params.diameterDoc * 0.14);
+    const stepDoc = Math.max(1, this.params.diameterDoc * (pEnd !== undefined ? 0.1 : 0.14));
     const steps = Math.max(1, Math.ceil(dist / stepDoc));
 
     let combined: DirtyRectPx | null = null;
@@ -345,7 +387,9 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
       const t = i / steps;
       const px = this.lastDocX + dx * t;
       const py = this.lastDocY + dy * t;
-      const rect = this.stampCircle(doc, px, py);
+      const pAtStep =
+        pStart !== undefined && pEnd !== undefined ? pStart + (pEnd - pStart) * t : (pEnd ?? pStart);
+      const rect = this.stampCircle(doc, px, py, pAtStep);
       if (rect) {
         combined = combined ? mergeRects(combined, rect) : rect;
       }
@@ -433,6 +477,7 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
   private reset(): void {
     this.active = false;
     this.params = null;
+    this.lastPressure = undefined;
     this.tiles.clear();
     this.dirtyRect = null;
   }
@@ -474,13 +519,23 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
     });
   }
 
-  private stampCircle(doc: MapDocument, docX: number, docY: number): DirtyRectPx | null {
+  private stampCircle(doc: MapDocument, docX: number, docY: number, pressure?: number): DirtyRectPx | null {
     if (!this.params) return null;
     const { space, terrain } = doc.manifest;
     const cx = docToMaskX(docX, space, terrain);
     const cy = docToMaskY(docY, space, terrain);
-    const rx = Math.max(0.5, docDistToMaskPxX(this.params.diameterDoc / 2, space, terrain));
-    const ry = Math.max(0.5, docDistToMaskPxY(this.params.diameterDoc / 2, space, terrain));
+    const pCurve =
+      pressure !== undefined && Number.isFinite(pressure)
+        ? Math.pow(clampNumber(pressure, 0.02, 1.0), 0.75)
+        : undefined;
+    const effDiameterDoc =
+      pCurve !== undefined ? Math.max(1.5, this.params.diameterDoc * (0.45 + 0.75 * pCurve)) : this.params.diameterDoc;
+    const effIntensity =
+      pCurve !== undefined
+        ? clampNumber(this.params.intensity * (0.28 + 0.92 * pCurve), 0.05, 1.0)
+        : this.params.intensity;
+    const rx = Math.max(0.5, docDistToMaskPxX(effDiameterDoc / 2, space, terrain));
+    const ry = Math.max(0.5, docDistToMaskPxY(effDiameterDoc / 2, space, terrain));
 
     const minX = Math.max(0, Math.floor(cx - rx));
     const maxX = Math.min(doc.terrain.widthPx - 1, Math.ceil(cx + rx));
@@ -500,7 +555,7 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
 
     const { widthPx, mask, height, cover } = doc.terrain;
     const tool = this.params.tool;
-    const deltaMax = Math.max(1, Math.round(this.params.intensity * 20));
+    const deltaMax = Math.max(1, Math.round(effIntensity * 20));
 
     for (let y = minY; y <= maxY; y += 1) {
       const dy = (y - cy) / ry;
@@ -525,7 +580,7 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
             const target = this.params.targetHeight ?? DEFAULT_PLATEAU_HEIGHT;
             height[idx] = Math.min(
               255,
-              Math.max(0, Math.round(height[idx] + (target - height[idx]) * falloff * this.params.intensity))
+              Math.max(0, Math.round(height[idx] + (target - height[idx]) * falloff * effIntensity))
             );
           } else if (tool === 'lower') {
             height[idx] = Math.max(0, height[idx] - Math.max(1, Math.round(deltaMax * falloff)));
@@ -806,6 +861,8 @@ export interface EditorSnapshot {
   brushRoughness: number;
   plateauTargetHeight: number;
   poiAutoLabel: boolean;
+  pencilOnlyMode: boolean;
+  pressureSensitivity: boolean;
   inspectorTab: InspectorTab;
   activeLayerId: string;
   poiPlacementScale: number;
@@ -856,6 +913,8 @@ export class EditorStore {
   private brushRoughness = DEFAULT_BRUSH_ROUGHNESS;
   private plateauTargetHeight = DEFAULT_PLATEAU_HEIGHT;
   private poiAutoLabel = false;
+  private pencilOnlyMode = readStoredBoolean(PENCIL_ONLY_STORAGE_KEY, false);
+  private pressureSensitivity = readStoredBoolean(PRESSURE_SENSITIVITY_STORAGE_KEY, true);
 
   private inspectorTab: InspectorTab = 'tool';
   private activeLayerId = DEFAULT_LAYER_TERRAIN_ID;
@@ -1334,6 +1393,22 @@ export class EditorStore {
     this.notify();
   }
 
+  setPencilOnlyMode(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.pencilOnlyMode === next) return;
+    this.pencilOnlyMode = next;
+    writeStoredBoolean(PENCIL_ONLY_STORAGE_KEY, next);
+    this.notify();
+  }
+
+  setPressureSensitivity(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.pressureSensitivity === next) return;
+    this.pressureSensitivity = next;
+    writeStoredBoolean(PRESSURE_SENSITIVITY_STORAGE_KEY, next);
+    this.notify();
+  }
+
   updateCursorSeaHint(docX: number, docY: number): void {
     const tool = this.getEffectiveTool();
     const shouldShow =
@@ -1431,6 +1506,29 @@ export class EditorStore {
       this.camera,
       cssX,
       cssY,
+      requestedScale,
+      MIN_CAMERA_SCALE,
+      MAX_CAMERA_SCALE
+    );
+    this.notify();
+  }
+
+  applyPinchTransform(
+    centerCssX: number,
+    centerCssY: number,
+    panDeltaX: number,
+    panDeltaY: number,
+    requestedScale: number
+  ): void {
+    const translated: CameraState = {
+      ...this.camera,
+      offsetX: this.camera.offsetX + panDeltaX,
+      offsetY: this.camera.offsetY + panDeltaY
+    };
+    this.camera = zoomAtPoint(
+      translated,
+      centerCssX,
+      centerCssY,
       requestedScale,
       MIN_CAMERA_SCALE,
       MAX_CAMERA_SCALE
@@ -1589,7 +1687,7 @@ export class EditorStore {
     this.notifyTerrainRedraw();
   }
 
-  beginTerrainStroke(docX: number, docY: number): boolean {
+  beginTerrainStroke(docX: number, docY: number, pressure?: number): boolean {
     const tool = this.getEffectiveTool();
     if (!isTerrainBrushTool(tool)) return false;
 
@@ -1622,6 +1720,7 @@ export class EditorStore {
         ? this.brushIntensity
         : 1.0;
 
+    const effectivePressure = this.pressureSensitivity ? pressure : undefined;
     const dirtyRect = this.strokeSession.beginStroke(
       this.doc,
       {
@@ -1633,7 +1732,8 @@ export class EditorStore {
         ...(tool === 'plateau' ? { targetHeight: this.plateauTargetHeight } : {})
       },
       docX,
-      docY
+      docY,
+      effectivePressure
     );
     if (dirtyRect) {
       this.renderDirtyRegionWithChannels(dirtyRect, getToolDirtyChannels(tool));
@@ -1644,15 +1744,31 @@ export class EditorStore {
     return true;
   }
 
-  moveTerrainStroke(docX: number, docY: number): void {
-    if (!this.strokeSession.isActive()) return;
+  moveTerrainStroke(docX: number, docY: number, pressure?: number): void {
+    this.moveTerrainStrokeBatch([{ docX, docY, pressure }]);
+  }
+
+  moveTerrainStrokeBatch(
+    points: ReadonlyArray<{ docX: number; docY: number; pressure?: number }>
+  ): void {
+    if (!this.strokeSession.isActive() || points.length === 0) return;
     const tool = this.getEffectiveTool();
-    if (isLandRequiredBrush(tool)) {
-      this.updateCursorSeaHint(docX, docY);
+    const lastPt = points[points.length - 1];
+    if (lastPt && isLandRequiredBrush(tool)) {
+      this.updateCursorSeaHint(lastPt.docX, lastPt.docY);
     }
-    const dirtyRect = this.strokeSession.addPoint(this.doc, docX, docY);
-    if (dirtyRect) {
-      this.pendingDirtyRect = mergeDirtyRects(this.pendingDirtyRect, dirtyRect);
+
+    let accumulatedDirty: DirtyRectPx | null = null;
+    for (const pt of points) {
+      const effectivePressure = this.pressureSensitivity ? pt.pressure : undefined;
+      const dirtyRect = this.strokeSession.addPoint(this.doc, pt.docX, pt.docY, effectivePressure);
+      if (dirtyRect) {
+        accumulatedDirty = accumulatedDirty ? mergeDirtyRects(accumulatedDirty, dirtyRect) : dirtyRect;
+      }
+    }
+
+    if (accumulatedDirty) {
+      this.pendingDirtyRect = mergeDirtyRects(this.pendingDirtyRect, accumulatedDirty);
       if (isTerrainBrushTool(tool)) {
         this.pendingDirtyChannels |= getToolDirtyChannels(tool);
       } else {
@@ -1988,6 +2104,8 @@ export class EditorStore {
       brushRoughness: this.brushRoughness,
       plateauTargetHeight: this.plateauTargetHeight,
       poiAutoLabel: this.poiAutoLabel,
+      pencilOnlyMode: this.pencilOnlyMode,
+      pressureSensitivity: this.pressureSensitivity,
       inspectorTab: this.inspectorTab,
       activeLayerId: this.activeLayerId,
       poiPlacementScale: this.poiPlacementScale,
