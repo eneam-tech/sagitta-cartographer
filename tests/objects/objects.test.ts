@@ -55,6 +55,7 @@ import { EditorStore } from '../../src/state/editorStore';
 import { TerrainRenderer, TerrainStrokeSession, inspectCellAtDoc, isPointOnLand } from '../../src/terrain';
 import { commitInlineLabelSession } from '../../src/ui/InlineLabelEditor';
 import { handleObjectListItemKeyDown } from '../../src/ui/ObjectListPanel';
+import { WITCHER_THEME, getDefaultLabelColor } from '../../src/theme/theme';
 
 function countDiffBytes(a: Uint8Array, b: Uint8Array): number {
   if (a.length !== b.length) return Math.max(a.length, b.length);
@@ -1281,6 +1282,58 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(commitObjectReorderInLayer(store, poiBottom.id, 'backward')).toBe(true);
     const listAfterBackward = renderToStaticMarkup(createElement(ObjectListPanel, { store }));
     expect(listAfterBackward.indexOf('Castello')).toBeLessThan(listAfterBackward.indexOf('Torre'));
+
+    store.dispose();
+  });
+
+  it('registers all 38 atlas POIs, uses ivory label contrast on dark-halo WITCHER_THEME, and renders Etichetta alla posa / Aggiungi etichetta', () => {
+    expect(BUILTIN_POI_CATALOG).toHaveLength(38);
+    const expectedAtlasIds = [
+      'poi-walled-city',
+      'poi-hill-fort',
+      'poi-longship',
+      'poi-banner-compass',
+      'poi-cloud-bank',
+      'poi-shrine',
+      'poi-monster-lair'
+    ];
+    for (const id of expectedAtlasIds) {
+      expect(BUILTIN_POI_CATALOG.some((item) => item.id === id)).toBe(true);
+    }
+
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 128 });
+    doc.theme = WITCHER_THEME;
+    expect(getDefaultLabelColor(WITCHER_THEME)).toBe('#F5EAD0');
+    const autoLabel = createLabelObject('Novigrad', 400, 400, doc.theme, 'city');
+    expect(autoLabel.color).toBe('#F5EAD0');
+
+    const store = new EditorStore({
+      initialDocument: doc,
+      strokeSession: new TerrainStrokeSession(),
+      renderer: new TerrainRenderer()
+    });
+
+    // PoiLibraryPanel exposes Etichetta alla posa checkbox and store toggles it
+    expect(store.getSnapshot().poiAutoLabel).toBe(false);
+    store.setPoiAutoLabel(true);
+    expect(store.getSnapshot().poiAutoLabel).toBe(true);
+    const poiHtml = renderToStaticMarkup(createElement(PoiLibraryPanel, { store }));
+    expect(poiHtml).toContain('38 di 38');
+    expect(poiHtml).toContain('Etichetta alla posa');
+    expect(poiHtml).not.toContain('font-size:11px');
+    expect(poiHtml).not.toContain('font-size:12px');
+    expect(poiHtml).not.toContain('font-size:14px');
+
+    // ObjectInspector shows Aggiungi etichetta for selected StampObject when callback is supplied
+    const walledCity = BUILTIN_POI_CATALOG.find((i) => i.id === 'poi-walled-city')!;
+    const stamp = createPoiStampObject(walledCity, 500, 500, { layerId: DEFAULT_LAYER_POI_ID });
+    store.executeCommand(new AddObjectCommand(stamp));
+    store.selectObject(stamp.id);
+
+    const inspectorHtml = renderToStaticMarkup(
+      createElement(ObjectInspector, { store, onAddLabelForStamp: () => {} })
+    );
+    expect(inspectorHtml).toContain('Aggiungi etichetta');
 
     store.dispose();
   });

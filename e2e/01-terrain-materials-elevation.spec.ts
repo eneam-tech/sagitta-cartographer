@@ -21,10 +21,11 @@ test.describe('Core 1: Terrain, Elevation Intensity & 10 Surface Materials', () 
     const centerAfterLand = await inspectCellAtNorm(page, 0.5, 0.5);
     expect(centerAfterLand.mask).toBeGreaterThanOrEqual(128);
 
-    // 2. Verify all 4 Elevation modes and intensity presets
+    // 2. Verify all 5 Elevation modes and intensity presets
     await page.getByRole('button', { name: 'Rilievo (E)' }).click();
     const modesGroup = page.getByRole('group', { name: 'Modalità rilievo' });
-    await expect(modesGroup.getByRole('button', { name: 'Alza' })).toBeVisible();
+    await expect(modesGroup.getByRole('button', { name: /^Alza/ })).toBeVisible();
+    await expect(modesGroup.getByRole('button', { name: 'Altopiano' })).toBeVisible();
     await expect(modesGroup.getByRole('button', { name: 'Abbassa' })).toBeVisible();
     await expect(modesGroup.getByRole('button', { name: 'Appiattisci' })).toBeVisible();
     await expect(modesGroup.getByRole('button', { name: 'Ammorbidisci' })).toBeVisible();
@@ -33,7 +34,7 @@ test.describe('Core 1: Terrain, Elevation Intensity & 10 Surface Materials', () 
     await setBrushDiameter(page, 220);
 
     // Raise peak strongly on left highland (0.40, 0.48)
-    await modesGroup.getByRole('button', { name: 'Alza' }).click();
+    await modesGroup.getByRole('button', { name: /^Alza/ }).click();
     await dragOnMap(page, 0.38, 0.48, 0.42, 0.48, 8);
     await dragOnMap(page, 0.38, 0.48, 0.42, 0.48, 8);
     const raisedCell = await inspectCellAtNorm(page, 0.4, 0.48);

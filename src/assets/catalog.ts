@@ -4,20 +4,25 @@ export { POI_CATEGORIES };
 
 import abbeySvg from './svg/poi-abbey.svg?raw';
 import ancientTreeSvg from './svg/poi-ancient-tree.svg?raw';
+import bannerCompassSvg from './svg/poi-banner-compass.svg?raw';
 import bridgeSvg from './svg/poi-bridge.svg?raw';
 import campSvg from './svg/poi-camp.svg?raw';
 import capitalSvg from './svg/poi-capital.svg?raw';
 import castleSvg from './svg/poi-castle.svg?raw';
 import caveSvg from './svg/poi-cave.svg?raw';
 import citadelSvg from './svg/poi-citadel.svg?raw';
+import cloudBankSvg from './svg/poi-cloud-bank.svg?raw';
 import compassSvg from './svg/poi-compass.svg?raw';
 import dockSvg from './svg/poi-dock.svg?raw';
 import gateSvg from './svg/poi-gate.svg?raw';
 import harborSvg from './svg/poi-harbor.svg?raw';
+import hillFortSvg from './svg/poi-hill-fort.svg?raw';
 import keepSvg from './svg/poi-keep.svg?raw';
 import lighthouseSvg from './svg/poi-lighthouse.svg?raw';
+import longshipSvg from './svg/poi-longship.svg?raw';
 import mineSvg from './svg/poi-mine.svg?raw';
 import monolithSvg from './svg/poi-monolith.svg?raw';
+import monsterLairSvg from './svg/poi-monster-lair.svg?raw';
 import obeliskSvg from './svg/poi-obelisk.svg?raw';
 import peakSvg from './svg/poi-peak.svg?raw';
 import portalSvg from './svg/poi-portal.svg?raw';
@@ -25,12 +30,14 @@ import ruinSvg from './svg/poi-ruin.svg?raw';
 import settlementSvg from './svg/poi-settlement.svg?raw';
 import shipSvg from './svg/poi-ship.svg?raw';
 import shipwreckSvg from './svg/poi-shipwreck.svg?raw';
+import shrineSvg from './svg/poi-shrine.svg?raw';
 import signpostSvg from './svg/poi-signpost.svg?raw';
 import tavernSvg from './svg/poi-tavern.svg?raw';
 import templeSvg from './svg/poi-temple.svg?raw';
 import towerSvg from './svg/poi-tower.svg?raw';
 import villageSvg from './svg/poi-village.svg?raw';
 import volcanoSvg from './svg/poi-volcano.svg?raw';
+import walledCitySvg from './svg/poi-walled-city.svg?raw';
 import waterfallSvg from './svg/poi-waterfall.svg?raw';
 import windmillSvg from './svg/poi-windmill.svg?raw';
 
@@ -141,6 +148,16 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultHeightDoc: 112,
     svgRaw: abbeySvg
   }),
+  makeBuiltinPoiItem({
+    id: 'poi-walled-city',
+    categoryId: 'settlements',
+    tags: ['metropoli', 'città', 'mura', 'novigrad', 'oxenfurt', 'porto', 'tetti rossi', 'cinta'],
+    name: 'Metropoli murata',
+    description: 'Grande città medievale cinta da mura bastionati con dedalo di tetti rossi',
+    defaultWidthDoc: 148,
+    defaultHeightDoc: 148,
+    svgRaw: walledCitySvg
+  }),
 
   // Fortezze (5)
   makeBuiltinPoiItem({
@@ -192,6 +209,16 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultWidthDoc: 108,
     defaultHeightDoc: 108,
     svgRaw: gateSvg
+  }),
+  makeBuiltinPoiItem({
+    id: 'poi-hill-fort',
+    categoryId: 'fortresses',
+    tags: ['rocca', 'colle', 'forte', 'barone', 'palizzata', 'bastione', 'maniero', 'fortezza'],
+    name: 'Rocca collinare',
+    description: 'Roccaforte arroccata su collina con sentiero, palizzata e palazzotto rosso',
+    defaultWidthDoc: 132,
+    defaultHeightDoc: 132,
+    svgRaw: hillFortSvg
   }),
 
   // Coste e Porti (5)
@@ -245,6 +272,16 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultHeightDoc: 104,
     svgRaw: dockSvg
   }),
+  makeBuiltinPoiItem({
+    id: 'poi-longship',
+    categoryId: 'coasts',
+    tags: ['drakkar', 'skellige', 'nave', 'vichinga', 'nordica', 'scudi', 'vela', 'mare'],
+    name: 'Drakkar nordico',
+    description: 'Nave nordica con prua di drago, fila di scudi lungo la murata e vela a strisce',
+    defaultWidthDoc: 118,
+    defaultHeightDoc: 118,
+    svgRaw: longshipSvg
+  }),
 
   // Rovine e Misteri (5)
   makeBuiltinPoiItem({
@@ -296,6 +333,26 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultWidthDoc: 106,
     defaultHeightDoc: 106,
     svgRaw: portalSvg
+  }),
+  makeBuiltinPoiItem({
+    id: 'poi-shrine',
+    categoryId: 'ruins',
+    tags: ['luogo di potere', 'stele', 'altare', 'runa', 'santuario', 'pietra', 'magia'],
+    name: 'Luogo di potere',
+    description: 'Stele runica antica incisa con glifo luminoso su piedistallo di pietra',
+    defaultWidthDoc: 96,
+    defaultHeightDoc: 96,
+    svgRaw: shrineSvg
+  }),
+  makeBuiltinPoiItem({
+    id: 'poi-monster-lair',
+    categoryId: 'ruins',
+    tags: ['tana', 'mostri', 'caverna', 'teschio', 'pericolo', 'antro', 'contratto'],
+    name: 'Tana oscura',
+    description: 'Anfratto roccioso segnato da teschio e simbolo di pericolo per tracce di mostri',
+    defaultWidthDoc: 104,
+    defaultHeightDoc: 104,
+    svgRaw: monsterLairSvg
   }),
 
   // Natura e Rilievi (5)
@@ -349,6 +406,16 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultHeightDoc: 114,
     svgRaw: ancientTreeSvg
   }),
+  makeBuiltinPoiItem({
+    id: 'poi-cloud-bank',
+    categoryId: 'nature',
+    tags: ['nubi', 'nuvole', 'nebbia', 'atlante', 'cornice', 'cielo', 'foschia'],
+    name: 'Banco di nubi',
+    description: 'Massa nuvolosa pittorica in stile atlante per cornici, passi alpini o mari inesplorati',
+    defaultWidthDoc: 170,
+    defaultHeightDoc: 170,
+    svgRaw: cloudBankSvg
+  }),
 
   // Punti e Riferimenti (5)
   makeBuiltinPoiItem({
@@ -390,6 +457,16 @@ export const BUILTIN_POI_CATALOG: readonly PoiCatalogItem[] = [
     defaultWidthDoc: 124,
     defaultHeightDoc: 124,
     svgRaw: compassSvg
+  }),
+  makeBuiltinPoiItem({
+    id: 'poi-banner-compass',
+    categoryId: 'landmarks',
+    tags: ['rosa', 'cartiglio', 'nastro', 'bussola', 'regni del nord', 'atlante', 'orientamento'],
+    name: 'Rosa con cartiglio',
+    description: 'Grande rosa dei venti antica a 16 punte con cartiglio in pergamena',
+    defaultWidthDoc: 170,
+    defaultHeightDoc: 170,
+    svgRaw: bannerCompassSvg
   }),
   makeBuiltinPoiItem({
     id: 'poi-signpost',

@@ -953,11 +953,15 @@ pre {
   color: var(--ui-accent);
 }
 
-/* Rilievo 2×2, preset intensità e feedback circolare diametro */
+/* Rilievo 1+2×2, preset intensità e feedback circolare diametro */
 .elevation-mode-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: var(--ui-space-2);
+}
+
+.elevation-mode-btn:first-child {
+  grid-column: 1 / -1;
 }
 
 .elevation-mode-btn {
@@ -1681,6 +1685,54 @@ pre {
   white-space: nowrap;
 }
 
+/* Griglia preset Generatore continente */
+.generate-preset-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+}
+
+.generate-preset-card {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  text-align: left;
+  gap: var(--ui-space-1);
+  padding: var(--ui-space-3);
+  background-color: var(--ui-raised);
+  color: var(--ui-text);
+  border: var(--ui-border-w) solid var(--ui-line-subtle);
+  border-radius: var(--ui-radius-control);
+  cursor: pointer;
+  transition: background-color var(--ui-motion-fast), border-color var(--ui-motion-fast);
+}
+
+.generate-preset-card:hover {
+  border-color: var(--ui-line);
+}
+
+.generate-preset-card[aria-pressed='true'] {
+  border-color: var(--ui-accent);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+
+.generate-preset-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.generate-preset-card[aria-pressed='true'] .generate-preset-title {
+  color: var(--ui-accent);
+}
+
+.generate-preset-desc {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ui-muted);
+}
+
 /* Dialogo Ridimensiona tela */
 .resize-dims-row {
   display: grid;
@@ -1906,6 +1958,7 @@ pre {
 
   .topbar-theme-label,
   .topbar-canvas-label,
+  .topbar-generate-label,
   .topbar-props-toggle .topbar-btn-label {
     display: none;
   }
@@ -1913,6 +1966,7 @@ pre {
   .topbar-theme-btn,
   .topbar-theme-select,
   .topbar-canvas-btn,
+  .topbar-generate-btn,
   .topbar-props-toggle {
     padding: 0 var(--ui-space-2);
     min-width: var(--ui-control-h);
@@ -2084,11 +2138,13 @@ pre {
   }
 
   .topbar-canvas-btn,
+  .topbar-generate-btn,
   .topbar-shortcuts-btn {
     display: none;
   }
 
   .theme-preset-grid,
+  .generate-preset-grid,
   .resize-anchor-preview-grid {
     grid-template-columns: minmax(0, 1fr);
   }

@@ -19,7 +19,9 @@ import {
 import {
   CloseIcon,
   FlattenIcon,
+  GenerateWorldIcon,
   LowerIcon,
+  PlateauIcon,
   RaiseIcon,
   ResizeCanvasIcon,
   SmoothIcon
@@ -45,9 +47,15 @@ const ELEVATION_TOOLS: ReadonlyArray<{
 }> = [
   {
     tool: 'raise',
-    label: 'Alza',
-    hint: 'Solleva il rilievo dalla pianura alle creste montuose.',
+    label: 'Alza picchi',
+    hint: 'Scolpisce creste e picchi montuosi frastagliati senza appiattirsi in un tavolato.',
     icon: <RaiseIcon size={18} />
+  },
+  {
+    tool: 'plateau',
+    label: 'Altopiano',
+    hint: 'Modella un tavolato piano con scarpate nette alla quota impostata.',
+    icon: <PlateauIcon size={18} />
   },
   {
     tool: 'lower',
@@ -73,6 +81,12 @@ const INTENSITY_PRESETS: ReadonlyArray<{ label: string; percent: number }> = [
   { label: 'Leggero', percent: 20 },
   { label: 'Medio', percent: 45 },
   { label: 'Forte', percent: 80 }
+];
+
+const PLATEAU_HEIGHT_PRESETS: ReadonlyArray<{ label: string; height: number }> = [
+  { label: 'Collina', height: 135 },
+  { label: 'Altopiano', height: 185 },
+  { label: 'Tavolato', height: 225 }
 ];
 
 interface SyncedNumberSliderProps {
@@ -290,6 +304,9 @@ export function PropertiesPanel({
     activeTool,
     brushDiameterDoc,
     brushIntensity,
+    brushMode,
+    brushRoughness,
+    plateauTargetHeight,
     inspectorTab,
     activeLayerId,
     selectedObjectId,
@@ -321,10 +338,12 @@ export function PropertiesPanel({
     : null;
   const activeLayer = doc.manifest.layers.find((l) => l.id === activeLayerId);
   const intensityPercent = Math.round(brushIntensity * 100);
+  const roughnessPercent = Math.round(brushRoughness * 100);
   const foregroundFirstObjects = [...doc.manifest.objects].reverse();
 
   const isElevationTool =
     activeTool === 'raise' ||
+    activeTool === 'plateau' ||
     activeTool === 'lower' ||
     activeTool === 'flatten' ||
     activeTool === 'smooth';
@@ -460,12 +479,55 @@ export function PropertiesPanel({
               </div>
             ) : null}
 
-            {/* Strumenti Terra / Acqua (senza slider intensità) */}
+            {/* Strumenti Terra / Acqua (con pennello intelligente e scorciatoia generatore) */}
             {activeTool === 'land' || activeTool === 'water' ? (
               <div className="panel-group">
                 <h3 className="panel-subheading">
                   {activeTool === 'land' ? 'Pennello terra' : 'Pennello acqua'}
                 </h3>
+
+                <div className="form-field">
+                  <span className="field-label">Modalità pennello</span>
+                  <div className="segmented-group" role="group" aria-label="Modalità pennello">
+                    <button
+                      type="button"
+                      className="segmented-btn"
+                      aria-pressed={brushMode === 'smart'}
+                      onClick={() => store.setBrushMode('smart')}
+                    >
+                      Intelligente
+                    </button>
+                    <button
+                      type="button"
+                      className="segmented-btn"
+                      aria-pressed={brushMode === 'classic'}
+                      onClick={() => store.setBrushMode('classic')}
+                    >
+                      Geometrico
+                    </button>
+                  </div>
+                </div>
+
+                <p className="panel-hint">
+                  {brushMode === 'smart'
+                    ? activeTool === 'land'
+                      ? 'Scolpisce coste frastagliate con isolotti costieri e un rilievo naturale verso l’interno.'
+                      : 'Scava insenature naturali rispettando scogliere e versanti costieri esistenti.'
+                    : 'Pennello circolare classico con bordo netto e uniforme.'}
+                </p>
+
+                {brushMode === 'smart' ? (
+                  <SyncedNumberSlider
+                    label="Frastagliatura costa"
+                    value={roughnessPercent}
+                    min={0}
+                    max={100}
+                    step={5}
+                    unit="%"
+                    onChange={(pct) => store.setBrushRoughnessPercent(pct)}
+                  />
+                ) : null}
+
                 <SyncedNumberSlider
                   label="Diametro"
                   value={brushDiameterDoc}
@@ -480,10 +542,20 @@ export function PropertiesPanel({
                   diameterDoc={brushDiameterDoc}
                   colors={doc.theme.colors}
                 />
+
+                <button
+                  type="button"
+                  className="btn btn-secondary"
+                  onClick={() => store.openDialog('generateWorld')}
+                  style={{ width: '100%', justifyContent: 'center' }}
+                >
+                  <GenerateWorldIcon size={18} />
+                  <span>Genera continente…</span>
+                </button>
               </div>
             ) : null}
 
-            {/* Strumento Rilievo (4 modalità 2×2 + Intensità con 3 preset + Diametro) */}
+            {/* Strumento Rilievo (5 modalità: Alza picchi, Altopiano, Abbassa, Appiattisci, Ammorbidisci) */}
             {isElevationTool ? (
               <div className="panel-group">
                 <h3 className="panel-subheading">Rilievo</h3>
@@ -510,6 +582,43 @@ export function PropertiesPanel({
                 </div>
 
                 <p className="panel-hint">{activeElevationSpec.hint}</p>
+
+                {activeTool === 'plateau' ? (
+                  <div className="panel-group" style={{ gap: 'var(--ui-space-2)' }}>
+                    <SyncedNumberSlider
+                      label="Quota altopiano"
+                      value={plateauTargetHeight}
+                      min={60}
+                      max={245}
+                      step={5}
+                      unit=""
+                      onChange={(val) => store.setPlateauTargetHeight(val)}
+                    />
+                    <div
+                      className="intensity-presets-row"
+                      role="group"
+                      aria-label="Preset quota altopiano"
+                    >
+                      {PLATEAU_HEIGHT_PRESETS.map((preset) => {
+                        const isPresetActive = plateauTargetHeight === preset.height;
+                        return (
+                          <button
+                            key={preset.label}
+                            type="button"
+                            className="segmented-btn intensity-preset-btn"
+                            aria-pressed={isPresetActive}
+                            onClick={() => store.setPlateauTargetHeight(preset.height)}
+                          >
+                            <span>{preset.label}</span>
+                            <span className="intensity-preset-pct tabular-nums">
+                              {preset.height}
+                            </span>
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="panel-group" style={{ gap: 'var(--ui-space-2)' }}>
                   <SyncedNumberSlider
@@ -574,6 +683,35 @@ export function PropertiesPanel({
                   onSelectCover={(tool) => store.setTool(tool)}
                   colors={doc.theme.colors}
                 />
+
+                <div className="form-field">
+                  <span className="field-label">Modalità pennello</span>
+                  <div className="segmented-group" role="group" aria-label="Modalità pennello">
+                    <button
+                      type="button"
+                      className="segmented-btn"
+                      aria-pressed={brushMode === 'smart'}
+                      onClick={() => store.setBrushMode('smart')}
+                    >
+                      Intelligente
+                    </button>
+                    <button
+                      type="button"
+                      className="segmented-btn"
+                      aria-pressed={brushMode === 'classic'}
+                      onClick={() => store.setBrushMode('classic')}
+                    >
+                      Uniforme
+                    </button>
+                  </div>
+                </div>
+
+                <p className="panel-hint">
+                  {brushMode === 'smart'
+                    ? 'Adatta i margini al rilievo e alle coste, con bordi organici e naturali.'
+                    : 'Stende il materiale in modo uniforme all’interno dell’intera area del pennello.'}
+                </p>
+
                 <SyncedNumberSlider
                   label="Diametro pennello"
                   value={brushDiameterDoc}

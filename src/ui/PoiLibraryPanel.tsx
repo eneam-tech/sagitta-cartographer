@@ -17,9 +17,9 @@ function normalizeQuery(raw: string): string {
 }
 
 /**
- * Filterable, searchable catalog of all 31 built-in POI stamps with single/scatter
- * brush mode selector, scale control, scatter radius/density controls, and
- * uniform dark swatch previews.
+ * Filterable, searchable catalog of all built-in POI stamps with single/scatter
+ * brush mode selector, auto-labeling toggle, scale control, scatter
+ * radius/density controls, and uniform dark swatch previews.
  */
 export function PoiLibraryPanel({ store }: PoiLibraryPanelProps) {
   const snap = useEditorStore(store);
@@ -32,7 +32,8 @@ export function PoiLibraryPanel({ store }: PoiLibraryPanelProps) {
     poiPlacementScale,
     poiBrushMode,
     poiScatterRadiusDoc,
-    poiScatterDensity
+    poiScatterDensity,
+    poiAutoLabel
   } = snap;
 
   const activeItem = activePoiId
@@ -110,6 +111,28 @@ export function PoiLibraryPanel({ store }: PoiLibraryPanelProps) {
             Scatter
           </button>
         </div>
+        {poiBrushMode === 'single' ? (
+          <label
+            style={{
+              display: 'flex',
+              alignItems: 'center',
+              gap: 'var(--ui-space-2)',
+              minHeight: '36px',
+              fontSize: '15px',
+              lineHeight: '22px',
+              color: 'var(--ui-text)',
+              cursor: 'pointer'
+            }}
+          >
+            <input
+              type="checkbox"
+              checked={poiAutoLabel}
+              onChange={(e) => store.setPoiAutoLabel(e.target.checked)}
+              style={{ width: '16px', height: '16px', accentColor: 'var(--ui-accent)' }}
+            />
+            <span>Etichetta alla posa</span>
+          </label>
+        ) : null}
       </div>
 
       <SyncedRangeField
@@ -264,7 +287,7 @@ export function PoiLibraryPanel({ store }: PoiLibraryPanelProps) {
               setSelectedCategory('all');
             }}
           >
-            Mostra tutti (31)
+            Mostra tutti ({BUILTIN_POI_CATALOG.length})
           </button>
         </div>
       ) : (

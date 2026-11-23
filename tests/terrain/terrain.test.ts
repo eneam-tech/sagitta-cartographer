@@ -17,13 +17,15 @@ import {
 } from '../../src/model/document';
 import { HistoryManager } from '../../src/model/history';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
-import { DEFAULT_THEME, V1_FLAT_THEME, cloneTheme } from '../../src/theme/theme';
+import { DEFAULT_THEME, V1_FLAT_THEME, WITCHER_THEME, cloneTheme } from '../../src/theme/theme';
 import {
   TerrainBrushTool,
   TerrainRenderer,
   TerrainStrokeSession,
+  WORLD_GENERATOR_PRESETS,
   classifyCell,
   computeLocalWaterDistancePx,
+  generateProceduralWorldTerrain,
   inspectCellAtDoc,
   isPointOnLand,
   resizeTerrainBuffers
@@ -1291,5 +1293,280 @@ describe('Terrain engine & reactive rendering', () => {
     expect(downscaled.height[10 * 25 + 16]).toBe(180);
     expect(downscaled.cover[10 * 25 + 16]).toBe(COVER_LAVA);
     expect(downscaled.mask[2 * 25 + 2]).toBe(0);
+  });
+
+  it('sculpts jagged peaked ridges with raise (never plateauing at 255) and flat mesas with dedicated plateau tool', () => {
+    const doc = createEmptyDocument({ widthPx: 256, heightPx: 256 });
+    doc.terrain.mask.fill(255);
+    doc.terrain.height.fill(40);
+    doc.terrain.cover.fill(COVER_NATURAL);
+
+    const session = new TerrainStrokeSession();
+    const cx = doc.manifest.space.width * 0.5;
+    const cy = doc.manifest.space.height * 0.5;
+
+    // 15 repeated high-intensity passes of `raise` across center
+    for (let pass = 0; pass < 15; pass += 1) {
+      session.beginStroke(
+        doc,
+        { tool: 'raise', diameterDoc: 280, intensity: 1.0, brushMode: 'smart', roughness: 0.65 },
+        cx - 40,
+        cy
+      );
+      session.addPoint(doc, cx + 40, cy);
+      session.commit(doc);
+    }
+
+    // Analyze center disk
+    const heights: number[] = [];
+    let maxH = 0;
+    let exact255 = 0;
+    for (let y = 96; y < 160; y += 1) {
+      for (let x = 96; x < 160; x += 1) {
+        const h = doc.terrain.height[y * 256 + x];
+        heights.push(h);
+        if (h > maxH) maxH = h;
+        if (h === 255) exact255 += 1;
+      }
+    }
+    const mean = heights.reduce((a, b) => a + b, 0) / heights.length;
+    const variance =
+      heights.reduce((acc, h) => acc + (h - mean) * (h - mean), 0) / heights.length;
+    const stdDev = Math.sqrt(variance);
+    const frac255 = exact255 / heights.length;
+
+    expect(maxH).toBeGreaterThan(200);
+    expect(stdDev).toBeGreaterThan(15);
+    expect(frac255).toBeLessThan(0.15);
+
+    // Now test dedicated `plateau` tool on a flat island quadrant
+    const pDoc = createEmptyDocument({ widthPx: 256, heightPx: 256 });
+    pDoc.terrain.mask.fill(255);
+    pDoc.terrain.height.fill(40);
+    pDoc.terrain.cover.fill(COVER_NATURAL);
+    const beforePlateau = snapshotTerrain(pDoc);
+
+    for (let pass = 0; pass < 4; pass += 1) {
+      session.beginStroke(
+        pDoc,
+        {
+          tool: 'plateau',
+          diameterDoc: 260,
+          intensity: 1.0,
+          brushMode: 'smart',
+          roughness: 0.5,
+          targetHeight: 190
+        },
+        cx,
+        cy
+      );
+      const res = session.commit(pDoc);
+      if (pass === 0) {
+        expect(res).not.toBeNull();
+      }
+    }
+
+    const coreSamples: number[] = [];
+    for (let y = 122; y <= 134; y += 1) {
+      for (let x = 122; x <= 134; x += 1) {
+        coreSamples.push(pDoc.terrain.height[y * 256 + x]);
+      }
+    }
+    const coreMin = Math.min(...coreSamples);
+    const coreMax = Math.max(...coreSamples);
+    expect(coreMin).toBeGreaterThanOrEqual(182);
+    expect(coreMax).toBeLessThanOrEqual(196);
+
+    // Undo / Redo check for single plateau stroke
+    const pDoc2 = createEmptyDocument({ widthPx: 256, heightPx: 256 });
+    pDoc2.terrain.mask.fill(255);
+    pDoc2.terrain.height.fill(40);
+    session.beginStroke(
+      pDoc2,
+      {
+        tool: 'plateau',
+        diameterDoc: 200,
+        intensity: 0.85,
+        brushMode: 'smart',
+        targetHeight: 190
+      },
+      cx,
+      cy
+    );
+    const commitRes = session.commit(pDoc2)!;
+    const afterStroke = snapshotTerrain(pDoc2);
+    const history = new HistoryManager();
+    history.execute(pDoc2, commitRes.command, { alreadyApplied: true });
+    history.undo(pDoc2);
+    expect(countByteMismatches(pDoc2.terrain.height, beforePlateau.height)).toBe(0);
+    history.redo(pDoc2);
+    expect(countByteMismatches(pDoc2.terrain.height, afterStroke.height)).toBe(0);
+  });
+
+  it('produces ragged coastlines and context-aware relief/covers in smart brush mode, matching renderRegion vs renderFull', () => {
+    const doc = createEmptyDocument({ widthPx: 256, heightPx: 256 });
+    doc.theme = cloneTheme(WITCHER_THEME);
+    const session = new TerrainStrokeSession();
+    const cx = doc.manifest.space.width * 0.5;
+    const cy = doc.manifest.space.height * 0.5;
+
+    // 1. Smart land paint creates land with organic relief (height > 0) and rough coastline
+    session.beginStroke(
+      doc,
+      { tool: 'land', diameterDoc: 420, intensity: 1.0, brushMode: 'smart', roughness: 0.75 },
+      cx,
+      cy
+    );
+    session.commit(doc);
+
+    let landCells = 0;
+    let positiveHeightCells = 0;
+    let perimeterDiffersFromCircle = false;
+    for (let y = 0; y < 256; y += 1) {
+      for (let x = 0; x < 256; x += 1) {
+        const i = y * 256 + x;
+        if (doc.terrain.mask[i] >= 128) {
+          landCells += 1;
+          if (doc.terrain.height[i] > 0) positiveHeightCells += 1;
+        }
+      }
+    }
+    expect(landCells).toBeGreaterThan(200);
+    expect(positiveHeightCells).toBeGreaterThan(landCells * 0.7);
+
+    // Check coastline isn't an exact smooth circle
+    const ringRadius = (doc.manifest.space.width * 0.5) / 256;
+    const testRDoc = 200;
+    const angles = 24;
+    const ringStates: boolean[] = [];
+    for (let a = 0; a < angles; a += 1) {
+      const ang = (a / angles) * Math.PI * 2;
+      const cell = inspectCellAtDoc(doc, cx + Math.cos(ang) * testRDoc, cy + Math.sin(ang) * testRDoc)!;
+      ringStates.push(cell.mask >= 128);
+    }
+    if (ringRadius > 0) {
+      perimeterDiffersFromCircle = ringStates.some(Boolean) && ringStates.some((v) => !v);
+    }
+    expect(perimeterDiffersFromCircle).toBe(true);
+
+    // 2. Smart raise vs smart water cliff/shore grading
+    doc.terrain.mask.fill(255);
+    doc.terrain.height.fill(190); // high mountain block
+    session.beginStroke(
+      doc,
+      { tool: 'water', diameterDoc: 160, intensity: 1.0, brushMode: 'smart', roughness: 0.65 },
+      cx,
+      cy
+    );
+    session.commit(doc);
+    // Center carved to 0, nearby mountain cliff stays > 160
+    expect(inspectCellAtDoc(doc, cx, cy)!.mask).toBe(0);
+    expect(inspectCellAtDoc(doc, cx + 105, cy)!.height).toBeGreaterThan(160);
+
+    // 3. Smart Forest / Fields / Sand near shore on WITCHER_THEME produce zero region vs full mismatch
+    doc.terrain.mask.fill(0);
+    session.beginStroke(
+      doc,
+      { tool: 'land', diameterDoc: 500, intensity: 1.0, brushMode: 'smart', roughness: 0.6 },
+      cx,
+      cy
+    );
+    session.commit(doc);
+    session.beginStroke(
+      doc,
+      { tool: 'forest', diameterDoc: 180, intensity: 1.0, brushMode: 'smart' },
+      cx - 80,
+      cy
+    );
+    const forestRes = session.commit(doc)!;
+    session.beginStroke(
+      doc,
+      { tool: 'fields', diameterDoc: 180, intensity: 1.0, brushMode: 'smart' },
+      cx + 80,
+      cy
+    );
+    const fieldsRes = session.commit(doc)!;
+    session.beginStroke(
+      doc,
+      { tool: 'sand', diameterDoc: 140, intensity: 1.0, brushMode: 'smart' },
+      cx,
+      cy + 80
+    );
+    const sandRes = session.commit(doc)!;
+
+    expect(inspectCellAtDoc(doc, cx - 80, cy)!.cover).toBe(COVER_FOREST);
+    expect(inspectCellAtDoc(doc, cx + 80, cy)!.cover).toBe(COVER_FIELDS);
+    expect(inspectCellAtDoc(doc, cx, cy + 80)!.cover).toBe(COVER_SAND);
+
+    const dirtyAll = {
+      x: Math.min(forestRes.dirtyRect.x, fieldsRes.dirtyRect.x, sandRes.dirtyRect.x),
+      y: Math.min(forestRes.dirtyRect.y, fieldsRes.dirtyRect.y, sandRes.dirtyRect.y),
+      width: 256,
+      height: 256
+    };
+    const rRegion = new TerrainRenderer();
+    rRegion.renderFull(doc);
+    rRegion.renderRegion(doc, {
+      x: Math.max(0, dirtyAll.x),
+      y: Math.max(0, dirtyAll.y),
+      width: Math.min(256 - Math.max(0, dirtyAll.x), dirtyAll.width),
+      height: Math.min(256 - Math.max(0, dirtyAll.y), dirtyAll.height)
+    });
+    const rFull = new TerrainRenderer();
+    rFull.renderFull(doc);
+    expect(countByteMismatches(rRegion.getPixelData().rgba, rFull.getPixelData().rgba)).toBe(0);
+    rRegion.dispose();
+    rFull.dispose();
+  });
+
+  it('generates deterministic continents across all 4 presets with 1-step undo/redo', () => {
+    for (const preset of WORLD_GENERATOR_PRESETS) {
+      const docA = createEmptyDocument({ widthPx: 192, heightPx: 192 });
+      const docB = createEmptyDocument({ widthPx: 192, heightPx: 192 });
+      const opts = {
+        preset: preset.id,
+        seed: 4219,
+        seaLevelPercent: preset.defaultSeaLevelPercent,
+        mountainStrengthPercent: preset.defaultMountainPercent,
+        coastRoughnessPercent: preset.defaultRoughnessPercent,
+        biomeRichnessPercent: preset.defaultBiomePercent
+      };
+
+      const resA = generateProceduralWorldTerrain(docA, opts);
+      const resB = generateProceduralWorldTerrain(docB, opts);
+      expect(countByteMismatches(docA.terrain.mask, docB.terrain.mask)).toBe(0);
+      expect(countByteMismatches(docA.terrain.height, docB.terrain.height)).toBe(0);
+      expect(countByteMismatches(docA.terrain.cover, docB.terrain.cover)).toBe(0);
+
+      let landCount = 0;
+      let seaCount = 0;
+      let maxH = 0;
+      const coversSeen = new Set<number>();
+      for (let i = 0; i < docA.terrain.mask.length; i += 1) {
+        if (docA.terrain.mask[i] >= 128) {
+          landCount += 1;
+          if (docA.terrain.height[i] > maxH) maxH = docA.terrain.height[i];
+          coversSeen.add(docA.terrain.cover[i]);
+        } else {
+          seaCount += 1;
+        }
+      }
+      expect(landCount).toBeGreaterThan(200);
+      expect(seaCount).toBeGreaterThan(200);
+      expect(maxH).toBeGreaterThan(150);
+      expect(coversSeen.size).toBeGreaterThanOrEqual(3);
+
+      // 1-step undo back to empty ocean, redo restores bit-identically
+      const generatedSnap = snapshotTerrain(docA);
+      const history = new HistoryManager();
+      history.execute(docA, resA.command, { alreadyApplied: true });
+      expect(history.undo(docA)).not.toBeNull();
+      expect(docA.terrain.mask.every((v) => v === 0)).toBe(true);
+      expect(history.redo(docA)).not.toBeNull();
+      expect(countByteMismatches(docA.terrain.mask, generatedSnap.mask)).toBe(0);
+      expect(countByteMismatches(docA.terrain.height, generatedSnap.height)).toBe(0);
+      expect(countByteMismatches(docA.terrain.cover, generatedSnap.cover)).toBe(0);
+      expect(resB.dirtyRect.width).toBeGreaterThan(0);
+    }
   });
 });

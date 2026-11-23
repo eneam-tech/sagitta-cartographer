@@ -11,7 +11,7 @@ import {
 import { TerrainRenderer } from '../terrain';
 import { ITerrainRenderer } from '../terrain/types';
 import { getFontSpec } from '../theme/theme';
-import { drawMapObjectsToContext } from './objectMetrics';
+import { drawAtlasFrameToContext, drawMapObjectsToContext } from './objectMetrics';
 
 export interface ComposeDocumentOptions {
   widthPx: number;
@@ -525,6 +525,7 @@ export function composeDocumentToCanvas(
     const scaleX = widthPx / doc.manifest.space.width;
     const scaleY = heightPx / doc.manifest.space.height;
     drawMapObjectsToContext(ctx, doc, assets, scaleX, scaleY);
+    drawAtlasFrameToContext(ctx, widthPx, heightPx, doc.theme);
     ctx.restore();
 
     return targetCanvas;

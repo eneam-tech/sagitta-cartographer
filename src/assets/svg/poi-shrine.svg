@@ -1,0 +1,17 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Luogo di potere">
+  <!-- Alone magico circolare a terra -->
+  <ellipse cx="64" cy="96" rx="34" ry="12" fill="#E0BB79" opacity="0.34"/>
+  <ellipse cx="64" cy="96" rx="22" ry="7" fill="#5E95A0" opacity="0.45"/>
+
+  <!-- Piedistallo di pietra antica -->
+  <polygon points="34,98 42,84 86,84 94,98" fill="#8C8986" stroke="#21150C" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Stele runica spaccata al vertice -->
+  <polygon points="48,86 52,32 64,18 76,34 80,86" fill="#6C5D4F" stroke="#21150C" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="64,18 76,34 80,86 64,86" fill="#4E4339"/>
+  <polygon points="48,86 52,32 64,18 76,34 80,86" fill="none" stroke="#21150C" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Glifo luminoso del segno -->
+  <polygon points="64,34 73,50 64,66 55,50" fill="#9CDEEF" stroke="#E0BB79" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M64 40 V60 M59 50 H69" stroke="#F3EEDF" stroke-width="2" stroke-linecap="round"/>
+</svg>

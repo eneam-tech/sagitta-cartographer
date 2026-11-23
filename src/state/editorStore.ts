@@ -41,12 +41,14 @@ import {
   SavedProjectSummary
 } from '../persistence/types';
 import {
+  BrushShapeMode,
   BrushStrokeParams,
   ITerrainRenderer,
   ITerrainStrokeSession,
   StrokeCommitResult,
   TerrainBrushTool
 } from '../terrain/types';
+import { WorldGeneratorOptions, generateProceduralWorldTerrain } from '../terrain/worldGenerator';
 
 export type EditorTool =
   | 'hand'
@@ -56,7 +58,7 @@ export type EditorTool =
   | 'poi'
   | 'label';
 
-export type ElevationSubTool = 'raise' | 'lower' | 'flatten' | 'smooth';
+export type ElevationSubTool = 'raise' | 'plateau' | 'lower' | 'flatten' | 'smooth';
 export type CoverSubTool = CoverToolId;
 
 export type EditorDialogKind =
@@ -64,6 +66,7 @@ export type EditorDialogKind =
   | 'openProject'
   | 'exportPdf'
   | 'resizeCanvas'
+  | 'generateWorld'
   | 'shortcuts'
   | 'conflict'
   | 'storageError'
@@ -85,6 +88,9 @@ export const DEFAULT_BRUSH_DIAMETER_DOC = 80;
 export const MIN_BRUSH_INTENSITY = 0.05;
 export const MAX_BRUSH_INTENSITY = 1.0;
 export const DEFAULT_BRUSH_INTENSITY = 0.45;
+export const DEFAULT_BRUSH_MODE: BrushShapeMode = 'smart';
+export const DEFAULT_BRUSH_ROUGHNESS = 0.65;
+export const DEFAULT_PLATEAU_HEIGHT = 185;
 export const MIN_CAMERA_SCALE = 0.08;
 export const MAX_CAMERA_SCALE = 12;
 
@@ -93,6 +99,7 @@ export function isTerrainBrushTool(tool: EditorTool): tool is TerrainBrushTool {
     tool === 'land' ||
     tool === 'water' ||
     tool === 'raise' ||
+    tool === 'plateau' ||
     tool === 'lower' ||
     tool === 'flatten' ||
     tool === 'smooth' ||
@@ -112,6 +119,7 @@ export function isTerrainBrushTool(tool: EditorTool): tool is TerrainBrushTool {
 export function isLandRequiredBrush(tool: EditorTool): boolean {
   return (
     tool === 'raise' ||
+    tool === 'plateau' ||
     tool === 'lower' ||
     tool === 'flatten' ||
     tool === 'smooth' ||
@@ -241,7 +249,8 @@ interface FallbackTileSnapshot {
 const TOOL_LABELS: Record<TerrainBrushTool, string> = {
   land: 'Pennellata Terra',
   water: 'Pennellata Acqua',
-  raise: 'Alza rilievo',
+  raise: 'Alza picchi',
+  plateau: 'Altopiano',
   lower: 'Abbassa rilievo',
   flatten: 'Appiattisci rilievo',
   smooth: 'Ammorbidisci rilievo',
@@ -468,6 +477,12 @@ export class FallbackTerrainStrokeSession implements ITerrainStrokeSession {
         } else if (mask[idx] > 0) {
           if (tool === 'raise') {
             height[idx] = Math.min(255, height[idx] + Math.max(1, Math.round(deltaMax * falloff)));
+          } else if (tool === 'plateau') {
+            const target = this.params.targetHeight ?? DEFAULT_PLATEAU_HEIGHT;
+            height[idx] = Math.min(
+              255,
+              Math.max(0, Math.round(height[idx] + (target - height[idx]) * falloff * this.params.intensity))
+            );
           } else if (tool === 'lower') {
             height[idx] = Math.max(0, height[idx] - Math.max(1, Math.round(deltaMax * falloff)));
           } else if (tool === 'forest') {
@@ -743,6 +758,10 @@ export interface EditorSnapshot {
   lastCoverTool: CoverSubTool;
   brushDiameterDoc: number;
   brushIntensity: number;
+  brushMode: BrushShapeMode;
+  brushRoughness: number;
+  plateauTargetHeight: number;
+  poiAutoLabel: boolean;
   inspectorTab: InspectorTab;
   activeLayerId: string;
   poiPlacementScale: number;
@@ -789,6 +808,10 @@ export class EditorStore {
   private lastCoverTool: CoverSubTool = 'forest';
   private brushDiameterDoc = DEFAULT_BRUSH_DIAMETER_DOC;
   private brushIntensity = DEFAULT_BRUSH_INTENSITY;
+  private brushMode: BrushShapeMode = DEFAULT_BRUSH_MODE;
+  private brushRoughness = DEFAULT_BRUSH_ROUGHNESS;
+  private plateauTargetHeight = DEFAULT_PLATEAU_HEIGHT;
+  private poiAutoLabel = false;
 
   private inspectorTab: InspectorTab = 'tool';
   private activeLayerId = DEFAULT_LAYER_TERRAIN_ID;
@@ -946,7 +969,13 @@ export class EditorStore {
       this.cancelTerrainStroke();
     }
     this.activeTool = tool;
-    if (tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth') {
+    if (
+      tool === 'raise' ||
+      tool === 'plateau' ||
+      tool === 'lower' ||
+      tool === 'flatten' ||
+      tool === 'smooth'
+    ) {
       this.lastElevationTool = tool;
     } else if (
       tool === 'forest' ||
@@ -1135,6 +1164,18 @@ export class EditorStore {
     if (this.doc.theme.id === theme.id && JSON.stringify(this.doc.theme.colors) === JSON.stringify(theme.colors)) {
       return;
     }
+    const prevColors = this.doc.theme.colors;
+    const nextColors = theme.colors;
+    const prevNorm = this.pathColor.toLowerCase();
+    if (prevNorm === prevColors.pathRiver.toLowerCase()) {
+      this.pathColor = nextColors.pathRiver;
+    } else if (prevNorm === prevColors.pathRoad.toLowerCase()) {
+      this.pathColor = nextColors.pathRoad;
+    } else if (prevNorm === prevColors.pathBorder.toLowerCase()) {
+      this.pathColor = nextColors.pathBorder;
+    } else if (prevNorm === prevColors.ink.toLowerCase()) {
+      this.pathColor = nextColors.ink;
+    }
     this.executeCommand(new SetThemeCommand(this.doc.theme, theme, this.doc));
   }
 
@@ -1166,6 +1207,53 @@ export class EditorStore {
   setBrushIntensityPercent(percent: number): void {
     if (!Number.isFinite(percent)) return;
     this.setBrushIntensity(percent / 100);
+  }
+
+  setBrushMode(mode: BrushShapeMode): void {
+    if (this.brushMode === mode) return;
+    this.brushMode = mode;
+    this.notify();
+  }
+
+  setBrushRoughnessPercent(percent: number): void {
+    if (!Number.isFinite(percent)) return;
+    const clamped = Math.round(clampNumber(percent, 0, 100)) / 100;
+    if (clamped === this.brushRoughness) return;
+    this.brushRoughness = clamped;
+    this.notify();
+  }
+
+  setPlateauTargetHeight(height: number): void {
+    if (!Number.isFinite(height)) return;
+    const clamped = Math.round(clampNumber(height, 40, 245));
+    if (clamped === this.plateauTargetHeight) return;
+    this.plateauTargetHeight = clamped;
+    this.notify();
+  }
+
+  setPoiAutoLabel(enabled: boolean): void {
+    if (this.poiAutoLabel === enabled) return;
+    this.poiAutoLabel = enabled;
+    this.notify();
+  }
+
+  generateWorld(options: WorldGeneratorOptions): void {
+    if (this.strokeSession.isActive()) {
+      this.cancelTerrainStroke();
+    }
+    const { command } = generateProceduralWorldTerrain(this.doc, options);
+    this.executeCommand(command, { alreadyApplied: true });
+    this.renderer.renderFull(this.doc);
+    this.terrainRenderTick += 1;
+    this.notifyTerrainRedraw();
+    this.fitCamera();
+    this.activeDialog = null;
+    this.seaOnlyHintVisible = false;
+    this.statusNotice = {
+      tone: 'success',
+      text: 'Continente generato. Usa Annulla per tornare al terreno precedente.'
+    };
+    this.notify();
   }
 
   selectObject(id: string | null): void {
@@ -1443,7 +1531,11 @@ export class EditorStore {
     }
 
     const effectiveIntensity =
-      tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth'
+      tool === 'raise' ||
+      tool === 'plateau' ||
+      tool === 'lower' ||
+      tool === 'flatten' ||
+      tool === 'smooth'
         ? this.brushIntensity
         : 1.0;
 
@@ -1452,7 +1544,10 @@ export class EditorStore {
       {
         tool,
         diameterDoc: this.brushDiameterDoc,
-        intensity: effectiveIntensity
+        intensity: effectiveIntensity,
+        brushMode: this.brushMode,
+        roughness: this.brushRoughness,
+        ...(tool === 'plateau' ? { targetHeight: this.plateauTargetHeight } : {})
       },
       docX,
       docY
@@ -1784,6 +1879,10 @@ export class EditorStore {
       lastCoverTool: this.lastCoverTool,
       brushDiameterDoc: this.brushDiameterDoc,
       brushIntensity: this.brushIntensity,
+      brushMode: this.brushMode,
+      brushRoughness: this.brushRoughness,
+      plateauTargetHeight: this.plateauTargetHeight,
+      poiAutoLabel: this.poiAutoLabel,
       inspectorTab: this.inspectorTab,
       activeLayerId: this.activeLayerId,
       poiPlacementScale: this.poiPlacementScale,

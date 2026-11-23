@@ -59,7 +59,7 @@ Questi pacchetti sono impiegati in fase di compilazione, controllo tipi e test a
 
 ## 5. Risorse grafiche e simboli cartografici (`CC0-1.0`)
 
-Tutti i 31 simboli POI del catalogo predefinito (`BUILTIN_POI_CATALOG`, suddivisi nelle 6 categorie di `POI_CATEGORIES`, definiti in `src/assets/svg/*.svg` e registrati in `src/assets/catalog.ts`) sono **illustrazioni vettoriali originali** create appositamente per *«Il tavolo del cartografo»*, prive di dipendenze da font esterni o script e rilasciate sotto **CC0 1.0 Universal (Public Domain Dedication)** (https://creativecommons.org/publicdomain/zero/1.0/deed.it).
+Tutti i 38 simboli POI del catalogo predefinito (`BUILTIN_POI_CATALOG`, suddivisi nelle 6 categorie di `POI_CATEGORIES`, definiti in `src/assets/svg/*.svg` e registrati in `src/assets/catalog.ts`) sono **illustrazioni vettoriali originali** create appositamente per *«Il tavolo del cartografo»*, prive di dipendenze da font esterni o script e rilasciate sotto **CC0 1.0 Universal (Public Domain Dedication)** (https://creativecommons.org/publicdomain/zero/1.0/deed.it).
 
 | ID risorsa | Nome italiano | Categoria | Percorso archivio / sorgente | Versione | Autore | Origine | Licenza | Attribuzione richiesta |
 |---|---|---|---|---|---|---|---|---|
@@ -69,30 +69,37 @@ Tutti i 31 simboli POI del catalogo predefinito (`BUILTIN_POI_CATALOG`, suddivis
 | `poi-tavern` | Locanda | Insediamenti | `assets/poi-tavern.svg` (`src/assets/svg/poi-tavern.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-windmill` | Mulino a vento | Insediamenti | `assets/poi-windmill.svg` (`src/assets/svg/poi-windmill.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-abbey` | Abbazia | Insediamenti | `assets/poi-abbey.svg` (`src/assets/svg/poi-abbey.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-walled-city` | Metropoli murata | Insediamenti | `assets/poi-walled-city.svg` (`src/assets/svg/poi-walled-city.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-tower` | Torre | Fortezze | `assets/poi-tower.svg` (`src/assets/svg/poi-tower.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-citadel` | Cittadella | Fortezze | `assets/poi-citadel.svg` (`src/assets/svg/poi-citadel.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-castle` | Castello | Fortezze | `assets/poi-castle.svg` (`src/assets/svg/poi-castle.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-keep` | Bastione | Fortezze | `assets/poi-keep.svg` (`src/assets/svg/poi-keep.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-gate` | Porta fortificata | Fortezze | `assets/poi-gate.svg` (`src/assets/svg/poi-gate.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-hill-fort` | Rocca collinare | Fortezze | `assets/poi-hill-fort.svg` (`src/assets/svg/poi-hill-fort.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-harbor` | Porto | Coste e Porti | `assets/poi-harbor.svg` (`src/assets/svg/poi-harbor.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-lighthouse` | Faro isolato | Coste e Porti | `assets/poi-lighthouse.svg` (`src/assets/svg/poi-lighthouse.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-shipwreck` | Relitto | Coste e Porti | `assets/poi-shipwreck.svg` (`src/assets/svg/poi-shipwreck.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-ship` | Galeone | Coste e Porti | `assets/poi-ship.svg` (`src/assets/svg/poi-ship.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-dock` | Molo | Coste e Porti | `assets/poi-dock.svg` (`src/assets/svg/poi-dock.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-longship` | Drakkar nordico | Coste e Porti | `assets/poi-longship.svg` (`src/assets/svg/poi-longship.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-ruin` | Rovina | Rovine e Misteri | `assets/poi-ruin.svg` (`src/assets/svg/poi-ruin.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-monolith` | Monolite | Rovine e Misteri | `assets/poi-monolith.svg` (`src/assets/svg/poi-monolith.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-temple` | Tempio antico | Rovine e Misteri | `assets/poi-temple.svg` (`src/assets/svg/poi-temple.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-obelisk` | Obelisco runico | Rovine e Misteri | `assets/poi-obelisk.svg` (`src/assets/svg/poi-obelisk.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-portal` | Portale arcano | Rovine e Misteri | `assets/poi-portal.svg` (`src/assets/svg/poi-portal.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-shrine` | Luogo di potere | Rovine e Misteri | `assets/poi-shrine.svg` (`src/assets/svg/poi-shrine.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-monster-lair` | Tana oscura | Rovine e Misteri | `assets/poi-monster-lair.svg` (`src/assets/svg/poi-monster-lair.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-peak` | Picco alpino | Natura e Rilievi | `assets/poi-peak.svg` (`src/assets/svg/poi-peak.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-volcano` | Vulcano | Natura e Rilievi | `assets/poi-volcano.svg` (`src/assets/svg/poi-volcano.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-cave` | Grotta | Natura e Rilievi | `assets/poi-cave.svg` (`src/assets/svg/poi-cave.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-waterfall` | Cascata | Natura e Rilievi | `assets/poi-waterfall.svg` (`src/assets/svg/poi-waterfall.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-ancient-tree` | Albero sacro | Natura e Rilievi | `assets/poi-ancient-tree.svg` (`src/assets/svg/poi-ancient-tree.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-cloud-bank` | Banco di nubi | Natura e Rilievi | `assets/poi-cloud-bank.svg` (`src/assets/svg/poi-cloud-bank.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-bridge` | Ponte | Punti e Riferimenti | `assets/poi-bridge.svg` (`src/assets/svg/poi-bridge.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-mine` | Miniera | Punti e Riferimenti | `assets/poi-mine.svg` (`src/assets/svg/poi-mine.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-camp` | Accampamento | Punti e Riferimenti | `assets/poi-camp.svg` (`src/assets/svg/poi-camp.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-compass` | Rosa dei venti | Punti e Riferimenti | `assets/poi-compass.svg` (`src/assets/svg/poi-compass.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
+| `poi-banner-compass` | Rosa con cartiglio | Punti e Riferimenti | `assets/poi-banner-compass.svg` (`src/assets/svg/poi-banner-compass.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 | `poi-signpost` | Cippo / Crocevia | Punti e Riferimenti | `assets/poi-signpost.svg` (`src/assets/svg/poi-signpost.svg`) | `1` | Il tavolo del cartografo | `builtin` (originale) | `CC0-1.0` | Nessuna (CC0 1.0 Universal) |
 
 **Diritti verificati:** la dedica al pubblico dominio `CC0-1.0` autorizza senza restrizioni la distribuzione dei file SVG all'interno della build dell'editor, l'incorporazione automatica negli archivi `.zip` esportati (accompagnati da `LICENSES.txt`) e la stampa o esportazione PDF delle mappe generate dagli utenti. Le texture di terreno, costa, rilievo, foresta e campi sono sintetizzate proceduralmente in codice proprio del progetto e non utilizzano asset bitmap di terze parti.

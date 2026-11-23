@@ -30,7 +30,7 @@ import {
   shouldIgnoreShortcut
 } from '../../src/state/editorStore';
 import { LAND_MASK_THRESHOLD, TerrainStrokeSession } from '../../src/terrain';
-import { MAP_THEMES, NORDICA_THEME, VULCANICA_THEME } from '../../src/theme/theme';
+import { MAP_THEMES, NORDICA_THEME, VULCANICA_THEME, WITCHER_THEME } from '../../src/theme/theme';
 import { DialogsHost } from '../../src/ui/Dialogs';
 import { PropertiesPanel } from '../../src/ui/PropertiesPanel';
 import { buildResizeCanvasCommand, resizeMapObjects } from '../../src/ui/ResizeCanvasDialog';
@@ -355,12 +355,14 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     expect(store.getSnapshot().hasLand).toBe(true);
     expect(doc.manifest.revision).toBe(1);
 
-    // Verifica che Rilievo continui a rispettare brushIntensity (0.45 -> delta < 16)
+    // Verifica che Rilievo continui a rispettare brushIntensity (0.45 -> incremento delta < 16 rispetto al rilievo costiero)
+    const heightAfterLand = doc.terrain.height[centerIdx];
     store.setTool('raise');
     store.beginTerrainStroke(centerDocX, centerDocY);
     store.commitTerrainStroke();
-    expect(doc.terrain.height[centerIdx]).toBeGreaterThan(0);
-    expect(doc.terrain.height[centerIdx]).toBeLessThan(16);
+    const raiseDelta = doc.terrain.height[centerIdx] - heightAfterLand;
+    expect(raiseDelta).toBeGreaterThan(0);
+    expect(raiseDelta).toBeLessThan(16);
 
     // Singolo clic fermo con Acqua sullo stesso punto: azzera maschera, quota e copertura
     store.setTool('water');
@@ -827,5 +829,82 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     expect(outStamp.y).toBe(1500);
     expect(outStamp.width).toBeCloseTo(120, 2);
     expect(outStamp.height).toBeCloseTo(160, 2);
+  });
+
+  it('supports plateau tool, smart brush controls, GenerateWorldDialog SSR, generateWorld undo/redo, and theme path auto-sync', () => {
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 128 });
+    const store = new EditorStore({
+      initialDocument: doc,
+      strokeSession: new TerrainStrokeSession()
+    });
+
+    // Smart brush mode & plateau defaults
+    expect(store.getSnapshot().brushMode).toBe('smart');
+    expect(store.getSnapshot().plateauTargetHeight).toBe(185);
+    expect(store.getSnapshot().poiAutoLabel).toBe(false);
+
+    store.setTool('plateau');
+    expect(store.getSnapshot().activeTool).toBe('plateau');
+    store.setPlateauTargetHeight(225);
+    expect(store.getSnapshot().plateauTargetHeight).toBe(225);
+
+    const plateauPropHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    expect(plateauPropHtml).toContain('Alza picchi');
+    expect(plateauPropHtml).toContain('Altopiano');
+    expect(plateauPropHtml).toContain('Quota altopiano');
+    expect(plateauPropHtml).toContain('Tavolato');
+
+    store.setTool('land');
+    const smartLandHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    expect(smartLandHtml).toContain('Intelligente');
+    expect(smartLandHtml).toContain('Geometrico');
+    expect(smartLandHtml).toContain('Frastagliatura costa');
+    expect(smartLandHtml).toContain('Genera continente…');
+
+    store.setTool('forest');
+    const smartCoverHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    expect(smartCoverHtml).toContain('Uniforme');
+
+    // GenerateWorldDialog SSR + typography check
+    store.openDialog('generateWorld');
+    const genDialogHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
+    expect(genDialogHtml).toContain('Genera continente');
+    expect(genDialogHtml).toContain('Regni del Nord (The Witcher 3)');
+    expect(genDialogHtml).toContain('Arcipelago di Skellige');
+    expect(genDialogHtml).toContain('Valle Continentale');
+    expect(genDialogHtml).toContain('Costa e Isole Frastagliate');
+    expect(genDialogHtml).toContain('Seme procedurale (Seed)');
+    for (const html of [plateauPropHtml, smartLandHtml, smartCoverHtml, genDialogHtml]) {
+      expect(html).not.toContain('font-size:11px');
+      expect(html).not.toContain('font-size:12px');
+      expect(html).not.toContain('font-size:14px');
+    }
+
+    // Theme switching auto-syncs default pathColor while preserving custom colors
+    const riverColorBefore = store.getSnapshot().pathColor;
+    expect(riverColorBefore.toLowerCase()).toBe(doc.theme.colors.pathRiver.toLowerCase());
+    store.setTheme(WITCHER_THEME);
+    expect(store.getSnapshot().pathColor.toLowerCase()).toBe(WITCHER_THEME.colors.pathRiver.toLowerCase());
+    store.setPathColor('#123456');
+    store.setTheme(MAP_THEMES[0]);
+    expect(store.getSnapshot().pathColor).toBe('#123456');
+
+    // generateWorld populates terrain & undoes cleanly in 1 step
+    store.generateWorld({
+      preset: 'northern-realms',
+      seed: 4219,
+      seaLevelPercent: 40,
+      mountainStrengthPercent: 78,
+      coastRoughnessPercent: 76,
+      biomeRichnessPercent: 82
+    });
+    expect(store.getSnapshot().activeDialog).toBeNull();
+    expect(store.getSnapshot().hasLand).toBe(true);
+    expect(store.undo()).toBe(true);
+    expect(store.getSnapshot().hasLand).toBe(false);
+    expect(store.redo()).toBe(true);
+    expect(store.getSnapshot().hasLand).toBe(true);
+
+    store.dispose();
   });
 });

@@ -34,7 +34,7 @@ import {
 } from '../../src/model/commands';
 import { decodeMaskPng, encodeMaskPng } from '../../src/core/png';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
-import { MAP_THEMES, normalizeTheme } from '../../src/theme/theme';
+import { DEFAULT_THEME, MAP_THEMES, WITCHER_THEME, getDefaultLabelColor, normalizeTheme } from '../../src/theme/theme';
 
 describe('Core module contracts', () => {
   it('converts physical page sizes to PDF points and print pixels accurately', () => {
@@ -131,13 +131,16 @@ describe('Core module contracts', () => {
     expect(sample.manifest.objects).toHaveLength(3);
   });
 
-  it('validates v3 schema layers, 10 cover materials, PathObject, 4 themes, and large page presets', () => {
+  it('validates v3 schema layers, 10 cover materials, PathObject, 5 themes, and large page presets', () => {
     expect(SCHEMA_VERSION).toBe(3);
     expect(COVER_MATERIALS).toHaveLength(10);
     expect(isCoverCode(COVER_NATURAL)).toBe(true);
     expect(isCoverCode(COVER_LAVA)).toBe(true);
     expect(isCoverCode(10)).toBe(false);
-    expect(MAP_THEMES).toHaveLength(4);
+    expect(MAP_THEMES).toHaveLength(5);
+    expect(WITCHER_THEME.id).toBe('regni-del-nord');
+    expect(getDefaultLabelColor(WITCHER_THEME)).toBe('#F5EAD0');
+    expect(getDefaultLabelColor(DEFAULT_THEME)).toBe(DEFAULT_THEME.colors.ink);
     expect(PAGE_PRESETS.length).toBeGreaterThanOrEqual(7);
 
     const normalized = normalizeTheme({

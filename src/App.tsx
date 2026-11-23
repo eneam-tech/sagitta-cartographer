@@ -457,7 +457,12 @@ export default function App() {
           layersSlot={<LayersPanel store={store} />}
           pathToolSlot={<PathToolPanel store={store} />}
           poiLibrarySlot={<PoiLibraryPanel store={store} />}
-          objectInspectorSlot={<ObjectInspector store={store} />}
+          objectInspectorSlot={
+            <ObjectInspector
+              store={store}
+              onAddLabelForStamp={(stamp) => objectsControllerRef.current?.requestLabelForStamp(stamp)}
+            />
+          }
           objectListSlot={<ObjectListPanel store={store} />}
         />
       </div>

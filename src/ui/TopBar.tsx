@@ -6,6 +6,7 @@ import {
   CheckSavedIcon,
   ChevronDownIcon,
   ExportPdfIcon,
+  GenerateWorldIcon,
   ProjectIcon,
   PropertiesIcon,
   RedoIcon,
@@ -19,7 +20,12 @@ export interface TopBarProps {
 }
 
 function getThemePreviewDots(theme: MapTheme): [string, string, string] {
-  const accent = theme.id === 'vulcanica' ? theme.colors.lava : theme.colors.forest;
+  const accent =
+    theme.id === 'vulcanica'
+      ? theme.colors.lava
+      : theme.id === 'regni-del-nord'
+        ? theme.colors.settlement
+        : theme.colors.forest;
   return [theme.colors.sea, theme.colors.land, accent];
 }
 
@@ -326,10 +332,25 @@ export function TopBar({ store }: TopBarProps) {
                   {pageWidthMm}×{pageHeightMm}
                 </span>
               </button>
-              <div className="dropdown-divider" role="separator" />
               <button
                 ref={(el) => {
                   menuItemRefs.current[3] = el;
+                }}
+                type="button"
+                role="menuitem"
+                className="dropdown-item"
+                onClick={() => {
+                  projectBtnRef.current?.focus();
+                  setMenuOpen(false);
+                  store.openDialog('generateWorld');
+                }}
+              >
+                <span>Genera continente…</span>
+              </button>
+              <div className="dropdown-divider" role="separator" />
+              <button
+                ref={(el) => {
+                  menuItemRefs.current[4] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -344,7 +365,7 @@ export function TopBar({ store }: TopBarProps) {
               </button>
               <button
                 ref={(el) => {
-                  menuItemRefs.current[4] = el;
+                  menuItemRefs.current[5] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -360,7 +381,7 @@ export function TopBar({ store }: TopBarProps) {
               <div className="dropdown-divider" role="separator" />
               <button
                 ref={(el) => {
-                  menuItemRefs.current[5] = el;
+                  menuItemRefs.current[6] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -441,6 +462,17 @@ export function TopBar({ store }: TopBarProps) {
         >
           <RedoIcon size={20} />
           <span className="topbar-btn-label topbar-hide-medium">Ripristina</span>
+        </button>
+
+        <button
+          type="button"
+          className="btn btn-secondary topbar-generate-btn has-tooltip-bottom"
+          aria-label="Genera continente procedurale"
+          data-tooltip="Genera continente"
+          onClick={() => store.openDialog('generateWorld')}
+        >
+          <GenerateWorldIcon size={18} />
+          <span className="topbar-generate-label">Genera…</span>
         </button>
 
         <button

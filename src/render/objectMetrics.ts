@@ -158,6 +158,11 @@ function drawTaperedRibbon(
   ctx.closePath();
   ctx.fillStyle = color;
   ctx.fill();
+  if (typeof ctx.stroke === 'function') {
+    ctx.strokeStyle = 'rgba(33, 21, 12, 0.36)';
+    ctx.lineWidth = Math.max(0.85, baseWidthPx * 0.13);
+    ctx.stroke();
+  }
 }
 
 /**
@@ -207,6 +212,12 @@ export function drawPathToContext(
   ctx.moveTo(pts[0] * scaleX, pts[1] * scaleY);
   for (let i = 1; i < vertexCount; i += 1) {
     ctx.lineTo(pts[i * 2] * scaleX, pts[i * 2 + 1] * scaleY);
+  }
+  if (path.kind === 'road' && !path.dashed) {
+    ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.4);
+    ctx.strokeStyle = 'rgba(33, 21, 12, 0.56)';
+    ctx.stroke();
+    ctx.strokeStyle = path.color;
   }
   ctx.lineWidth = baseWidthPx;
   ctx.stroke();
@@ -310,5 +321,45 @@ export function drawMapObjectsToContext(
     ctx.restore();
   }
 
+  ctx.restore();
+}
+
+/**
+ * Draws an antique cartographic inner border & subtle sepia edge vignette onto a
+ * 2D canvas context strictly when the `regni-del-nord` Witcher atlas theme is active.
+ */
+export function drawAtlasFrameToContext(
+  ctx: CanvasRenderingContext2D,
+  widthPx: number,
+  heightPx: number,
+  theme: MapTheme
+): void {
+  if (theme.id !== 'regni-del-nord' || widthPx <= 0 || heightPx <= 0) {
+    return;
+  }
+  const minDim = Math.min(widthPx, heightPx);
+  const insetOuter = Math.max(4, minDim * 0.014);
+  const insetInner = insetOuter + Math.max(2, minDim * 0.005);
+
+  ctx.save();
+  if (typeof ctx.createRadialGradient === 'function' && typeof ctx.fillRect === 'function') {
+    const cx = widthPx * 0.5;
+    const cy = heightPx * 0.5;
+    const r0 = Math.hypot(widthPx, heightPx) * 0.34;
+    const r1 = Math.hypot(widthPx, heightPx) * 0.56;
+    const grad = ctx.createRadialGradient(cx, cy, r0, cx, cy, r1);
+    grad.addColorStop(0, 'rgba(33, 21, 12, 0)');
+    grad.addColorStop(1, 'rgba(33, 21, 12, 0.22)');
+    ctx.fillStyle = grad;
+    ctx.fillRect(0, 0, widthPx, heightPx);
+  }
+
+  ctx.strokeStyle = 'rgba(33, 21, 12, 0.72)';
+  ctx.lineWidth = Math.max(1.2, minDim * 0.0022);
+  ctx.strokeRect(insetOuter, insetOuter, widthPx - insetOuter * 2, heightPx - insetOuter * 2);
+
+  ctx.strokeStyle = 'rgba(224, 187, 121, 0.72)';
+  ctx.lineWidth = Math.max(0.8, minDim * 0.0014);
+  ctx.strokeRect(insetInner, insetInner, widthPx - insetInner * 2, heightPx - insetInner * 2);
   ctx.restore();
 }

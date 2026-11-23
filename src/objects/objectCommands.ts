@@ -17,7 +17,13 @@ import {
   safeRandomUUID
 } from '../model/document';
 import type { EditorStore } from '../state/editorStore';
-import { DEFAULT_THEME, LABEL_ROLE_PRESETS, MapTheme, getFontSpec } from '../theme/theme';
+import {
+  DEFAULT_THEME,
+  LABEL_ROLE_PRESETS,
+  MapTheme,
+  getDefaultLabelColor,
+  getFontSpec
+} from '../theme/theme';
 
 function cloneAssetEntry(entry: AssetManifestEntry): AssetManifestEntry {
   return { ...entry };
@@ -551,7 +557,7 @@ export function createLabelObject(
     y: docY,
     fontId: fontSpec.id,
     fontSize: Math.max(4, Number((resolvedFontSize * scale).toFixed(2))),
-    color: options.color ?? theme.colors.ink,
+    color: options.color ?? getDefaultLabelColor(theme),
     rotationDeg: normalizeRotationDeg(options.rotationDeg ?? 0)
   };
 }

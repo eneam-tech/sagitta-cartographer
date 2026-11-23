@@ -48,10 +48,24 @@ export {
   hash2D,
   hash2DBipolar,
   hash2DFloat,
+  ridgedFbm2D,
+  ridgedNoise2D,
   smoothstep01,
-  valueNoise2D
+  valueNoise2D,
+  warpedFbm2D
 } from './noise';
 export type { CellJitterSample } from './noise';
+export {
+  WORLD_GENERATOR_PRESETS,
+  generateProceduralWorldTerrain,
+  getWorldGeneratorPreset
+} from './worldGenerator';
+export type {
+  WorldGenerationResult,
+  WorldGeneratorOptions,
+  WorldGeneratorPresetId,
+  WorldGeneratorPresetSpec
+} from './worldGenerator';
 
 export interface TerrainCellInspection {
   px: number;

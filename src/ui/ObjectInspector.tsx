@@ -24,6 +24,7 @@ import { LABEL_ROLE_PRESETS } from '../theme/theme';
 
 export interface ObjectInspectorProps {
   store: EditorStore;
+  onAddLabelForStamp?: (stamp: StampObject) => void;
 }
 
 const LABEL_COLOR_SWATCHES = [
@@ -223,9 +224,15 @@ interface StampInspectorFieldsProps {
   store: EditorStore;
   stamp: StampObject;
   disabled: boolean;
+  onAddLabelForStamp?: (stamp: StampObject) => void;
 }
 
-function StampInspectorFields({ store, stamp, disabled }: StampInspectorFieldsProps) {
+function StampInspectorFields({
+  store,
+  stamp,
+  disabled,
+  onAddLabelForStamp
+}: StampInspectorFieldsProps) {
   const [keepRatio, setKeepRatio] = useState(true);
   const maxDim = Math.max(4000, store.getDocument().manifest.space.width * 2);
 
@@ -344,6 +351,17 @@ function StampInspectorFields({ store, stamp, disabled }: StampInspectorFieldsPr
           commitStampPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota simbolo')
         }
       />
+
+      {onAddLabelForStamp ? (
+        <button
+          type="button"
+          className="btn btn-secondary btn-compact"
+          disabled={disabled}
+          onClick={() => onAddLabelForStamp(stamp)}
+        >
+          Aggiungi etichetta
+        </button>
+      ) : null}
     </>
   );
 }
@@ -825,7 +843,7 @@ function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsPr
  * Includes layer reassignment via `<select>` and atomic edits via `UpdateObjectCommand` /
  * `ReorderObjectsCommand` / `DeleteObjectCommand`.
  */
-export function ObjectInspector({ store }: ObjectInspectorProps) {
+export function ObjectInspector({ store, onAddLabelForStamp }: ObjectInspectorProps) {
   const snap = useEditorStore(store);
   const layerSelectId = useId();
   const objects = snap.doc.manifest.objects;
@@ -955,7 +973,12 @@ export function ObjectInspector({ store }: ObjectInspectorProps) {
       </div>
 
       {selectedObject.type === 'stamp' ? (
-        <StampInspectorFields store={store} stamp={selectedObject} disabled={!layerEditable} />
+        <StampInspectorFields
+          store={store}
+          stamp={selectedObject}
+          disabled={!layerEditable}
+          onAddLabelForStamp={onAddLabelForStamp}
+        />
       ) : selectedObject.type === 'label' ? (
         <LabelInspectorFields store={store} labelObj={selectedObject} disabled={!layerEditable} />
       ) : (

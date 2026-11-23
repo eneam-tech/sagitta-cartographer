@@ -5,6 +5,7 @@ export type TerrainBrushTool =
   | 'land'
   | 'water'
   | 'raise'
+  | 'plateau'
   | 'lower'
   | 'flatten'
   | 'smooth'
@@ -20,12 +21,15 @@ export type TerrainBrushTool =
   | 'lava';
 
 export type BiomeKind = 'sea' | 'beach' | 'plain' | 'hill' | 'mountain';
+export type BrushShapeMode = 'smart' | 'classic';
 
 export interface BrushStrokeParams {
   tool: TerrainBrushTool;
   diameterDoc: number;
   intensity: number; // 0.05..1.0
-  targetHeight?: number; // 0..255 optional target elevation for 'flatten'
+  targetHeight?: number; // 0..255 optional target elevation for 'flatten' and 'plateau'
+  brushMode?: BrushShapeMode;
+  roughness?: number; // 0..1 organic coastline / edge roughness
 }
 
 export interface StrokeCommitResult {

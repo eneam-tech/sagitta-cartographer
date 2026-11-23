@@ -140,8 +140,8 @@ export const DEFAULT_THEME: MapTheme = {
     stone: '#7B7880',
     settlement: '#8B493D',
     labelHalo: '#E8D8AF',
-    sand: '#EBDDAA',
-    sandShadow: '#C9B67D',
+    sand: '#E4C97A',
+    sandShadow: '#B8984C',
     brick: '#B86B58',
     brickMortar: '#7C4438',
     snow: '#F4F7F8',
@@ -161,6 +161,54 @@ export const DEFAULT_THEME: MapTheme = {
   coast: {
     strokeWidthDoc: 3.2,
     bathymetryOffsetDoc: 16
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS
+};
+
+export const WITCHER_THEME: MapTheme = {
+  id: 'regni-del-nord',
+  version: 2,
+  name: 'Regni del Nord',
+  mode: 'reactive',
+  colors: {
+    sea: '#5B898C',
+    seaShallow: '#82B1AA',
+    seaBathymetry: '#3D6469',
+    beach: '#C7A96D',
+    land: '#A68348',
+    hill: '#846233',
+    mountain: '#5A4125',
+    mountainCrest: '#EADAB2',
+    ink: '#21150C',
+    forest: '#4A5428',
+    forestShadow: '#272D14',
+    fields: '#C6A95C',
+    fieldsFurrow: '#806831',
+    stone: '#3D2B1C',
+    settlement: '#9E3224',
+    labelHalo: '#1C120A',
+    sand: '#D9BC76',
+    sandShadow: '#A68846',
+    brick: '#9E4B38',
+    brickMortar: '#5E2B20',
+    snow: '#ECE6D6',
+    snowShadow: '#A9B2B2',
+    swamp: '#4B5B44',
+    swampWater: '#2F4E4E',
+    rock: '#6C5D4F',
+    rockShadow: '#3D3228',
+    meadow: '#8A8946',
+    meadowAccent: '#5B6329',
+    lava: '#C8421E',
+    lavaGlow: '#F5A536',
+    pathRiver: '#6FA19F',
+    pathRoad: '#E5D4B3',
+    pathBorder: '#9A2E24'
+  },
+  coast: {
+    strokeWidthDoc: 3.4,
+    bathymetryOffsetDoc: 18
   },
   elevation: DEFAULT_ELEVATION_THRESHOLDS,
   fonts: DEFAULT_THEME_FONTS
@@ -312,6 +360,7 @@ export const VULCANICA_THEME: MapTheme = {
 
 export const MAP_THEMES: readonly MapTheme[] = [
   DEFAULT_THEME,
+  WITCHER_THEME,
   NORDICA_THEME,
   PERGAMENA_THEME,
   VULCANICA_THEME
@@ -380,4 +429,26 @@ export function getFontSpec(theme: MapTheme, fontId: string): FontStyleSpec {
     theme.fonts.presets[theme.fonts.defaultFontId] ??
     DEFAULT_THEME_FONTS.presets['spectral-semibold']
   );
+}
+
+function hexLuminance(hex: string): number {
+  const clean = hex.startsWith('#') ? hex.slice(1) : hex;
+  const full =
+    clean.length === 3
+      ? `${clean[0]}${clean[0]}${clean[1]}${clean[1]}${clean[2]}${clean[2]}`
+      : clean.slice(0, 6);
+  const n = parseInt(full, 16);
+  if (!Number.isFinite(n)) return 1;
+  const r = ((n >> 16) & 0xff) / 255;
+  const g = ((n >> 8) & 0xff) / 255;
+  const b = (n & 0xff) / 255;
+  return 0.2126 * r + 0.7152 * g + 0.0722 * b;
+}
+
+/**
+ * Picks crisp ivory text when the theme's label halo is dark (e.g. Witcher 3 style),
+ * otherwise uses theme ink.
+ */
+export function getDefaultLabelColor(theme: MapTheme): string {
+  return hexLuminance(theme.colors.labelHalo) < 0.35 ? '#F5EAD0' : theme.colors.ink;
 }

@@ -1,0 +1,8 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Banco di nubi">
+  <!-- Ombra soffice inferiore -->
+  <ellipse cx="66" cy="84" rx="46" ry="16" fill="#21150C" opacity="0.16"/>
+  <!-- Masse nuvolose stratificate stile atlante antico -->
+  <path d="M22 78 C14 78 10 68 18 61 C18 48 34 40 48 46 C56 32 80 32 88 47 C102 45 114 55 112 68 C118 74 112 84 100 84 H28 C23 84 20 81 22 78 Z" fill="#F3EEDF" fill-opacity="0.86" stroke="#21150C" stroke-width="1.8" stroke-opacity="0.45" stroke-linejoin="round"/>
+  <path d="M30 76 C24 72 26 62 34 60 C38 50 54 48 62 56 C70 46 88 48 92 60 C102 62 104 72 96 78" fill="#FFFFFF" fill-opacity="0.55"/>
+  <path d="M24 78 H102" stroke="#C7A96D" stroke-width="2.2" stroke-linecap="round" opacity="0.55"/>
+</svg>

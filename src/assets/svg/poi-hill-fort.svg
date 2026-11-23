@@ -1,0 +1,28 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Rocca collinare">
+  <!-- Ombra e terrazza rocciosa sulla collina -->
+  <ellipse cx="64" cy="96" rx="48" ry="16" fill="#21150C" opacity="0.26"/>
+  <path d="M16 92 C24 72, 42 64, 64 64 C86 64, 104 72, 112 92 C92 102, 36 102, 16 92 Z" fill="#846233" stroke="#21150C" stroke-width="2.4" stroke-linejoin="round"/>
+  <!-- Sentiero a tornante che sale alla palizzata -->
+  <path d="M40 100 Q54 90 50 82 Q60 76 74 78" fill="none" stroke="#EADAB2" stroke-width="4" stroke-linecap="round"/>
+
+  <!-- Palizzata di cinta esterna con bastioni in legno/pietra -->
+  <path d="M24 78 L34 62 L94 62 L104 78 L90 88 L38 88 Z" fill="#A68348" stroke="#21150C" stroke-width="2.6" stroke-linejoin="round"/>
+  <path d="M24 78 L34 62 L94 62 L104 78" fill="none" stroke="#5A4125" stroke-width="4" stroke-dasharray="3 3"/>
+
+  <!-- Palazzotto del Barone con tetti spioventi rossi -->
+  <rect x="44" y="42" width="38" height="24" fill="#F3EEDF" stroke="#21150C" stroke-width="2.4"/>
+  <rect x="66" y="42" width="16" height="24" fill="#C7A96D"/>
+  <polygon points="40,44 63,25 86,44" fill="#9E3224" stroke="#21150C" stroke-width="2.6" stroke-linejoin="round"/>
+  <polygon points="63,25 86,44 66,44" fill="#742218"/>
+  <polygon points="40,44 63,25 86,44" fill="none" stroke="#21150C" stroke-width="2.6" stroke-linejoin="round"/>
+
+  <!-- Torre angolare di vedetta -->
+  <rect x="82" y="34" width="14" height="36" fill="#EADAB2" stroke="#21150C" stroke-width="2.4"/>
+  <polygon points="79,34 89,18 99,34" fill="#9E3224" stroke="#21150C" stroke-width="2.4" stroke-linejoin="round"/>
+  <path d="M89 18 V11" stroke="#21150C" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="89,11 101,14 89,17" fill="#E0BB79" stroke="#21150C" stroke-width="1.4"/>
+
+  <!-- Casermette nel cortile -->
+  <polygon points="32,68 46,64 52,74 36,78" fill="#B54634" stroke="#21150C" stroke-width="2" stroke-linejoin="round"/>
+  <rect x="58" y="54" width="6" height="12" rx="3" fill="#21150C"/>
+</svg>

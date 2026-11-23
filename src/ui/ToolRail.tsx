@@ -71,6 +71,7 @@ const TOOL_DEFS: readonly ToolDef[] = [
     isActive: (s) =>
       !s.spacePanActive &&
       (s.activeTool === 'raise' ||
+        s.activeTool === 'plateau' ||
         s.activeTool === 'lower' ||
         s.activeTool === 'flatten' ||
         s.activeTool === 'smooth'),

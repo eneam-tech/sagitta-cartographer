@@ -499,7 +499,7 @@ export class TerrainRenderer implements ITerrainRenderer {
     }
 
     if (!hasLandAny) {
-      this.fillUniformSeaRect({ x: 0, y: 0, width: widthPx, height: heightPx }, palette.sea);
+      this.fillSeaRect(doc, { x: 0, y: 0, width: widthPx, height: heightPx }, palette.sea);
       this.markAllTilesDirty();
       this.markDocumentRendered(doc);
       return;
@@ -727,18 +727,49 @@ export class TerrainRenderer implements ITerrainRenderer {
     return { influenceDoc, padPx, treePadPx, maxTreeFootprintDoc };
   }
 
-  private fillUniformSeaRect(rect: DirtyRectPx, sea: RgbColor): void {
+  private fillSeaRect(doc: MapDocument, rect: DirtyRectPx, sea: RgbColor): void {
     const { widthPx, rgba } = this;
+    const isWitcherSea = doc.theme.id === 'regni-del-nord' && doc.theme.mode !== 'flat';
     const sr = sea.r;
     const sg = sea.g;
     const sb = sea.b;
 
+    if (!isWitcherSea) {
+      for (let y = rect.y, yEnd = rect.y + rect.height; y < yEnd; y += 1) {
+        let off = (y * widthPx + rect.x) * 4;
+        for (let x = 0; x < rect.width; x += 1) {
+          rgba[off] = sr;
+          rgba[off + 1] = sg;
+          rgba[off + 2] = sb;
+          rgba[off + 3] = 255;
+          off += 4;
+        }
+      }
+      return;
+    }
+
+    const { space } = doc.manifest;
+    const { heightPx } = doc.terrain;
+    const seed = doc.manifest.terrain.seed >>> 0;
+    const seaSeed = (seed ^ 0x534541) >>> 0;
+    const paperSeed = (seed ^ 0x706170) >>> 0;
+    const microSeed = (seed ^ 0x6d6963) >>> 0;
+    const docPerPxX = space.width / widthPx;
+    const docPerPxY = space.height / heightPx;
+
     for (let y = rect.y, yEnd = rect.y + rect.height; y < yEnd; y += 1) {
+      const docY = (y + 0.5) * docPerPxY;
+      const floorY = Math.floor(docY);
       let off = (y * widthPx + rect.x) * 4;
-      for (let x = 0; x < rect.width; x += 1) {
-        rgba[off] = sr;
-        rgba[off + 1] = sg;
-        rgba[off + 2] = sb;
+      for (let x = rect.x, xEnd = rect.x + rect.width; x < xEnd; x += 1) {
+        const docX = (x + 0.5) * docPerPxX;
+        const wash =
+          (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
+          (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
+          hash2DBipolar(microSeed, Math.floor(docX), floorY) * 2.5;
+        rgba[off] = clampByte(sr + wash);
+        rgba[off + 1] = clampByte(sg + wash * 0.92);
+        rgba[off + 2] = clampByte(sb + wash * 0.85);
         rgba[off + 3] = 255;
         off += 4;
       }
@@ -864,7 +895,7 @@ export class TerrainRenderer implements ITerrainRenderer {
     }
 
     if (!anyMaskNonZero) {
-      this.fillUniformSeaRect(chunkOutRect, palette.sea);
+      this.fillSeaRect(doc, chunkOutRect, palette.sea);
       return;
     }
 
@@ -928,11 +959,14 @@ export class TerrainRenderer implements ITerrainRenderer {
 
     const paperSeed = (seed ^ 0x706170) >>> 0;
     const microSeed = (seed ^ 0x6d6963) >>> 0;
+    const seaSeed = (seed ^ 0x534541) >>> 0;
     const bathySeed = (seed ^ 0x626174) >>> 0;
     const parcelSeed = (seed ^ 0x706172) >>> 0;
     const warpSeed = (seed ^ 0x777270) >>> 0;
     const terraceSeed = (seed ^ 0x746572) >>> 0;
     const cliffSeed = (seed ^ 0x636c69) >>> 0;
+    const forestFloorSeed = (seed ^ 0x464c52) >>> 0;
+    const isWitcherSea = theme.id === 'regni-del-nord' && !isFlat;
 
     const beachMaxCoastDistDoc = theme.elevation.beachMaxCoastDistDoc;
     const hasBlendWidth = theme.elevation.blendWidth > 0;
@@ -982,9 +1016,20 @@ export class TerrainRenderer implements ITerrainRenderer {
         // Fast deep-sea path
         if (maskVal === 0 && distLandDoc > maxSeaGlowDoc) {
           const off = idx * 4;
-          rgba[off] = seaR;
-          rgba[off + 1] = seaG;
-          rgba[off + 2] = seaB;
+          if (isWitcherSea) {
+            const docX = (px + 0.5) * docPerPxX;
+            const wash =
+              (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
+              (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
+              hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 2.5;
+            rgba[off] = clampByte(seaR + wash);
+            rgba[off + 1] = clampByte(seaG + wash * 0.92);
+            rgba[off + 2] = clampByte(seaB + wash * 0.85);
+          } else {
+            rgba[off] = seaR;
+            rgba[off + 1] = seaG;
+            rgba[off + 2] = seaB;
+          }
           rgba[off + 3] = 255;
           continue;
         }
@@ -996,6 +1041,15 @@ export class TerrainRenderer implements ITerrainRenderer {
         let sr = seaR;
         let sg = seaG;
         let sb = seaB;
+        if (isWitcherSea) {
+          const wash =
+            (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
+            (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
+            hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 2.5;
+          sr += wash;
+          sg += wash * 0.92;
+          sb += wash * 0.85;
+        }
 
         if (maskVal < 255 && distLandDoc <= maxSeaGlowDoc) {
           const shallowT = 1 - smoothstepRange(0, bathyOffsetDoc * 1.1, distLandDoc);
@@ -1151,26 +1205,36 @@ export class TerrainRenderer implements ITerrainRenderer {
               const lightDot = (gx + gy) * 0.7071;
               shade = Math.tanh(lightDot * 0.28);
 
-              const reliefStrength = 0.28 + 0.42 * wHill + 0.58 * wMtn;
+              const reliefStrength = 0.3 + 0.46 * wHill + 0.68 * wMtn;
               if (shade > 0) {
-                const litT = shade * reliefStrength * 0.42;
+                const litT = shade * reliefStrength * 0.46;
                 lr += (palette.mountainCrest.r - lr) * litT;
                 lg += (palette.mountainCrest.g - lg) * litT;
                 lb += (palette.mountainCrest.b - lb) * litT;
               } else if (shade < 0) {
-                const shadowT = -shade * reliefStrength * 0.62;
+                const shadowT = -shade * reliefStrength * 0.68;
                 lr += (palette.stone.r - lr) * shadowT;
                 lg += (palette.stone.g - lg) * shadowT;
                 lb += (palette.stone.b - lb) * shadowT;
+
+                if (wMtn > 0.2 && slope > 0.85 && shade < -0.18) {
+                  const inkT = Math.min(
+                    0.36,
+                    smoothstepRange(0.85, 2.4, slope) * smoothstepRange(-0.18, -0.65, shade) * wMtn * 0.36
+                  );
+                  lr += (palette.ink.r - lr) * inkT;
+                  lg += (palette.ink.g - lg) * inkT;
+                  lb += (palette.ink.b - lb) * inkT;
+                }
               }
             }
 
             // Illuminated mountain ridges and crests
-            if (hVal > 195 && shade > -0.2) {
+            if (hVal > 184 && shade > -0.15) {
               const crestT =
-                smoothstepRange(195, 245, hVal) *
-                smoothstepRange(-0.2, 0.25, shade) *
-                0.55;
+                smoothstepRange(184, 240, hVal) *
+                smoothstepRange(-0.15, 0.28, shade) *
+                0.6;
               lr += (palette.mountainCrest.r - lr) * crestT;
               lg += (palette.mountainCrest.g - lg) * crestT;
               lb += (palette.mountainCrest.b - lb) * crestT;
@@ -1178,7 +1242,18 @@ export class TerrainRenderer implements ITerrainRenderer {
 
             let handledSurfaceCover = false;
             if (maskVal >= LAND_MASK_THRESHOLD) {
-              if (cVal === COVER_FIELDS) {
+              if (cVal === COVER_FOREST) {
+                // Lush woodland understory ensures forest strokes are visibly distinct even on coasts/slopes
+                const floorVar = valueNoise2D(forestFloorSeed, docX * 0.08, docY * 0.08);
+                const floorT = (0.34 + 0.14 * floorVar) * (1 - smoothstepRange(205, 242, hVal) * 0.55);
+                const mul = 1 + shade * 0.16;
+                const ur = (palette.forestShadow.r * 0.55 + palette.forest.r * 0.45) * mul;
+                const ug = (palette.forestShadow.g * 0.55 + palette.forest.g * 0.45) * mul;
+                const ub = (palette.forestShadow.b * 0.55 + palette.forest.b * 0.45) * mul;
+                lr += (ur - lr) * floorT;
+                lg += (ug - lg) * floorT;
+                lb += (ub - lb) * floorT;
+              } else if (cVal === COVER_FIELDS) {
                 // Contextual fields cover (plain parcels, hill contour furrows, mountain terraces)
                 const w = this.tmpWeights;
                 w.beach = wBeach;
@@ -1223,9 +1298,28 @@ export class TerrainRenderer implements ITerrainRenderer {
                   this.tmpMaterialRgb
                 )
               ) {
-                lr = this.tmpMaterialRgb.r;
-                lg = this.tmpMaterialRgb.g;
-                lb = this.tmpMaterialRgb.b;
+                const matR = this.tmpMaterialRgb.r;
+                const matG = this.tmpMaterialRgb.g;
+                const matB = this.tmpMaterialRgb.b;
+                // Soft painterly feathering at boundary with different land cover
+                let borderBlend = 0;
+                if (cVal !== COVER_BRICK) {
+                  const xLeft = px > 0 ? px - 1 : 0;
+                  const xRight = px + 1 < widthPx ? px + 1 : widthPx - 1;
+                  const yUp = py > 0 ? py - 1 : 0;
+                  const yDown = py + 1 < heightPx ? py + 1 : heightPx - 1;
+                  const hasDiffNeighbor =
+                    (mask[docRow + xLeft] >= LAND_MASK_THRESHOLD && cover[docRow + xLeft] !== cVal) ||
+                    (mask[docRow + xRight] >= LAND_MASK_THRESHOLD && cover[docRow + xRight] !== cVal) ||
+                    (mask[yUp * widthPx + px] >= LAND_MASK_THRESHOLD && cover[yUp * widthPx + px] !== cVal) ||
+                    (mask[yDown * widthPx + px] >= LAND_MASK_THRESHOLD && cover[yDown * widthPx + px] !== cVal);
+                  if (hasDiffNeighbor) {
+                    borderBlend = 0.24 + 0.18 * (1 - valueNoise2D((microSeed ^ 0x65) >>> 0, docX * 0.2, docY * 0.2));
+                  }
+                }
+                lr = matR + (lr - matR) * borderBlend;
+                lg = matG + (lg - matG) * borderBlend;
+                lb = matB + (lb - matB) * borderBlend;
                 handledSurfaceCover = true;
               }
             }
@@ -1397,15 +1491,15 @@ export class TerrainRenderer implements ITerrainRenderer {
           const w = this.tmpWeights;
           classifyLandWeightsInto(cHeight, distWaterDoc, theme, w);
 
-          const beachAllowed = distWaterDoc < 2.2 ? 0 : 0.16;
-          const mountainAllowed = cHeight > 232 ? 0 : 0.14;
+          const beachAllowed = distWaterDoc < 1.1 ? 0 : 0.48;
+          const mountainAllowed = cHeight > 236 ? 0 : 0.34;
 
           density =
-            (w.plain * 0.86 +
-              w.hill * 0.42 +
+            (w.plain * 0.90 +
+              w.hill * 0.68 +
               w.mountain * mountainAllowed +
               w.beach * beachAllowed) *
-            (0.56 + 0.44 * glade);
+            (0.62 + 0.38 * glade);
 
           radiusDoc =
             w.plain * (4.1 + j.r * 1.6) +
@@ -1641,8 +1735,9 @@ function evaluateReactiveFieldsInto(
     mtnB = palette.fields.b + (palette.stone.b - palette.fields.b) * (stepWave * 0.68);
   }
 
-  // Beach attenuation keeping shoreline sand bright and legible
-  const beachFade = distWaterDoc < 3.0 ? 0 : 0.25 * smoothstepRange(3.0, 8.0, distWaterDoc);
+  // Beach attenuation keeping immediate surf sand legible while showing nearby fields clearly
+  const beachFade =
+    distWaterDoc < 1.2 ? 0.18 : 0.46 + 0.4 * smoothstepRange(1.2, 6.0, distWaterDoc);
 
   out.alpha =
     w.plain * 0.86 +

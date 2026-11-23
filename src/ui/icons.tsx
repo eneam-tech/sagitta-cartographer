@@ -351,3 +351,24 @@ export function SmoothIcon({ size = 24, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function PlateauIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M3.5 18.5 8 10h8l4.5 8.5" />
+      <path d="M7.5 10h9" />
+      <path d="M6.5 14.5h11" opacity="0.55" />
+    </svg>
+  );
+}
+
+export function GenerateWorldIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M5 10.5c2.2-1.2 4.3.6 5.8-.5 1.3-.9 1.6-2.7 3.4-2.8 1.5-.1 2.7 1.2 4.3 1.4" />
+      <path d="M6 15.8c2-.8 3.6.9 5.6.2 1.8-.6 2.5-2.2 4.7-1.9" />
+      <path d="m12 2.2.8 1.5 1.5.8-1.5.8L12 6.8l-.8-1.5-1.5-.8 1.5-.8z" />
+    </svg>
+  );
+}

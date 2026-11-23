@@ -21,14 +21,27 @@ import {
   MapDocument
 } from '../model/document';
 import { LAND_MASK_THRESHOLD, smoothstepRange } from './classifier';
-import { BrushStrokeParams, ITerrainStrokeSession, StrokeCommitResult, TerrainBrushTool } from './types';
+import { fbm2D, ridgedFbm2D, ridgedNoise2D, valueNoise2D, warpedFbm2D } from './noise';
+import {
+  BrushShapeMode,
+  BrushStrokeParams,
+  ITerrainStrokeSession,
+  StrokeCommitResult,
+  TerrainBrushTool
+} from './types';
 
 export const BRUSH_TILE_SIZE_PX = 128;
 const BASE_ELEVATION_STEP = 16;
 const SMOOTH_KERNEL = [1, 2, 1, 2, 4, 2, 1, 2, 1] as const;
 
 function isElevationTool(tool: TerrainBrushTool): boolean {
-  return tool === 'raise' || tool === 'lower' || tool === 'flatten' || tool === 'smooth';
+  return (
+    tool === 'raise' ||
+    tool === 'plateau' ||
+    tool === 'lower' ||
+    tool === 'flatten' ||
+    tool === 'smooth'
+  );
 }
 
 function toolToCoverCode(tool: TerrainBrushTool): CoverCode | null {
@@ -79,7 +92,9 @@ function getToolLabel(tool: TerrainBrushTool): string {
     case 'water':
       return 'Pennello acqua';
     case 'raise':
-      return 'Alza rilievo';
+      return 'Alza picchi';
+    case 'plateau':
+      return 'Altopiano';
     case 'lower':
       return 'Abbassa rilievo';
     case 'flatten':
@@ -127,6 +142,8 @@ function unionDirtyRects(a: DirtyRectPx | null, b: DirtyRectPx | null): DirtyRec
 export class TerrainStrokeSession implements ITerrainStrokeSession {
   private active = false;
   private tool: TerrainBrushTool = 'land';
+  private brushMode: BrushShapeMode = 'classic';
+  private roughness = 0.65;
   private radiusDoc = 20;
   private intensity = 1;
   private stepDoc = 4;
@@ -134,6 +151,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
   private lastDocY = 0;
   private distSinceLastStamp = 0;
   private flattenTargetHeight = 0;
+  private plateauTargetHeight = 185;
   private smoothSnapshot = new Float32Array(0);
   private capturedTiles = new Map<number, CapturedTile>();
 
@@ -155,6 +173,12 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
 
     const diameterDoc = Number.isFinite(params.diameterDoc) ? Math.max(1, params.diameterDoc) : 40;
     this.tool = params.tool;
+    this.brushMode = params.brushMode === 'smart' ? 'smart' : 'classic';
+    this.roughness = clampNumber(
+      params.roughness !== undefined && Number.isFinite(params.roughness) ? params.roughness : 0.65,
+      0,
+      1
+    );
     this.radiusDoc = diameterDoc * 0.5;
     this.intensity = clampNumber(Number.isFinite(params.intensity) ? params.intensity : 1, 0.05, 1.0);
     this.stepDoc = Math.max(1.5, this.radiusDoc * 0.2);
@@ -168,6 +192,11 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
         params.targetHeight !== undefined && Number.isFinite(params.targetHeight)
           ? clampNumber(params.targetHeight, 0, 255)
           : this.sampleTargetHeightAtStart(doc, startDocX, startDocY);
+    } else if (this.tool === 'plateau') {
+      this.plateauTargetHeight =
+        params.targetHeight !== undefined && Number.isFinite(params.targetHeight)
+          ? clampNumber(params.targetHeight, 20, 255)
+          : 185;
     }
 
     return this.stampAt(doc, startDocX, startDocY);
@@ -351,7 +380,10 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
 
   private reset(): void {
     this.active = false;
+    this.brushMode = 'classic';
+    this.roughness = 0.65;
     this.flattenTargetHeight = 0;
+    this.plateauTargetHeight = 185;
     this.capturedTiles.clear();
     if (this.smoothSnapshot.length > 65536) {
       this.smoothSnapshot = new Float32Array(0);
@@ -509,10 +541,16 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     const { space } = doc.manifest;
     const { widthPx, heightPx, mask, height, cover } = doc.terrain;
 
+    const tool = this.tool;
+    const isSmart = this.brushMode === 'smart';
+    const roughness = this.roughness;
+    const reachScale = isSmart && (tool === 'land' || tool === 'water') ? 1.32 : 1.0;
+    const reachRadiusDoc = this.radiusDoc * reachScale;
+
     const cxPx = docToMaskX(cxDoc, space, doc.terrain);
     const cyPx = docToMaskY(cyDoc, space, doc.terrain);
-    const rxPx = docDistToMaskPxX(this.radiusDoc, space, doc.terrain);
-    const ryPx = docDistToMaskPxY(this.radiusDoc, space, doc.terrain);
+    const rxPx = docDistToMaskPxX(reachRadiusDoc, space, doc.terrain);
+    const ryPx = docDistToMaskPxY(reachRadiusDoc, space, doc.terrain);
 
     const minX = Math.max(0, Math.floor(cxPx - rxPx) - 1);
     const maxX = Math.min(widthPx - 1, Math.ceil(cxPx + rxPx) + 1);
@@ -528,6 +566,8 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     const avgDocPerPx = 0.5 * (docPerPxX + docPerPxY);
     const radiusDoc = this.radiusDoc;
     const invRadiusDoc = 1 / radiusDoc;
+    const reachRadiusSq = reachRadiusDoc * reachRadiusDoc;
+    const radiusSq = radiusDoc * radiusDoc;
     const aaDoc = Math.min(radiusDoc * 0.3, Math.max(avgDocPerPx * 1.5, 0.8));
     const innerEdgeDoc = Math.max(0, radiusDoc - aaDoc);
 
@@ -542,10 +582,23 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
     let changedMaxX = -1;
     let changedMaxY = -1;
 
-    const tool = this.tool;
     const intensity = this.intensity;
     const targetCover = toolToCoverCode(tool);
     const flattenTarget = this.flattenTargetHeight;
+    const plateauTarget = this.plateauTargetHeight;
+
+    const docSeed = doc.manifest.terrain.seed >>> 0;
+    const coastSeed = (docSeed ^ 0x434f41) >>> 0;
+    const detailSeed = (docSeed ^ 0x444554) >>> 0;
+    const reliefSeed = (docSeed ^ 0x52454c) >>> 0;
+    const peakSeed = (docSeed ^ 0x504541) >>> 0;
+    const peakDetailSeed = (docSeed ^ 0x504532) >>> 0;
+    const plateauSeed = (docSeed ^ 0x504c41) >>> 0;
+    const coverSeed = (docSeed ^ 0x434f56) >>> 0;
+
+    const ridgeFreq = Math.min(0.032, Math.max(0.011, 1.9 / Math.max(55, radiusDoc)));
+    const coastFreq = 2.4 / Math.max(24, radiusDoc);
+    const coverFreq = 3.1 / Math.max(24, radiusDoc);
 
     let sMinX = 0;
     let sMinY = 0;
@@ -568,70 +621,238 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
         const y1 = Math.min(maxY, tile.y + tile.height - 1);
 
         for (let py = y0; py <= y1; py += 1) {
-          const dyDoc = (py + 0.5) * docPerPxY - cyDoc;
+          const docY = (py + 0.5) * docPerPxY;
+          const dyDoc = docY - cyDoc;
           const dySq = dyDoc * dyDoc;
           const docRow = py * widthPx;
           const tileRow = (py - tile.y) * tile.width - tile.x;
 
           for (let px = x0; px <= x1; px += 1) {
-            const dxDoc = (px + 0.5) * docPerPxX - cxDoc;
+            const docX = (px + 0.5) * docPerPxX;
+            const dxDoc = docX - cxDoc;
             const distSq = dxDoc * dxDoc + dySq;
-            if (distSq > radiusDoc * radiusDoc) continue;
+            if (distSq > reachRadiusSq) continue;
+            if (!isSmart && distSq > radiusSq) continue;
 
             const distDoc = Math.sqrt(distSq);
+            const normDist = distDoc * invRadiusDoc;
             const idx = docRow + px;
             let modified = false;
 
             if (tool === 'land') {
-              const edgeAlpha =
-                distDoc <= innerEdgeDoc ? 1 : 1 - smoothstepRange(innerEdgeDoc, radiusDoc, distDoc);
-              const alpha = edgeAlpha * intensity;
-              if (alpha > 0) {
-                const prevMask = mask[idx];
-                const nextMask =
-                  prevMask >= 255
-                    ? 255
-                    : Math.min(255, Math.max(prevMask, Math.round(prevMask + (255 - prevMask) * alpha)));
-                if (nextMask !== prevMask) {
-                  mask[idx] = nextMask;
-                  if (prevMask === 0) {
-                    height[idx] = 0;
-                    cover[idx] = COVER_NATURAL;
-                  }
-                  modified = true;
-                }
-              }
-            } else if (tool === 'water') {
-              const edgeAlpha =
-                distDoc <= innerEdgeDoc ? 1 : 1 - smoothstepRange(innerEdgeDoc, radiusDoc, distDoc);
-              const alpha = edgeAlpha * intensity;
-              if (alpha > 0) {
-                const prevMask = mask[idx];
-                if (prevMask > 0) {
-                  const nextMask = Math.max(0, Math.floor(prevMask * (1 - alpha)));
+              if (!isSmart) {
+                const edgeAlpha =
+                  distDoc <= innerEdgeDoc ? 1 : 1 - smoothstepRange(innerEdgeDoc, radiusDoc, distDoc);
+                const alpha = edgeAlpha * intensity;
+                if (alpha > 0) {
+                  const prevMask = mask[idx];
+                  const nextMask =
+                    prevMask >= 255
+                      ? 255
+                      : Math.min(255, Math.max(prevMask, Math.round(prevMask + (255 - prevMask) * alpha)));
                   if (nextMask !== prevMask) {
                     mask[idx] = nextMask;
-                    if (nextMask === 0) {
+                    if (prevMask === 0) {
                       height[idx] = 0;
                       cover[idx] = COVER_NATURAL;
                     }
                     modified = true;
                   }
                 }
+              } else {
+                const warpVal = warpedFbm2D(coastSeed, docX * coastFreq, docY * coastFreq, 3);
+                const fineJagged = valueNoise2D(
+                  detailSeed,
+                  docX * coastFreq * 3.1,
+                  docY * coastFreq * 3.1
+                );
+                const nCombined = warpVal * 0.72 + fineJagged * 0.28;
+                const edgeOffset = (nCombined - 0.5) * roughness * 0.62;
+                const perturbedNorm = normDist + edgeOffset;
+                const isletThreshold = 0.8 - 0.14 * roughness;
+                const inIslet =
+                  roughness > 0.22 &&
+                  normDist > 0.84 &&
+                  normDist <= 1.32 &&
+                  nCombined > isletThreshold;
+
+                let edgeAlpha = 0;
+                if (perturbedNorm <= 1.0) {
+                  edgeAlpha =
+                    perturbedNorm <= 0.84 ? 1 : 1 - smoothstepRange(0.84, 1.0, perturbedNorm);
+                } else if (inIslet) {
+                  edgeAlpha = smoothstepRange(isletThreshold, isletThreshold + 0.14, nCombined);
+                }
+
+                const alpha = edgeAlpha * intensity;
+                if (alpha > 0.02) {
+                  const prevMask = mask[idx];
+                  const nextMask =
+                    prevMask >= 255
+                      ? 255
+                      : Math.min(
+                          255,
+                          Math.max(
+                            prevMask,
+                            Math.round(prevMask + (255 - prevMask) * (edgeAlpha > 0.45 ? 1 : alpha))
+                          )
+                        );
+                  if (nextMask !== prevMask) {
+                    mask[idx] = nextMask;
+                    if (prevMask === 0) {
+                      cover[idx] = COVER_NATURAL;
+                      height[idx] = 0;
+                    }
+                    // Context-aware emerging land relief: gentle beach near shore, organic rolling plain inland
+                    if (prevMask < LAND_MASK_THRESHOLD && nextMask >= LAND_MASK_THRESHOLD) {
+                      const depth = Math.max(0, 1.0 - perturbedNorm);
+                      const reliefN = fbm2D(reliefSeed, docX * 0.015, docY * 0.015, 3);
+                      const baseH =
+                        depth < 0.16
+                          ? 5 + depth * 90 + reliefN * 8
+                          : 18 + Math.min(0.85, depth) * 32 + reliefN * 26;
+                      height[idx] = Math.min(72, Math.max(4, Math.round(baseH)));
+                    }
+                    modified = true;
+                  }
+                }
               }
-            } else if (tool === 'raise' || tool === 'lower') {
+            } else if (tool === 'water') {
+              if (!isSmart) {
+                const edgeAlpha =
+                  distDoc <= innerEdgeDoc ? 1 : 1 - smoothstepRange(innerEdgeDoc, radiusDoc, distDoc);
+                const alpha = edgeAlpha * intensity;
+                if (alpha > 0) {
+                  const prevMask = mask[idx];
+                  if (prevMask > 0) {
+                    const nextMask = Math.max(0, Math.floor(prevMask * (1 - alpha)));
+                    if (nextMask !== prevMask) {
+                      mask[idx] = nextMask;
+                      if (nextMask === 0) {
+                        height[idx] = 0;
+                        cover[idx] = COVER_NATURAL;
+                      }
+                      modified = true;
+                    }
+                  }
+                }
+              } else {
+                const warpVal = warpedFbm2D(coastSeed, docX * coastFreq, docY * coastFreq, 3);
+                const fineJagged = valueNoise2D(
+                  detailSeed,
+                  docX * coastFreq * 3.1,
+                  docY * coastFreq * 3.1
+                );
+                const nCombined = warpVal * 0.72 + fineJagged * 0.28;
+                const edgeOffset = (nCombined - 0.5) * roughness * 0.58;
+                const perturbedNorm = normDist + edgeOffset;
+
+                if (perturbedNorm <= 1.0) {
+                  const edgeAlpha =
+                    perturbedNorm <= 0.84 ? 1 : 1 - smoothstepRange(0.84, 1.0, perturbedNorm);
+                  const alpha = edgeAlpha * intensity;
+                  if (alpha > 0) {
+                    const prevMask = mask[idx];
+                    if (prevMask > 0) {
+                      const nextMask =
+                        edgeAlpha > 0.45 && intensity >= 0.8
+                          ? 0
+                          : Math.max(0, Math.floor(prevMask * (1 - alpha)));
+                      if (nextMask !== prevMask) {
+                        mask[idx] = nextMask;
+                        if (nextMask === 0) {
+                          height[idx] = 0;
+                          cover[idx] = COVER_NATURAL;
+                        }
+                        modified = true;
+                      }
+                    }
+                  }
+                } else if (perturbedNorm <= 1.18 && mask[idx] >= LAND_MASK_THRESHOLD) {
+                  // Smart shore grading: plains taper into sandy coves, mountains become sheer coastal cliffs
+                  const prevH = height[idx];
+                  if (prevH > 18 && prevH <= 135) {
+                    const targetShore = Math.round(14 + (perturbedNorm - 1.0) * 150);
+                    if (targetShore < prevH) {
+                      const shoreBlend = (1 - smoothstepRange(1.0, 1.18, perturbedNorm)) * 0.55;
+                      const nextH = Math.max(0, Math.round(prevH + (targetShore - prevH) * shoreBlend));
+                      if (nextH !== prevH) {
+                        height[idx] = nextH;
+                        modified = true;
+                      }
+                    }
+                  }
+                }
+              }
+            } else if (tool === 'raise') {
+              if (mask[idx] >= LAND_MASK_THRESHOLD && normDist <= 1) {
+                const radial = Math.pow(1 - normDist, 1.45);
+                const ridge = ridgedFbm2D(peakSeed, docX * ridgeFreq, docY * ridgeFreq, 4);
+                const spur = ridgedNoise2D(
+                  peakDetailSeed,
+                  docX * ridgeFreq * 2.3,
+                  docY * ridgeFreq * 2.3
+                );
+                const ridgeComb = ridge * 0.78 + spur * 0.22;
+                const localMax = 132 + 123 * Math.pow(ridgeComb, 0.92);
+                const localIdx = tileRow + px;
+                const work = tile.workHeight!;
+                const prevFloat = work[localIdx];
+                if (prevFloat < localMax) {
+                  const ridgeGain = 0.72 + 0.95 * ridgeComb;
+                  const headroom = (localMax - prevFloat) / Math.max(45, localMax - 90);
+                  const asymptote =
+                    prevFloat < 95 ? 1.0 : Math.pow(clampNumber(headroom, 0, 1), 0.72);
+                  const delta = BASE_ELEVATION_STEP * 1.38 * intensity * radial * ridgeGain * asymptote;
+                  if (delta > 0) {
+                    const nextFloat = Math.min(localMax, prevFloat + delta);
+                    work[localIdx] = nextFloat;
+                    const nextByte = Math.round(nextFloat);
+                    if (nextByte !== height[idx]) {
+                      height[idx] = nextByte;
+                      modified = true;
+                    }
+                  }
+                }
+              }
+            } else if (tool === 'plateau') {
               if (mask[idx] >= LAND_MASK_THRESHOLD) {
-                const normDist = distDoc * invRadiusDoc;
+                const edgeWarp = isSmart
+                  ? (warpedFbm2D(plateauSeed, docX * coastFreq, docY * coastFreq, 2) - 0.5) *
+                    roughness *
+                    0.34
+                  : 0;
+                const effNorm = normDist + edgeWarp;
+                if (effNorm <= 1.0) {
+                  const profile =
+                    effNorm <= 0.68 ? 1.0 : 1 - smoothstepRange(0.68, 1.0, effNorm);
+                  const blend = clampNumber(profile * Math.min(1, intensity * 1.15), 0, 1);
+                  if (blend > 0) {
+                    const localIdx = tileRow + px;
+                    const work = tile.workHeight!;
+                    const prevFloat = work[localIdx];
+                    const nextFloat = prevFloat + (plateauTarget - prevFloat) * blend;
+                    work[localIdx] = nextFloat;
+                    const nextByte = Math.min(255, Math.max(0, Math.round(nextFloat)));
+                    if (nextByte !== height[idx]) {
+                      height[idx] = nextByte;
+                      modified = true;
+                    }
+                  }
+                }
+              }
+            } else if (tool === 'lower') {
+              if (mask[idx] >= LAND_MASK_THRESHOLD && normDist <= 1) {
                 const falloff = 1 - smoothstepRange(0, 1, normDist);
-                const delta = BASE_ELEVATION_STEP * intensity * falloff;
+                const ridgeMod = isSmart
+                  ? 0.72 + 0.48 * (1 - ridgedFbm2D(peakSeed, docX * ridgeFreq, docY * ridgeFreq, 3))
+                  : 1;
+                const delta = BASE_ELEVATION_STEP * intensity * falloff * ridgeMod;
                 if (delta > 0) {
                   const localIdx = tileRow + px;
                   const work = tile.workHeight!;
                   const prevFloat = work[localIdx];
-                  const nextFloat =
-                    tool === 'raise'
-                      ? Math.min(255, prevFloat + delta)
-                      : Math.max(0, prevFloat - delta);
+                  const nextFloat = Math.max(0, prevFloat - delta);
                   work[localIdx] = nextFloat;
                   const nextByte = Math.round(nextFloat);
                   if (nextByte !== height[idx]) {
@@ -641,8 +862,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
                 }
               }
             } else if (tool === 'flatten') {
-              if (mask[idx] >= LAND_MASK_THRESHOLD) {
-                const normDist = distDoc * invRadiusDoc;
+              if (mask[idx] >= LAND_MASK_THRESHOLD && normDist <= 1) {
                 const falloff = 1 - smoothstepRange(0, 1, normDist);
                 const blend = clampNumber(falloff * intensity, 0, 1);
                 if (blend > 0) {
@@ -659,8 +879,7 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
                 }
               }
             } else if (tool === 'smooth') {
-              if (mask[idx] >= LAND_MASK_THRESHOLD) {
-                const normDist = distDoc * invRadiusDoc;
+              if (mask[idx] >= LAND_MASK_THRESHOLD && normDist <= 1) {
                 const falloff = 1 - smoothstepRange(0, 1, normDist);
                 const blend = clampNumber(falloff * intensity, 0, 1);
                 if (blend > 0) {
@@ -702,9 +921,54 @@ export class TerrainStrokeSession implements ITerrainStrokeSession {
                 }
               }
             } else if (targetCover !== null) {
-              if (mask[idx] >= LAND_MASK_THRESHOLD && cover[idx] !== targetCover) {
-                cover[idx] = targetCover;
-                modified = true;
+              if (mask[idx] >= LAND_MASK_THRESHOLD && normDist <= 1) {
+                let allowCover = true;
+                const hVal = height[idx];
+
+                if (isSmart) {
+                  // Organic brush boundary (bricks remain crisp architectural stamps)
+                  const edgeStart = targetCover === COVER_BRICK ? 0.85 : 0.62;
+                  if (normDist > edgeStart) {
+                    const edgeN = warpedFbm2D(coverSeed, docX * coverFreq, docY * coverFreq, 2);
+                    const edgeProgress = (normDist - edgeStart) / (1 - edgeStart);
+                    const threshold = 0.25 + edgeProgress * 0.62;
+                    if (edgeN < threshold) {
+                      allowCover = false;
+                    }
+                  }
+
+                  // Context-aware adaptation to existing elevation & biome
+                  if (allowCover) {
+                    if (targetCover === COVER_FOREST && hVal > 238) {
+                      allowCover = false;
+                    } else if (targetCover === COVER_FIELDS && hVal > 205) {
+                      allowCover = false;
+                    } else if (targetCover === COVER_SWAMP) {
+                      if (hVal > 185) {
+                        allowCover = false;
+                      } else if (hVal > 72 && hVal <= 145) {
+                        const sinkT = (1 - smoothstepRange(0.3, 1.0, normDist)) * 0.45;
+                        const nextH = Math.max(36, Math.round(hVal - (hVal - 56) * sinkT));
+                        if (nextH !== hVal) {
+                          height[idx] = nextH;
+                          modified = true;
+                        }
+                      }
+                    } else if (targetCover === COVER_ROCK && cover[idx] !== COVER_ROCK && hVal < 85) {
+                      const gritN = valueNoise2D(reliefSeed, docX * 0.14, docY * 0.14);
+                      const nextH = Math.min(130, hVal + Math.round(4 + gritN * 8));
+                      if (nextH !== hVal) {
+                        height[idx] = nextH;
+                        modified = true;
+                      }
+                    }
+                  }
+                }
+
+                if (allowCover && cover[idx] !== targetCover) {
+                  cover[idx] = targetCover;
+                  modified = true;
+                }
               }
             }
 

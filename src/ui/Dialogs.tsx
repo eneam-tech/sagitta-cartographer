@@ -10,6 +10,7 @@ import { SavedProjectSummary } from '../persistence/types';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { MAP_THEMES, MapTheme, getBuiltinThemeById } from '../theme/theme';
 import { ResizeCanvasDialog } from './ResizeCanvasDialog';
+import { GenerateWorldDialog } from './GenerateWorldDialog';
 import { AlertErrorIcon, CloseIcon } from './icons';
 
 const FOCUSABLE_SELECTOR = [
@@ -603,7 +604,7 @@ const SHORTCUT_GROUPS: ReadonlyArray<{
     items: [
       { keys: 'L / B', label: 'Terra' },
       { keys: 'W', label: 'Acqua' },
-      { keys: 'E', label: 'Rilievo (Alza / Abbassa / Appiattisci / Ammorbidisci)' },
+      { keys: 'E', label: 'Rilievo (Alza picchi / Altopiano / Abbassa / Appiattisci / Ammorbidisci)' },
       { keys: 'C', label: 'Superfici (10 materiali)' },
       { keys: 'R', label: 'Fiumi e Strade' },
       { keys: 'P', label: 'Simboli (POI)' },
@@ -690,6 +691,9 @@ export function DialogsHost({ store, exportPdfDialogSlot }: DialogsHostProps) {
   }
   if (activeDialog === 'resizeCanvas') {
     return <ResizeCanvasDialog store={store} />;
+  }
+  if (activeDialog === 'generateWorld') {
+    return <GenerateWorldDialog store={store} />;
   }
   if (activeDialog === 'shortcuts') {
     return <ShortcutsDialog store={store} />;

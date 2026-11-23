@@ -1,0 +1,44 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Metropoli murata">
+  <!-- Ombra a terra -->
+  <ellipse cx="64" cy="96" rx="52" ry="18" fill="#21150C" opacity="0.28"/>
+
+  <!-- Cinta muraria esterna poligonale stile Novigrad/Oxenfurt -->
+  <polygon points="18,74 30,44 64,28 98,42 110,72 94,98 64,104 30,96" fill="#C7A96D" stroke="#21150C" stroke-width="2.8" stroke-linejoin="round"/>
+  <polygon points="24,73 34,48 64,34 94,46 104,72 90,92 64,98 34,90" fill="#846233" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+
+  <!-- Denso dedalo di tetti rossi e case medievali -->
+  <!-- Isolato nord-ovest -->
+  <polygon points="36,54 48,46 57,54 45,62" fill="#9E3224" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="48,42 61,37 68,45 55,50" fill="#B54634" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- Isolato nord-est -->
+  <polygon points="69,43 84,48 80,58 65,53" fill="#9E3224" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="78,56 95,58 92,69 75,67" fill="#B54634" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- Isolato sud-ovest -->
+  <polygon points="28,70 43,66 46,78 31,82" fill="#B54634" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="38,80 54,77 56,88 40,91" fill="#8B2A1E" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <!-- Isolato centrale e piazza -->
+  <polygon points="50,62 66,58 68,70 52,74" fill="#EADAB2" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="64,67 82,66 84,78 66,79" fill="#9E3224" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="60,81 78,80 80,91 62,92" fill="#B54634" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+  <polygon points="82,73 97,72 95,84 80,85" fill="#8B2A1E" stroke="#21150C" stroke-width="1.8" stroke-linejoin="round"/>
+
+  <!-- Torre del tempio / palazzo sul colle -->
+  <rect x="57" y="34" width="12" height="24" fill="#F3EEDF" stroke="#21150C" stroke-width="2.2"/>
+  <polygon points="54,34 63,16 72,34" fill="#9E3224" stroke="#21150C" stroke-width="2.2" stroke-linejoin="round"/>
+  <path d="M63 16 V10" stroke="#21150C" stroke-width="2" stroke-linecap="round"/>
+  <polygon points="63,10 72,12.5 63,15" fill="#E0BB79" stroke="#21150C" stroke-width="1.4"/>
+
+  <!-- Bastioni e torri angolari sulle mura -->
+  <circle cx="18" cy="74" r="6" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="18" cy="74" r="3" fill="#9E3224"/>
+  <circle cx="30" cy="44" r="5.5" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="64" cy="28" r="6" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="98" cy="42" r="5.5" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="110" cy="72" r="6" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="94" cy="96" r="5.5" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <circle cx="32" cy="94" r="5.5" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+
+  <!-- Porta principale a sud -->
+  <rect x="58" y="94" width="14" height="12" rx="2" fill="#EADAB2" stroke="#21150C" stroke-width="2.2"/>
+  <path d="M62 106 V99 A3 3 0 0 1 68 99 V106 Z" fill="#21150C"/>
+</svg>

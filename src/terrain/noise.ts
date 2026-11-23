@@ -62,6 +62,39 @@ export function fbm2D(seed: number, x: number, y: number, octaves = 3): number {
   return norm > 0 ? sum / norm : 0;
 }
 
+export function ridgedNoise2D(seed: number, x: number, y: number): number {
+  const t = 1 - Math.abs(2 * valueNoise2D(seed, x, y) - 1);
+  return t * t;
+}
+
+export function ridgedFbm2D(seed: number, x: number, y: number, octaves = 4): number {
+  let sum = 0;
+  let freq = 1.0;
+  let amp = 0.5;
+  let norm = 0;
+  let weight = 1.0;
+  let octSeed = seed >>> 0;
+
+  for (let i = 0; i < octaves; i += 1) {
+    let signal = ridgedNoise2D(octSeed, x * freq, y * freq);
+    signal *= weight;
+    weight = Math.min(1, Math.max(0.22, signal * 1.8));
+    sum += signal * amp;
+    norm += amp;
+    freq *= 2.07;
+    amp *= 0.5;
+    octSeed = (octSeed + 0x9e3779b9) >>> 0;
+  }
+
+  return norm > 0 ? Math.min(1, Math.max(0, sum / norm)) : 0;
+}
+
+export function warpedFbm2D(seed: number, x: number, y: number, octaves = 3): number {
+  const warpX = (fbm2D((seed ^ 0x51a1) >>> 0, x * 0.85, y * 0.85, 2) - 0.5) * 1.15;
+  const warpY = (fbm2D((seed ^ 0x9b2c) >>> 0, x * 0.85 + 7.3, y * 0.85 - 4.1, 2) - 0.5) * 1.15;
+  return fbm2D(seed >>> 0, x + warpX, y + warpY, octaves);
+}
+
 export interface CellJitterSample {
   dx: number;
   dy: number;

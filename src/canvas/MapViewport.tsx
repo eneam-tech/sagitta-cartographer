@@ -3,6 +3,7 @@ import { useCallback, useEffect, useRef } from 'react';
 import type { MouseEvent as ReactMouseEvent, PointerEvent as ReactPointerEvent, ReactNode } from 'react';
 import { CameraState, clampNumber, screenToDoc } from '../model/coordinates';
 import { DEFAULT_LAYER_TERRAIN_ID } from '../model/document';
+import { drawAtlasFrameToContext } from '../render/objectMetrics';
 import {
   EditorStore,
   isTerrainBrushTool,
@@ -319,7 +320,23 @@ export function MapViewport({
     });
     fallbackGhostGroup.add(fallbackGhostRect);
 
-    overlayLayer.add(pageBorder, ...regMarks, fallbackGhostGroup, brushGroup);
+    const atlasFrameShape = new Konva.Shape({
+      x: 0,
+      y: 0,
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx) => {
+        const currentDoc = store.getSnapshot().doc;
+        drawAtlasFrameToContext(
+          ctx._context,
+          currentDoc.manifest.space.width,
+          currentDoc.manifest.space.height,
+          currentDoc.theme
+        );
+      }
+    });
+
+    overlayLayer.add(atlasFrameShape, pageBorder, ...regMarks, fallbackGhostGroup, brushGroup);
 
     stage.add(paperLayer, terrainLayer, objectsLayer, overlayLayer);
 

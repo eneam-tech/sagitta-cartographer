@@ -1,0 +1,21 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128" width="128" height="128" role="img" aria-label="Tana oscura">
+  <!-- Ombra a terra -->
+  <ellipse cx="64" cy="97" rx="46" ry="12" fill="#21150C" opacity="0.32"/>
+
+  <!-- Rupe frastagliata con anfratto oscuro -->
+  <path d="M18 92 L32 48 L48 34 L66 24 L86 38 L104 60 L110 92 Z" fill="#6C5D4F" stroke="#21150C" stroke-width="2.8" stroke-linejoin="round"/>
+  <path d="M66 24 L86 38 L104 60 L110 92 L68 92 Z" fill="#463B32"/>
+  <path d="M18 92 L32 48 L48 34 L66 24 L86 38 L104 60 L110 92 Z" fill="none" stroke="#21150C" stroke-width="2.8" stroke-linejoin="round"/>
+
+  <!-- Apertura cavernosa seghettata -->
+  <path d="M40 92 C40 62 50 50 64 50 C78 50 88 62 88 92 Z" fill="#17232D" stroke="#21150C" stroke-width="2.6"/>
+  <!-- Zanne/stalattiti all'ingresso -->
+  <polygon points="50,53 54,66 59,51" fill="#8C8986" stroke="#21150C" stroke-width="1.5"/>
+  <polygon points="69,51 74,65 78,54" fill="#8C8986" stroke="#21150C" stroke-width="1.5"/>
+
+  <!-- Emblema d'allerta / teschio simbolico scolpito davanti all'ingresso -->
+  <circle cx="64" cy="80" r="7" fill="#EADAB2" stroke="#21150C" stroke-width="2"/>
+  <circle cx="61.5" cy="79" r="1.5" fill="#21150C"/>
+  <circle cx="66.5" cy="79" r="1.5" fill="#21150C"/>
+  <path d="M54 94 L74 88 M54 88 L74 94" stroke="#9E3224" stroke-width="2.4" stroke-linecap="round"/>
+</svg>

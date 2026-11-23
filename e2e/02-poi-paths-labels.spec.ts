@@ -17,19 +17,19 @@ test.describe('Core 2: 31 POI Library (Search/Scatter), Vector Paths, Labels & S
     await createCleanProject(page, { title: 'Regno di Pietra' });
     await paintIslandCluster(page);
 
-    // 1. Open POI tool and verify 31-item catalog + search + category filtering
+    // 1. Open POI tool and verify 38-item catalog + search + category filtering
     await page.getByRole('button', { name: 'POI (P)' }).click();
-    await expect(page.getByText('31 di 31')).toBeVisible();
+    await expect(page.getByText('38 di 38')).toBeVisible();
 
     const searchInput = page.getByPlaceholder('Nome, tag o descrizione…');
     await searchInput.fill('vulcano');
-    await expect(page.getByText('1 di 31')).toBeVisible();
+    await expect(page.getByText('1 di 38')).toBeVisible();
     await page.getByRole('button', { name: 'Svuota ricerca' }).click();
-    await expect(page.getByText('31 di 31')).toBeVisible();
+    await expect(page.getByText('38 di 38')).toBeVisible();
 
     // Verify categories filter cleanly
     await page.getByRole('group', { name: 'Filtra per categoria POI' }).getByRole('button', { name: 'Fortezze' }).click();
-    await expect(page.getByText('5 di 31')).toBeVisible();
+    await expect(page.getByText('6 di 38')).toBeVisible();
     await page.getByRole('group', { name: 'Filtra per categoria POI' }).getByRole('button', { name: 'Tutte' }).click();
 
     // Place single Torre at (0.48, 0.46)

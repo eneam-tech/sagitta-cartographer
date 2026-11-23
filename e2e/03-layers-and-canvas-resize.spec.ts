@@ -102,8 +102,8 @@ test.describe('Core 3: Layers, Custom Layer Routing, Live Canvas Resize & 4 Them
     await resizeDialog.getByRole('button', { name: 'Applica ridimensionamento' }).click();
     await expect(page.locator('.topbar-canvas-label')).toContainText('500×500 mm');
 
-    // 5. Switch through all 4 themes
-    for (const themeName of ['Atlante boreale', 'Pergamena d’archivio', 'Terra d’ossidiana', 'Carta di stracci classica']) {
+    // 5. Switch through all 5 themes
+    for (const themeName of ['Atlante boreale', 'Regni del Nord', 'Pergamena d’archivio', 'Terra d’ossidiana', 'Carta di stracci classica']) {
       await page.getByRole('button', { name: /^Tema della carta:/ }).click();
       await page.getByRole('menuitemradio', { name: new RegExp(themeName) }).click();
       await expect(page.getByRole('button', { name: `Tema della carta: ${themeName}` })).toBeVisible();

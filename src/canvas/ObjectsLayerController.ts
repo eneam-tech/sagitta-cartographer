@@ -9,6 +9,7 @@ import {
   MapLayer,
   MapObject,
   PathObject,
+  StampObject,
   cloneMapObject,
   resolveObjectLayerId
 } from '../model/document';
@@ -31,7 +32,7 @@ import {
   sampleSmoothPathPoints
 } from '../render/objectMetrics';
 import { EditorSnapshot, EditorStore, shouldIgnoreShortcut } from '../state/editorStore';
-import { MapTheme, getFontSpec } from '../theme/theme';
+import { MapTheme, getDefaultLabelColor, getFontSpec } from '../theme/theme';
 import type { ViewportLayersHandle, ViewportPointerContext } from './MapViewport';
 
 const KonvaCtor = KonvaRuntime as unknown as typeof Konva;
@@ -1296,14 +1297,33 @@ export class ObjectsLayerController {
     return this.inlineEditingSessionActive;
   }
 
+  requestLabelForStamp(stamp: StampObject): void {
+    const doc = this.store.getDocument();
+    const targetLayerId = this.store.resolveTargetLayerIdForNewObject('label');
+    if (!this.store.isLayerEditable(targetLayerId)) {
+      this.notifyLockedOrHiddenLayer(targetLayerId, doc.manifest.layers, 'Nomi e Note');
+      return;
+    }
+    const { space } = doc.manifest;
+    const docX = clampNumber(stamp.x, 40, space.width - 40);
+    const docY = clampNumber(stamp.y + stamp.height * 0.55 + 14, 28, space.height - 28);
+    const theme = doc.theme;
+    const cityFontId = theme.fonts.presets.city
+      ? 'city'
+      : theme.fonts.defaultFontId;
+    this.openInlineEditorForNewLabel(docX, docY, theme, targetLayerId, cityFontId);
+  }
+
   private openInlineEditorForNewLabel(
     docX: number,
     docY: number,
     theme: MapTheme,
-    layerId: string
+    layerId: string,
+    fontIdOverride?: string,
+    fontSizeOverride?: number
   ): void {
     if (!this.onRequestInlineLabelEdit) return;
-    const spec = getFontSpec(theme, theme.fonts.defaultFontId);
+    const spec = getFontSpec(theme, fontIdOverride ?? theme.fonts.defaultFontId);
     this.inlineEditingSessionActive = true;
     this.inlineEditingObjectId = null;
     this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
@@ -1316,8 +1336,8 @@ export class ObjectsLayerController {
       layerId,
       initialText: '',
       fontId: spec.id,
-      fontSize: spec.defaultSizeDoc,
-      color: theme.colors.ink,
+      fontSize: fontSizeOverride ?? spec.defaultSizeDoc,
+      color: getDefaultLabelColor(theme),
       rotationDeg: 0,
       onEnd: () => this.setInlineEditingState(false, null)
     });
@@ -1559,6 +1579,9 @@ export class ObjectsLayerController {
         new AddObjectCommand(stamp, undefined, catalogItem.asset, `Aggiungi ${catalogItem.name}`)
       );
       this.store.selectObject(stamp.id);
+      if (snap.poiAutoLabel) {
+        this.requestLabelForStamp(stamp);
+      }
       return true;
     }
 
