@@ -488,7 +488,7 @@ export function TopBar({ store }: TopBarProps) {
           </span>
         </button>
 
-        {/* Selettore dei 4 temi cartografici con 3 pallini cromatici */}
+        {/* Selettore dei 5 temi cartografici con 3 pallini cromatici */}
         <div className="topbar-theme-wrap" ref={themeMenuWrapRef}>
           <button
             ref={themeBtnRef}

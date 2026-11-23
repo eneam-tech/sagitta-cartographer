@@ -651,7 +651,7 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     const railLava = renderToStaticMarkup(createElement(ToolRail, { store }));
     expect(railLava).toContain('aria-pressed="true" aria-label="Superfici (C)"');
 
-    // PropertiesPanel: Rilievo (4 modalità + 3 preset intensità + diametro)
+    // PropertiesPanel: Rilievo (5 modalità + 3 preset intensità + diametro)
     store.setTool('raise');
     const propRaise = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
     expect(propRaise).toContain('Strumento');
@@ -701,7 +701,7 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     );
     expect(propObjects).toContain('SLOT_LIST_TEST');
 
-    // TopBar: Tela 297×210 mm + 4 temi + Scorciatoie
+    // TopBar: Tela 297×210 mm + 5 temi + Scorciatoie
     const topHtml = renderToStaticMarkup(createElement(TopBar, { store }));
     expect(topHtml).toContain('297×210 mm');
     expect(topHtml).toContain('Carta di stracci classica');
@@ -719,7 +719,7 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     expect(statusLand).toContain('Quota 152');
     expect(statusLand).toContain('Lava');
 
-    // DialogsHost: newProject (7 preset + 4 temi), resizeCanvas, shortcuts
+    // DialogsHost: newProject (7 preset + 5 temi), resizeCanvas, shortcuts
     store.openDialog('newProject');
     const newProjHtml = renderToStaticMarkup(createElement(DialogsHost, { store }));
     for (const preset of PAGE_PRESETS) {

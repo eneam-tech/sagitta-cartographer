@@ -13,10 +13,10 @@ I contratti congelati seguenti definiscono le interfacce comuni e non vanno modi
 - `src/model/coordinates.ts` — unità logiche (`10 u/mm`), conversioni stampa (`mmToPdfPoints`, `mmToPrintPx`, `ptToDocUnits`), preset pagina A4–A1 (`50–2000 mm`), matematica ancore/camera (`computeAnchorOffset`, `clampPrintDimensions`, `screenToDoc`, `docToScreen`, `zoomAtPoint`, `fitCameraToViewport`).
 - `src/model/document.ts` — schema v3 (`DocumentManifest`, `TerrainBuffers`, `CoverCode 0..9`, `MapLayer`, `MapObject` unione discriminata `stamp | label | path`, `createEmptyDocument`, `createDefaultLayers`, validazione runtime).
 - `src/model/commands.ts` e `src/model/history.ts` — confine dei comandi annullabili (`TerrainPatchCommand`, `ResizeCanvasCommand`, comandi `Add/Update/Delete/ReorderLayersCommand`), `HistoryManager` con budget di memoria e monotonicità di `revision` / `terrainVersion`.
-- `src/theme/theme.ts` — `MapTheme`, `MAP_THEMES` (4 temi built-in), `DEFAULT_THEME`, `V1_FLAT_THEME`, `normalizeTheme`, soglie di elevazione e preset tipografici.
+- `src/theme/theme.ts` — `MapTheme`, `MAP_THEMES` (5 temi built-in), `DEFAULT_THEME`, `V1_FLAT_THEME`, `normalizeTheme`, soglie di elevazione e preset tipografici.
 - `src/core/png.ts` — codifica/decodifica PNG RGBA lossless pure-TS (`encodeMaskPng`, `decodeMaskPng`).
 - `src/assets/types.ts` — tipi e categorie del catalogo POI (`POI_CATEGORIES`, `PoiCatalogItem`).
-- `src/terrain/types.ts` — interfaccia di `ITerrainStrokeSession` e `ITerrainRenderer` (16 strumenti terreno).
+- `src/terrain/types.ts` — interfaccia di `ITerrainStrokeSession` e `ITerrainRenderer` (17 strumenti terreno).
 - `src/persistence/types.ts` — interfaccia di `IPersistenceService`, stati di salvataggio ed esiti importazione.
 - `src/render/objectMetrics.ts` — metriche e disegno condivisi (`resolveLabelFontCss`, `drawPathToContext`, `drawMapObjectsToContext` per layer) tra Konva, anteprima e PDF.
 - `src/export/types.ts` — interfaccia `PdfExportOptions` e `PdfExportResult`.
@@ -28,7 +28,7 @@ I contratti congelati seguenti definiscono le interfacce comuni e non vanno modi
 - **Persistenza e archivio**: `src/persistence/` (escluso `types.ts`) e `tests/persistence/`
 - **POI, etichette, tracciati e livelli**: `src/objects/`, `src/canvas/ObjectsLayerController.ts`, `src/ui/PoiLibraryPanel.tsx`, `src/ui/ObjectListPanel.tsx`, `src/ui/ObjectInspector.tsx`, `src/ui/InlineLabelEditor.tsx`, `src/ui/LayersPanel.tsx`, `src/ui/PathToolPanel.tsx`, `tests/objects/`
 - **Composizione condivisa ed export PDF**: `src/render/composeDocument.ts`, `src/export/` (escluso `types.ts`), `src/ui/ExportPdfDialog.tsx`, `tests/export/`
-- **Risorse cartografiche e licenze**: `src/assets/svg/` (31 POI SVG `CC0-1.0`), `src/assets/catalog.ts`, `THIRD_PARTY_NOTICES.md`
+- **Risorse cartografiche e licenze**: `src/assets/svg/` (38 POI SVG `CC0-1.0`), `src/assets/catalog.ts`, `THIRD_PARTY_NOTICES.md`
 - **Integrazione e dipendenze**: `package.json`, `package-lock.json`, `src/App.tsx`, `src/main.tsx`
 
 ## Comandi di build, controllo tipi e test

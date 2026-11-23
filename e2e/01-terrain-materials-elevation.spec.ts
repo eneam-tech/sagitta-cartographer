@@ -10,7 +10,7 @@ import {
 } from './helpers';
 
 test.describe('Core 1: Terrain, Elevation Intensity & 10 Surface Materials', () => {
-  test('draws landmass, sculpts with all 4 elevation tools & intensity, paints all 10 materials, carves water, and aligns pan/zoom', async ({
+  test('draws landmass, sculpts with all 5 elevation tools & intensity, paints all 10 materials, carves water, and aligns pan/zoom', async ({
     page
   }) => {
     const tracker = attachErrorTracker(page);

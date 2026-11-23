@@ -8,8 +8,8 @@ import {
   paintIslandCluster
 } from './helpers';
 
-test.describe('Core 3: Layers, Custom Layer Routing, Live Canvas Resize & 4 Themes', () => {
-  test('manages custom layers, blocks locked layers cleanly, preserves white sheet under hidden terrain, resizes canvas A4->A3 + Undo/Redo, and switches all 4 themes', async ({
+test.describe('Core 3: Layers, Custom Layer Routing, Live Canvas Resize & 5 Themes', () => {
+  test('manages custom layers, blocks locked layers cleanly, preserves white sheet under hidden terrain, resizes canvas A4->A3 + Undo/Redo, and switches all 5 themes', async ({
     page
   }) => {
     const tracker = attachErrorTracker(page);

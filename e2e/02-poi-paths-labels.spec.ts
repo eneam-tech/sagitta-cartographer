@@ -9,8 +9,8 @@ import {
   setBrushDiameter
 } from './helpers';
 
-test.describe('Core 2: 31 POI Library (Search/Scatter), Vector Paths, Labels & Spec §11 Interactions', () => {
-  test('searches 31 POIs, places single & scatter with 1-step undo, draws tapered/dashed paths, places accented label, and preserves POI over water carve', async ({
+test.describe('Core 2: 38 POI Library (Search/Scatter), Vector Paths, Labels & Spec §11 Interactions', () => {
+  test('searches 38 POIs, places single & scatter with 1-step undo, draws tapered/dashed paths, places accented label, and preserves POI over water carve', async ({
     page
   }) => {
     const tracker = attachErrorTracker(page);
