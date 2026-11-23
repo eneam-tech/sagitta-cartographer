@@ -23,11 +23,17 @@ Aprire l'URL mostrato da Vite nel browser desktop (es. `http://localhost:5173`).
 ## Comandi di verifica
 
 ```bash
-npm run typecheck   # Controllo tipi TypeScript (tsc --noEmit)
-npm run test        # Suite di test automatici Vitest
-npm run build       # Verifica tipi + build statica in dist/
-npm run preview     # Anteprima locale della build di produzione
+npm run typecheck      # Controllo tipi TypeScript (src, tests ed e2e)
+npm run test           # Suite di test automatici Vitest
+npm run test:e2e       # Suite end-to-end Playwright (e2e/)
+npm run test:e2e:ui    # Runner interattivo Playwright UI
+npm run test:e2e:headed # Esecuzione E2E con finestra browser visibile
+npm run test:all       # Controllo tipi + Vitest + Playwright E2E
+npm run build          # Verifica tipi + build statica in dist/
+npm run preview        # Anteprima locale della build di produzione
 ```
+
+> Prima della prima esecuzione E2E su una nuova macchina, installare il browser Playwright con `npx playwright install chromium`.
 
 ## Funzionalità incluse (v0.2 · Incremento 2)
 

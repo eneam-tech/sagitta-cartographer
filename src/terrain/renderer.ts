@@ -367,11 +367,26 @@ export class TerrainRenderer implements ITerrainRenderer {
       ty1 = Math.floor((visMaxY - 1) / CHUNK_SIZE_PX);
     }
 
+    let seamPadDocX = 0;
+    let seamPadDocY = 0;
+    const maybeTransform = (ctx as { getTransform?: () => { a: number; b: number; c: number; d: number } }).getTransform;
+    if (typeof maybeTransform === 'function') {
+      const m = maybeTransform.call(ctx);
+      const pxPerDocX = Math.hypot(m.a, m.b);
+      const pxPerDocY = Math.hypot(m.c, m.d);
+      if (pxPerDocX > 0 && (Math.abs(pxPerDocX - 1) > 1e-3 || pxPerDocX < 2)) {
+        seamPadDocX = Math.min(CHUNK_SIZE_PX * scaleX * 0.04, 0.75 / pxPerDocX);
+      }
+      if (pxPerDocY > 0 && (Math.abs(pxPerDocY - 1) > 1e-3 || pxPerDocY < 2)) {
+        seamPadDocY = Math.min(CHUNK_SIZE_PX * scaleY * 0.04, 0.75 / pxPerDocY);
+      }
+    }
+
     for (let ty = ty0; ty <= ty1; ty += 1) {
       const tileY = ty * CHUNK_SIZE_PX;
       const tileH = Math.min(CHUNK_SIZE_PX, this.heightPx - tileY);
       const dy = tileY * scaleY;
-      const dh = (tileY + tileH) * scaleY - dy;
+      const dh = (tileY + tileH) * scaleY - dy + (ty < this.tilesY - 1 ? seamPadDocY : 0);
 
       for (let tx = tx0; tx <= tx1; tx += 1) {
         const tileX = tx * CHUNK_SIZE_PX;
@@ -380,7 +395,7 @@ export class TerrainRenderer implements ITerrainRenderer {
         if (!tileCanvas) continue;
 
         const dx = tileX * scaleX;
-        const dw = (tileX + tileW) * scaleX - dx;
+        const dw = (tileX + tileW) * scaleX - dx + (tx < this.tilesX - 1 ? seamPadDocX : 0);
         ctx.drawImage(tileCanvas, dx, dy, dw, dh);
       }
     }

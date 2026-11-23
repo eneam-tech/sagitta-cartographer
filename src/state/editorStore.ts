@@ -791,7 +791,7 @@ export class EditorStore {
   private brushIntensity = DEFAULT_BRUSH_INTENSITY;
 
   private inspectorTab: InspectorTab = 'tool';
-  private activeLayerId = DEFAULT_LAYER_POI_ID;
+  private activeLayerId = DEFAULT_LAYER_TERRAIN_ID;
   private poiPlacementScale = 1.0;
   private poiBrushMode: PoiBrushMode = 'single';
   private poiScatterRadiusDoc = 140;
@@ -964,6 +964,9 @@ export class EditorStore {
     }
     if (!isLandRequiredBrush(tool)) {
       this.seaOnlyHintVisible = false;
+    }
+    if (tool === 'poi' && this.activePoiId === null) {
+      this.activePoiId = 'poi-settlement';
     }
 
     const layers = this.doc.manifest.layers;
@@ -1508,6 +1511,8 @@ export class EditorStore {
     const nextDoc = createEmptyDocument(options);
     this.loadDocument(nextDoc);
     this.activeTool = 'land';
+    this.activeLayerId = DEFAULT_LAYER_TERRAIN_ID;
+    this.ensureValidActiveLayer();
     this.brushDiameterDoc = DEFAULT_BRUSH_DIAMETER_DOC;
     this.brushIntensity = DEFAULT_BRUSH_INTENSITY;
     this.activeDialog = null;
