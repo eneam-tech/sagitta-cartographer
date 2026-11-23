@@ -28,7 +28,14 @@ export {
   BRUSH_TILE_SIZE_PX,
   TerrainStrokeSession
 } from './brush';
-export { TerrainRenderer } from './renderer';
+export {
+  TERRAIN_DIRTY_ALL,
+  TERRAIN_DIRTY_COVER,
+  TERRAIN_DIRTY_FOREST,
+  TERRAIN_DIRTY_HEIGHT,
+  TERRAIN_DIRTY_MASK,
+  TerrainRenderer
+} from './renderer';
 export {
   LAND_MASK_THRESHOLD,
   classifyCell,
@@ -44,6 +51,7 @@ export type {
 } from './classifier';
 export {
   cellJitter,
+  fastOrganicNoise2D,
   fbm2D,
   hash2D,
   hash2DBipolar,

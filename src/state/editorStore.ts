@@ -48,6 +48,12 @@ import {
   StrokeCommitResult,
   TerrainBrushTool
 } from '../terrain/types';
+import {
+  TERRAIN_DIRTY_ALL,
+  TERRAIN_DIRTY_COVER,
+  TERRAIN_DIRTY_FOREST,
+  TERRAIN_DIRTY_HEIGHT
+} from '../terrain/renderer';
 import { WorldGeneratorOptions, generateProceduralWorldTerrain } from '../terrain/worldGenerator';
 
 export type EditorTool =
@@ -134,6 +140,44 @@ export function isLandRequiredBrush(tool: EditorTool): boolean {
     tool === 'lava' ||
     tool === 'natural'
   );
+}
+
+function getToolDirtyChannels(tool: TerrainBrushTool): number {
+  if (tool === 'land' || tool === 'water') {
+    return TERRAIN_DIRTY_ALL;
+  }
+  if (
+    tool === 'raise' ||
+    tool === 'lower' ||
+    tool === 'flatten' ||
+    tool === 'smooth' ||
+    tool === 'plateau'
+  ) {
+    return TERRAIN_DIRTY_HEIGHT;
+  }
+  if (tool === 'forest' || tool === 'natural') {
+    return TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_FOREST;
+  }
+  if (
+    tool === 'fields' ||
+    tool === 'sand' ||
+    tool === 'swamp' ||
+    tool === 'rock' ||
+    tool === 'brick' ||
+    tool === 'lava'
+  ) {
+    return TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_HEIGHT | TERRAIN_DIRTY_FOREST;
+  }
+  return TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_FOREST;
+}
+
+function mergeDirtyRects(a: DirtyRectPx | null, b: DirtyRectPx): DirtyRectPx {
+  if (!a) return b;
+  const x0 = Math.min(a.x, b.x);
+  const y0 = Math.min(a.y, b.y);
+  const x1 = Math.max(a.x + a.width, b.x + b.width);
+  const y1 = Math.max(a.y + a.height, b.y + b.height);
+  return { x: x0, y: y0, width: x1 - x0, height: y1 - y0 };
 }
 
 export function computeHasLand(doc: MapDocument): boolean {
@@ -841,6 +885,9 @@ export class EditorStore {
   private statusNotice: EditorStatusNotice | null = null;
   private terrainRenderTick = 0;
   private documentVersionTick = 0;
+  private pendingDirtyRect: DirtyRectPx | null = null;
+  private pendingDirtyChannels = 0;
+  private strokeRafId: number | null = null;
   private lastAlertedStatus: PersistenceState['status'] = 'idle';
 
   private listeners = new Set<() => void>();
@@ -1238,6 +1285,7 @@ export class EditorStore {
   }
 
   generateWorld(options: WorldGeneratorOptions): void {
+    this.clearPendingTerrainRender();
     if (this.strokeSession.isActive()) {
       this.cancelTerrainStroke();
     }
@@ -1443,6 +1491,7 @@ export class EditorStore {
   }
 
   undo(): boolean {
+    this.clearPendingTerrainRender();
     if (this.strokeSession.isActive()) {
       this.cancelTerrainStroke();
     }
@@ -1476,6 +1525,7 @@ export class EditorStore {
   }
 
   redo(): boolean {
+    this.clearPendingTerrainRender();
     if (this.strokeSession.isActive()) {
       this.cancelTerrainStroke();
     }
@@ -1508,6 +1558,37 @@ export class EditorStore {
     return true;
   }
 
+  private clearPendingTerrainRender(): void {
+    if (this.strokeRafId !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.strokeRafId);
+    }
+    this.strokeRafId = null;
+    this.pendingDirtyRect = null;
+    this.pendingDirtyChannels = 0;
+  }
+
+  private renderDirtyRegionWithChannels(rect: DirtyRectPx, channels: number): void {
+    const channelAware = this.renderer as ITerrainRenderer & {
+      renderRegion: (doc: MapDocument, dirtyRect: DirtyRectPx, dirtyChannels?: number) => void;
+    };
+    channelAware.renderRegion(this.doc, rect, channels);
+  }
+
+  private flushPendingTerrainRender(): void {
+    if (this.strokeRafId !== null && typeof cancelAnimationFrame === 'function') {
+      cancelAnimationFrame(this.strokeRafId);
+    }
+    this.strokeRafId = null;
+    const rect = this.pendingDirtyRect;
+    const channels = this.pendingDirtyChannels;
+    if (!rect) return;
+    this.pendingDirtyRect = null;
+    this.pendingDirtyChannels = 0;
+    this.renderDirtyRegionWithChannels(rect, channels || TERRAIN_DIRTY_ALL);
+    this.terrainRenderTick += 1;
+    this.notifyTerrainRedraw();
+  }
+
   beginTerrainStroke(docX: number, docY: number): boolean {
     const tool = this.getEffectiveTool();
     if (!isTerrainBrushTool(tool)) return false;
@@ -1520,6 +1601,8 @@ export class EditorStore {
       this.notify();
       return false;
     }
+
+    this.clearPendingTerrainRender();
 
     if (tool === 'land' && !this.hasLand) {
       this.hasLand = true;
@@ -1553,7 +1636,7 @@ export class EditorStore {
       docY
     );
     if (dirtyRect) {
-      this.renderer.renderRegion(this.doc, dirtyRect);
+      this.renderDirtyRegionWithChannels(dirtyRect, getToolDirtyChannels(tool));
       this.terrainRenderTick += 1;
       this.notifyTerrainRedraw();
     }
@@ -1563,30 +1646,50 @@ export class EditorStore {
 
   moveTerrainStroke(docX: number, docY: number): void {
     if (!this.strokeSession.isActive()) return;
-    this.updateCursorSeaHint(docX, docY);
+    const tool = this.getEffectiveTool();
+    if (isLandRequiredBrush(tool)) {
+      this.updateCursorSeaHint(docX, docY);
+    }
     const dirtyRect = this.strokeSession.addPoint(this.doc, docX, docY);
     if (dirtyRect) {
-      this.renderer.renderRegion(this.doc, dirtyRect);
-      this.terrainRenderTick += 1;
-      this.notifyTerrainRedraw();
+      this.pendingDirtyRect = mergeDirtyRects(this.pendingDirtyRect, dirtyRect);
+      if (isTerrainBrushTool(tool)) {
+        this.pendingDirtyChannels |= getToolDirtyChannels(tool);
+      } else {
+        this.pendingDirtyChannels = TERRAIN_DIRTY_ALL;
+      }
+
+      if (typeof requestAnimationFrame === 'function') {
+        if (this.strokeRafId === null) {
+          this.strokeRafId = requestAnimationFrame(() => {
+            this.strokeRafId = null;
+            this.flushPendingTerrainRender();
+          });
+        }
+      } else {
+        this.flushPendingTerrainRender();
+      }
     }
   }
 
   commitTerrainStroke(): void {
     if (!this.strokeSession.isActive()) return;
+    this.flushPendingTerrainRender();
     const result = this.strokeSession.commit(this.doc);
     if (!result) {
       this.hasLand = computeHasLand(this.doc);
       this.notify();
       return;
     }
-    this.renderer.renderRegion(this.doc, result.dirtyRect);
-    this.terrainRenderTick += 1;
-    this.notifyTerrainRedraw();
     this.executeCommand(result.command, { alreadyApplied: true });
+    const syncAware = this.renderer as ITerrainRenderer & {
+      syncTerrainVersion?: (doc: MapDocument) => void;
+    };
+    syncAware.syncTerrainVersion?.(this.doc);
   }
 
   cancelTerrainStroke(): void {
+    this.clearPendingTerrainRender();
     if (!this.strokeSession.isActive()) return;
     const dirtyRect = this.strokeSession.cancel(this.doc);
     if (dirtyRect) {
@@ -1616,6 +1719,7 @@ export class EditorStore {
   }
 
   loadDocument(doc: MapDocument, extraAssets?: Map<string, Blob>): void {
+    this.clearPendingTerrainRender();
     if (this.strokeSession.isActive()) {
       this.strokeSession.cancel(this.doc);
     }
@@ -1864,6 +1968,7 @@ export class EditorStore {
   }
 
   dispose(): void {
+    this.clearPendingTerrainRender();
     this.unsubPersistence?.();
     this.unsubPersistence = null;
     this.listeners.clear();

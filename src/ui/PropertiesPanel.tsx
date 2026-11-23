@@ -89,6 +89,19 @@ const PLATEAU_HEIGHT_PRESETS: ReadonlyArray<{ label: string; height: number }> =
   { label: 'Tavolato', height: 225 }
 ];
 
+const SMART_COVER_HINTS: Record<CoverToolId, string> = {
+  natural: 'Ripristina il terreno base con margini organici sfumati lungo il bordo.',
+  forest: 'Forma boschi con radure naturali ed evita spiagge basse, pareti ripide e vette innevate.',
+  fields: 'Disegna appezzamenti allineati alle parcelle su pianure e colline dolci, evitando i pendii ripidi.',
+  meadow: 'Stende praterie erbose su pianori e versanti dolci con transizioni irregolari.',
+  sand: 'Espande spiagge lungo le rive livellandone i dossi e forma dune orientate dal vento nell’interno.',
+  rock: 'Aderisce a pendii, scogliere costiere e dorsali montuose creando affioramenti rocciosi frastagliati.',
+  snow: 'Segue la quota nivale aggrappandosi a vette e creste fredde, con banchi naturali in quota.',
+  swamp: 'Predilige bassopiani, estuari e conche umide evitando creste rocciose e rilievi alpini.',
+  brick: 'Allinea la pavimentazione in blocchi ortogonali per borghi e cortili, evitando scarpate verticali.',
+  lava: 'Scorre lungo fenditure vulcaniche e solidifica in roccia lavica al contatto diretto col mare.'
+};
+
 interface SyncedNumberSliderProps {
   label: string;
   value: number;
@@ -708,9 +721,21 @@ export function PropertiesPanel({
 
                 <p className="panel-hint">
                   {brushMode === 'smart'
-                    ? 'Adatta i margini al rilievo e alle coste, con bordi organici e naturali.'
+                    ? SMART_COVER_HINTS[activeTool as CoverToolId]
                     : 'Stende il materiale in modo uniforme all’interno dell’intera area del pennello.'}
                 </p>
+
+                {brushMode === 'smart' ? (
+                  <SyncedNumberSlider
+                    label="Organicità bordo"
+                    value={roughnessPercent}
+                    min={0}
+                    max={100}
+                    step={5}
+                    unit="%"
+                    onChange={(pct) => store.setBrushRoughnessPercent(pct)}
+                  />
+                ) : null}
 
                 <SyncedNumberSlider
                   label="Diametro pennello"

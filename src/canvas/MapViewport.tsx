@@ -98,6 +98,7 @@ export function MapViewport({
   const paperLayerRef = useRef<Konva.Layer | null>(null);
   const terrainLayerRef = useRef<Konva.Layer | null>(null);
   const objectsLayerRef = useRef<Konva.Layer | null>(null);
+  const frameLayerRef = useRef<Konva.Layer | null>(null);
   const overlayLayerRef = useRef<Konva.Layer | null>(null);
 
   const terrainShadowRef = useRef<Konva.Rect | null>(null);
@@ -116,6 +117,7 @@ export function MapViewport({
 
   const activeGestureRef = useRef<ActiveGesture>(null);
   const cursorRef = useRef<CursorState>({ inside: false, cssX: 0, cssY: 0, docX: 0, docY: 0 });
+  const lastTelemetrySentMsRef = useRef<number>(0);
   const seaHintCoordsRef = useRef<{ x: number; y: number }>({ x: 16, y: 16 });
 
   const effectiveTool = spacePanActive ? 'hand' : activeTool;
@@ -203,6 +205,7 @@ export function MapViewport({
     const paperLayer = new Konva.Layer({ listening: false });
     const terrainLayer = new Konva.Layer({ listening: false });
     const objectsLayer = new Konva.Layer({ listening: false });
+    const frameLayer = new Konva.Layer({ listening: false });
     const overlayLayer = new Konva.Layer({ listening: false });
 
     const shadowRect = new Konva.Rect({
@@ -336,14 +339,16 @@ export function MapViewport({
       }
     });
 
-    overlayLayer.add(atlasFrameShape, pageBorder, ...regMarks, fallbackGhostGroup, brushGroup);
+    frameLayer.add(atlasFrameShape, pageBorder, ...regMarks);
+    overlayLayer.add(fallbackGhostGroup, brushGroup);
 
-    stage.add(paperLayer, terrainLayer, objectsLayer, overlayLayer);
+    stage.add(paperLayer, terrainLayer, objectsLayer, frameLayer, overlayLayer);
 
     stageRef.current = stage;
     paperLayerRef.current = paperLayer;
     terrainLayerRef.current = terrainLayer;
     objectsLayerRef.current = objectsLayer;
+    frameLayerRef.current = frameLayer;
     overlayLayerRef.current = overlayLayer;
     terrainShadowRef.current = shadowRect;
     paperBgRef.current = paperBgRect;
@@ -386,6 +391,7 @@ export function MapViewport({
       paperLayerRef.current = null;
       terrainLayerRef.current = null;
       objectsLayerRef.current = null;
+      frameLayerRef.current = null;
       overlayLayerRef.current = null;
       terrainShadowRef.current = null;
       paperBgRef.current = null;
@@ -415,13 +421,14 @@ export function MapViewport({
     };
   }, [store]);
 
-  // Sincronizza camera, dimensioni pagina, ritaglio livello oggetti e segni di registro
+  // Sincronizza camera, dimensioni pagina, ritaglio livello oggetti e cornice statica
   useEffect(() => {
     const paperLayer = paperLayerRef.current;
     const terrainLayer = terrainLayerRef.current;
     const objectsLayer = objectsLayerRef.current;
+    const frameLayer = frameLayerRef.current;
     const overlayLayer = overlayLayerRef.current;
-    if (!paperLayer || !terrainLayer || !objectsLayer || !overlayLayer) return;
+    if (!paperLayer || !terrainLayer || !objectsLayer || !frameLayer || !overlayLayer) return;
 
     const { width, height } = doc.manifest.space;
     const layerTransform = {
@@ -445,6 +452,7 @@ export function MapViewport({
       clipHeight: height,
       listening: effectiveTool === 'select'
     });
+    frameLayer.setAttrs(layerTransform);
     overlayLayer.setAttrs(layerTransform);
 
     const shadowOffset = 6 / camera.scale;
@@ -493,6 +501,7 @@ export function MapViewport({
     paperLayer.batchDraw();
     terrainLayer.batchDraw();
     objectsLayer.batchDraw();
+    frameLayer.batchDraw();
     syncOverlayCursor();
   }, [
     camera,
@@ -507,32 +516,17 @@ export function MapViewport({
     syncOverlayCursor
   ]);
 
-  // Ridisegno isolato e accorpato per frame del solo terreno durante la pennellata
+  // Ridisegno isolato del solo terreno (senza doppio rAF quando già accorpato dallo store)
   useEffect(() => {
-    let rafId: number | null = null;
-    const flushTerrainDraw = () => {
-      rafId = null;
+    const unsub = store.subscribeTerrainRedraw(() => {
       const terrainLayer = terrainLayerRef.current;
       const terrainShape = terrainShapeRef.current;
       if (!terrainLayer || !terrainShape) return;
       terrainLayer.batchDraw();
-    };
-
-    const unsub = store.subscribeTerrainRedraw(() => {
-      if (typeof requestAnimationFrame === 'function') {
-        if (rafId === null) {
-          rafId = requestAnimationFrame(flushTerrainDraw);
-        }
-      } else {
-        flushTerrainDraw();
-      }
     });
 
     return () => {
       unsub();
-      if (rafId !== null && typeof cancelAnimationFrame === 'function') {
-        cancelAnimationFrame(rafId);
-      }
     };
   }, [store]);
 
@@ -655,6 +649,7 @@ export function MapViewport({
     };
 
     const gesture = activeGestureRef.current;
+    let isBrushing = false;
     if (gesture && gesture.pointerId === e.pointerId) {
       if (gesture.mode === 'pan') {
         const dx = e.clientX - gesture.lastClientX;
@@ -663,6 +658,7 @@ export function MapViewport({
         gesture.lastClientY = e.clientY;
         store.panBy(dx, dy);
       } else if (gesture.mode === 'brush') {
+        isBrushing = true;
         store.moveTerrainStroke(coords.docX, coords.docY);
       }
     } else if (onObjectPointerMove) {
@@ -676,8 +672,16 @@ export function MapViewport({
       });
     }
 
-    store.updateCursorSeaHint(coords.docX, coords.docY);
-    store.setCursorDoc({ x: coords.docX, y: coords.docY });
+    if (!isBrushing) {
+      store.updateCursorSeaHint(coords.docX, coords.docY);
+    }
+    const now = typeof performance !== 'undefined' ? performance.now() : Date.now();
+    if (!isBrushing || now - lastTelemetrySentMsRef.current >= 40) {
+      if (now - lastTelemetrySentMsRef.current >= 32) {
+        lastTelemetrySentMsRef.current = now;
+        store.setCursorDoc({ x: coords.docX, y: coords.docY });
+      }
+    }
     updateSeaHintPosition(coords.cssX, coords.cssY, coords.rect);
     onCursorDocMove?.({ x: coords.docX, y: coords.docY });
     syncOverlayCursor();
@@ -690,6 +694,12 @@ export function MapViewport({
       releaseCaptureIfHeld(e.pointerId);
       if (gesture.mode === 'brush') {
         store.commitTerrainStroke();
+        const coords = computePointerCoords(e.clientX, e.clientY);
+        if (coords) {
+          lastTelemetrySentMsRef.current =
+            typeof performance !== 'undefined' ? performance.now() : Date.now();
+          store.setCursorDoc({ x: coords.docX, y: coords.docY });
+        }
       }
       syncOverlayCursor();
       return;
@@ -723,6 +733,7 @@ export function MapViewport({
   const handlePointerLeave = () => {
     if (activeGestureRef.current) return;
     cursorRef.current.inside = false;
+    lastTelemetrySentMsRef.current = 0;
     store.clearCursorSeaHint();
     store.setCursorDoc(null);
     onCursorDocMove?.(null);

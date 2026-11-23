@@ -19,6 +19,9 @@ import { HistoryManager } from '../../src/model/history';
 import { createSampleWorldDocument } from '../../src/model/sampleDocument';
 import { DEFAULT_THEME, V1_FLAT_THEME, WITCHER_THEME, cloneTheme } from '../../src/theme/theme';
 import {
+  TERRAIN_DIRTY_COVER,
+  TERRAIN_DIRTY_FOREST,
+  TERRAIN_DIRTY_HEIGHT,
   TerrainBrushTool,
   TerrainRenderer,
   TerrainStrokeSession,
@@ -1568,5 +1571,239 @@ describe('Terrain engine & reactive rendering', () => {
       expect(countByteMismatches(docA.terrain.cover, generatedSnap.cover)).toBe(0);
       expect(resB.dirtyRect.width).toBeGreaterThan(0);
     }
+  });
+
+  it('maintains channel-aware renderRegion bit-parity against renderFull and renders interactive 1754x1240 drags quickly', () => {
+    const doc = createEmptyDocument({ widthPx: 1754, heightPx: 1240 });
+    doc.theme = cloneTheme(WITCHER_THEME);
+    const session = new TerrainStrokeSession();
+    const renderer = new TerrainRenderer();
+    renderer.renderFull(doc);
+
+    const cx = doc.manifest.space.width * 0.5;
+    const cy = doc.manifest.space.height * 0.5;
+
+    // Paint initial continent under center so land covers & height strokes have real coastal + forest neighbors
+    session.beginStroke(
+      doc,
+      { tool: 'land', diameterDoc: 900, intensity: 1.0, brushMode: 'smart', roughness: 0.7 },
+      cx,
+      cy
+    );
+    const baseDirty = session.commit(doc)!.dirtyRect;
+    renderer.renderRegion(doc, baseDirty);
+
+    // 10-step smart forest drag + 10-step raise drag + 10-step fields drag with tight channel masks
+    const runTimedDrag = (
+      tool: TerrainBrushTool,
+      channels: number,
+      x0: number,
+      y0: number,
+      x1: number,
+      y1: number
+    ) => {
+      const t0 = performance.now();
+      const firstDirty = session.beginStroke(
+        doc,
+        { tool, diameterDoc: 200, intensity: 0.85, brushMode: 'smart', roughness: 0.65 },
+        x0,
+        y0
+      );
+      if (firstDirty) renderer.renderRegion(doc, firstDirty, channels);
+      for (let s = 1; s <= 10; s += 1) {
+        const f = s / 10;
+        const d = session.addPoint(doc, x0 + (x1 - x0) * f, y0 + (y1 - y0) * f);
+        if (d) renderer.renderRegion(doc, d, channels);
+      }
+      session.commit(doc);
+      return performance.now() - t0;
+    };
+
+    const forestMs = runTimedDrag(
+      'forest',
+      TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_FOREST,
+      cx - 220,
+      cy - 80,
+      cx + 120,
+      cy + 80
+    );
+    const raiseMs = runTimedDrag(
+      'raise',
+      TERRAIN_DIRTY_HEIGHT,
+      cx - 120,
+      cy - 120,
+      cx + 180,
+      cy + 60
+    );
+    const fieldsMs = runTimedDrag(
+      'fields',
+      TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_HEIGHT | TERRAIN_DIRTY_FOREST,
+      cx - 80,
+      cy + 40,
+      cx + 220,
+      cy + 140
+    );
+
+    const avgPerStepMs = (forestMs + raiseMs + fieldsMs) / 33;
+    expect(avgPerStepMs).toBeLessThan(65);
+
+    const refRenderer = new TerrainRenderer();
+    refRenderer.renderFull(doc);
+    expect(
+      countByteMismatches(renderer.getPixelData().rgba, refRenderer.getPixelData().rgba)
+    ).toBe(0);
+
+    renderer.dispose();
+    refRenderer.dispose();
+  });
+
+  it('adapts all smart cover brushes intelligently to shores, slopes, peaks, basins, parcels, blocks, and sea contact', () => {
+    const doc = createEmptyDocument({ widthPx: 256, heightPx: 256 });
+    const session = new TerrainStrokeSession();
+    const cx = doc.manifest.space.width * 0.5;
+    const cy = doc.manifest.space.height * 0.5;
+
+    // 1. Foresta avoids extreme alpine peak (> 218), preserves outer brick towns, and stays off immediate surf sand
+    doc.terrain.mask.fill(255);
+    doc.terrain.height.fill(40);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    // Clear left 24px into sea for coastal shore check
+    for (let y = 0; y < 256; y += 1) {
+      for (let x = 0; x < 64; x += 1) {
+        doc.terrain.mask[y * 256 + x] = 0;
+        doc.terrain.height[y * 256 + x] = 0;
+      }
+    }
+    // Place low sandy shore right at x=64..68 (within shoreNearPx)
+    for (let y = 100; y <= 156; y += 1) {
+      for (let x = 64; x <= 66; x += 1) {
+        doc.terrain.height[y * 256 + x] = 20;
+      }
+    }
+    // Alpine peak block inside outer edge of stroke around x=165..175, y=120..136
+    for (let y = 118; y <= 138; y += 1) {
+      for (let x = 165; x <= 178; x += 1) {
+        doc.terrain.height[y * 256 + x] = 230;
+      }
+    }
+    // Brick settlement cell inside outer edge at x=186..194, y=124..132 (normDist ~ 0.72 > 0.48)
+    for (let y = 124; y <= 132; y += 1) {
+      for (let x = 186; x <= 194; x += 1) {
+        doc.terrain.cover[y * 256 + x] = COVER_BRICK;
+      }
+    }
+
+    const shoreCenterDocX = (128 / 256) * doc.manifest.space.width;
+    const shoreCenterDocY = (128 / 256) * doc.manifest.space.height;
+    session.beginStroke(
+      doc,
+      { tool: 'forest', diameterDoc: 2000, intensity: 1.0, brushMode: 'smart', roughness: 0.75 },
+      shoreCenterDocX,
+      shoreCenterDocY
+    );
+    session.commit(doc);
+
+    expect(doc.terrain.cover[128 * 256 + 128]).toBe(COVER_FOREST); // interior plain gets forest
+    expect(doc.terrain.cover[128 * 256 + 64]).toBe(COVER_NATURAL); // immediate low surf shore preserved
+    expect(doc.terrain.cover[128 * 256 + 170]).toBe(COVER_NATURAL); // extreme alpine peak kept free
+    expect(doc.terrain.cover[128 * 256 + 190]).toBe(COVER_BRICK); // outer masonry preserved
+
+    // 2. Campi refuses steep slopes (> 28) / high peaks (> 175) outside click core while settling moderate plain
+    doc.terrain.mask.fill(255);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    doc.terrain.height.fill(50);
+    for (let y = 110; y <= 145; y += 1) {
+      for (let x = 160; x <= 185; x += 1) {
+        doc.terrain.height[y * 256 + x] = 190;
+      }
+    }
+    session.beginStroke(
+      doc,
+      { tool: 'fields', diameterDoc: 1600, intensity: 1.0, brushMode: 'smart', roughness: 0.7 },
+      cx,
+      cy
+    );
+    session.commit(doc);
+    expect(doc.terrain.cover[128 * 256 + 128]).toBe(COVER_FIELDS);
+    expect(doc.terrain.cover[128 * 256 + 172]).toBe(COVER_NATURAL);
+
+    // 3. Sabbia grades moderate coastal strip downward toward natural beach level
+    doc.terrain.mask.fill(255);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    doc.terrain.height.fill(70);
+    for (let y = 0; y < 256; y += 1) {
+      for (let x = 0; x < 90; x += 1) {
+        doc.terrain.mask[y * 256 + x] = 0;
+        doc.terrain.height[y * 256 + x] = 0;
+      }
+    }
+    const coastClickX = (92 / 256) * doc.manifest.space.width;
+    session.beginStroke(
+      doc,
+      { tool: 'sand', diameterDoc: 280, intensity: 1.0, brushMode: 'smart', roughness: 0.6 },
+      coastClickX,
+      cy
+    );
+    session.commit(doc);
+    expect(doc.terrain.cover[128 * 256 + 92]).toBe(COVER_SAND);
+    expect(doc.terrain.height[128 * 256 + 92]).toBeLessThan(70);
+
+    // 4. Palude depresses wet lowland basins & avoids high mountains
+    doc.terrain.mask.fill(255);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    doc.terrain.height.fill(90);
+    doc.terrain.height[128 * 256 + 170] = 200;
+    session.beginStroke(
+      doc,
+      { tool: 'swamp', diameterDoc: 1500, intensity: 1.0, brushMode: 'smart', roughness: 0.65 },
+      cx,
+      cy
+    );
+    session.commit(doc);
+    expect(doc.terrain.cover[128 * 256 + 128]).toBe(COVER_SWAMP);
+    expect(doc.terrain.height[128 * 256 + 128]).toBeLessThan(90);
+    expect(doc.terrain.cover[128 * 256 + 170]).toBe(COVER_NATURAL);
+
+    // 5. Lava cools into COVER_ROCK crust at direct contact with sea
+    doc.terrain.mask.fill(255);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    doc.terrain.height.fill(60);
+    for (let y = 0; y < 256; y += 1) {
+      for (let x = 0; x < 100; x += 1) {
+        doc.terrain.mask[y * 256 + x] = 0;
+        doc.terrain.height[y * 256 + x] = 0;
+      }
+    }
+    const lavaOriginX = (130 / 256) * doc.manifest.space.width;
+    session.beginStroke(
+      doc,
+      { tool: 'lava', diameterDoc: 1000, intensity: 1.0, brushMode: 'smart', roughness: 0.3 },
+      lavaOriginX,
+      cy
+    );
+    session.commit(doc);
+    expect(doc.terrain.cover[128 * 256 + 130]).toBe(COVER_LAVA);
+    let shoreRock = 0;
+    let shoreLava = 0;
+    for (let y = 105; y <= 150; y += 1) {
+      const c = doc.terrain.cover[y * 256 + 100];
+      if (c === COVER_ROCK) shoreRock += 1;
+      if (c === COVER_LAVA) shoreLava += 1;
+    }
+    expect(shoreRock).toBeGreaterThan(0);
+    expect(shoreLava).toBe(0);
+
+    // 6. Classic mode paints full uniform circles across any elevation
+    doc.terrain.mask.fill(255);
+    doc.terrain.cover.fill(COVER_NATURAL);
+    doc.terrain.height.fill(230);
+    session.beginStroke(
+      doc,
+      { tool: 'forest', diameterDoc: 200, intensity: 1.0, brushMode: 'classic' },
+      cx,
+      cy
+    );
+    session.commit(doc);
+    expect(doc.terrain.cover[128 * 256 + 128]).toBe(COVER_FOREST);
   });
 });

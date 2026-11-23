@@ -228,6 +228,17 @@ function buildThemeSignature(theme: MapTheme): string {
 }
 
 /**
+ * Bitmask flags indicating which terrain buffer layers changed in a dirty rect,
+ * enabling tighter output padding in `renderRegion` while staying bit-identical to `renderFull`.
+ */
+export const TERRAIN_DIRTY_MASK = 1;
+export const TERRAIN_DIRTY_HEIGHT = 2;
+export const TERRAIN_DIRTY_COVER = 4;
+export const TERRAIN_DIRTY_FOREST = 8;
+export const TERRAIN_DIRTY_ALL =
+  TERRAIN_DIRTY_MASK | TERRAIN_DIRTY_HEIGHT | TERRAIN_DIRTY_COVER | TERRAIN_DIRTY_FOREST;
+
+/**
  * Deterministic incremental terrain raster renderer.
  * Always keeps an RGBA Uint8ClampedArray available in Node/Vitest and browsers,
  * maintains an on-demand 256x256 HTMLCanvasElement tile grid for low-latency
@@ -294,6 +305,21 @@ export class TerrainRenderer implements ITerrainRenderer {
       return false;
     }
     return this.renderedThemeKey === buildThemeSignature(doc.theme);
+  }
+
+  /**
+   * Marks the current document's incremented `terrainVersion` as synchronized
+   * without re-rasterizing already rendered stroke tiles.
+   */
+  syncTerrainVersion(doc: MapDocument): void {
+    if (this.disposed) return;
+    if (
+      this.renderedDocId === doc.manifest.id &&
+      this.widthPx === doc.terrain.widthPx &&
+      this.heightPx === doc.terrain.heightPx
+    ) {
+      this.renderedTerrainVersion = doc.terrainVersion;
+    }
   }
 
   /**
@@ -511,7 +537,11 @@ export class TerrainRenderer implements ITerrainRenderer {
     this.markDocumentRendered(doc);
   }
 
-  renderRegion(doc: MapDocument, dirtyRect: DirtyRectPx): void {
+  renderRegion(
+    doc: MapDocument,
+    dirtyRect: DirtyRectPx,
+    dirtyChannels: number = TERRAIN_DIRTY_ALL
+  ): void {
     if (this.disposed) return;
 
     const { widthPx, heightPx } = doc.terrain;
@@ -532,8 +562,20 @@ export class TerrainRenderer implements ITerrainRenderer {
       return;
     }
 
-    const { padPx } = this.computeInfluencePadding(doc);
-    const outRect = expandAndClampRect(clamped, padPx, widthPx, heightPx);
+    const { padPx, treePadPx } = this.computeInfluencePadding(doc);
+    let outPadPx: number;
+    if ((dirtyChannels & TERRAIN_DIRTY_MASK) !== 0) {
+      outPadPx = padPx;
+    } else if ((dirtyChannels & TERRAIN_DIRTY_HEIGHT) !== 0) {
+      const gradStepPx = computeGradientStepPx(doc.manifest.space, doc.terrain);
+      outPadPx = Math.max(gradStepPx + 1, treePadPx);
+    } else if ((dirtyChannels & TERRAIN_DIRTY_FOREST) !== 0) {
+      outPadPx = Math.max(1, treePadPx);
+    } else {
+      outPadPx = 1;
+    }
+
+    const outRect = expandAndClampRect(clamped, outPadPx, widthPx, heightPx);
     if (!outRect) {
       this.renderedTerrainVersion = doc.terrainVersion;
       return;
@@ -752,7 +794,6 @@ export class TerrainRenderer implements ITerrainRenderer {
     const { heightPx } = doc.terrain;
     const seed = doc.manifest.terrain.seed >>> 0;
     const seaSeed = (seed ^ 0x534541) >>> 0;
-    const paperSeed = (seed ^ 0x706170) >>> 0;
     const microSeed = (seed ^ 0x6d6963) >>> 0;
     const docPerPxX = space.width / widthPx;
     const docPerPxY = space.height / heightPx;
@@ -764,9 +805,8 @@ export class TerrainRenderer implements ITerrainRenderer {
       for (let x = rect.x, xEnd = rect.x + rect.width; x < xEnd; x += 1) {
         const docX = (x + 0.5) * docPerPxX;
         const wash =
-          (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
-          (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
-          hash2DBipolar(microSeed, Math.floor(docX), floorY) * 2.5;
+          (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 24 +
+          hash2DBipolar(microSeed, Math.floor(docX), floorY) * 3.0;
         rgba[off] = clampByte(sr + wash);
         rgba[off + 1] = clampByte(sg + wash * 0.92);
         rgba[off + 2] = clampByte(sb + wash * 0.85);
@@ -1019,9 +1059,8 @@ export class TerrainRenderer implements ITerrainRenderer {
           if (isWitcherSea) {
             const docX = (px + 0.5) * docPerPxX;
             const wash =
-              (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
-              (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
-              hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 2.5;
+              (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 24 +
+              hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 3.0;
             rgba[off] = clampByte(seaR + wash);
             rgba[off + 1] = clampByte(seaG + wash * 0.92);
             rgba[off + 2] = clampByte(seaB + wash * 0.85);
@@ -1043,9 +1082,8 @@ export class TerrainRenderer implements ITerrainRenderer {
         let sb = seaB;
         if (isWitcherSea) {
           const wash =
-            (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 22 +
-            (valueNoise2D(paperSeed, docX * 0.24, docY * 0.24) - 0.5) * 7 +
-            hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 2.5;
+            (valueNoise2D(seaSeed, docX * 0.0085, docY * 0.0085) - 0.5) * 24 +
+            hash2DBipolar(microSeed, Math.floor(docX), Math.floor(docY)) * 3.0;
           sr += wash;
           sg += wash * 0.92;
           sb += wash * 0.85;

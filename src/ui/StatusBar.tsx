@@ -1,7 +1,8 @@
 import { useSyncExternalStore } from 'react';
+import { docToMaskX, docToMaskY } from '../model/coordinates';
 import { COVER_MATERIALS, MapDocument } from '../model/document';
 import { EditorStore, useEditorStore } from '../state/editorStore';
-import { inspectCellAtDoc } from '../terrain';
+import { LAND_MASK_THRESHOLD } from '../terrain';
 import type { BiomeKind } from '../terrain/types';
 import {
   AlertErrorIcon,
@@ -66,9 +67,19 @@ function CursorTelemetry({ store, doc }: { store: EditorStore; doc: MapDocument 
 
   const xRound = Math.round(cursorDoc.x);
   const yRound = Math.round(cursorDoc.y);
-  const cell = inspectCellAtDoc(doc, cursorDoc.x, cursorDoc.y);
+  const { space } = doc.manifest;
+  const { widthPx, heightPx, mask, height, cover } = doc.terrain;
 
-  if (!cell) {
+  if (
+    !Number.isFinite(cursorDoc.x) ||
+    !Number.isFinite(cursorDoc.y) ||
+    cursorDoc.x < 0 ||
+    cursorDoc.y < 0 ||
+    cursorDoc.x > space.width ||
+    cursorDoc.y > space.height ||
+    widthPx <= 0 ||
+    heightPx <= 0
+  ) {
     return (
       <span className="statusbar-cursor-readout is-muted tabular-nums">
         ({xRound}, {yRound}) u · Fuori foglio
@@ -76,7 +87,11 @@ function CursorTelemetry({ store, doc }: { store: EditorStore; doc: MapDocument 
     );
   }
 
-  if (!cell.isLand) {
+  const px = Math.min(widthPx - 1, Math.max(0, Math.floor(docToMaskX(cursorDoc.x, space, doc.terrain))));
+  const py = Math.min(heightPx - 1, Math.max(0, Math.floor(docToMaskY(cursorDoc.y, space, doc.terrain))));
+  const idx = py * widthPx + px;
+
+  if (mask[idx] < LAND_MASK_THRESHOLD) {
     return (
       <span
         className="statusbar-cursor-readout tabular-nums"
@@ -87,15 +102,41 @@ function CursorTelemetry({ store, doc }: { store: EditorStore; doc: MapDocument 
     );
   }
 
-  const coverLabel = COVER_LABEL_BY_CODE.get(cell.cover) ?? 'Naturale';
-  const biomeLabel = BIOME_LABELS[cell.classification.biome] ?? 'Pianura';
+  const hVal = height[idx];
+  const cov = cover[idx];
+  const coverLabel = COVER_LABEL_BY_CODE.get(cov) ?? 'Naturale';
+  const elev = doc.theme.elevation;
+  let biome: BiomeKind;
+  if (hVal <= elev.beachMaxHeight) {
+    const pxRange = Math.max(
+      1,
+      Math.round(elev.beachMaxCoastDistDoc * (widthPx / Math.max(1, space.width)))
+    );
+    const xL = Math.max(0, px - pxRange);
+    const xR = Math.min(widthPx - 1, px + pxRange);
+    const yU = Math.max(0, py - pxRange);
+    const yD = Math.min(heightPx - 1, py + pxRange);
+    const nearWater =
+      mask[py * widthPx + xL] < LAND_MASK_THRESHOLD ||
+      mask[py * widthPx + xR] < LAND_MASK_THRESHOLD ||
+      mask[yU * widthPx + px] < LAND_MASK_THRESHOLD ||
+      mask[yD * widthPx + px] < LAND_MASK_THRESHOLD;
+    biome = nearWater ? 'beach' : 'plain';
+  } else if (hVal <= elev.plainMaxHeight) {
+    biome = 'plain';
+  } else if (hVal <= elev.hillMaxHeight) {
+    biome = 'hill';
+  } else {
+    biome = 'mountain';
+  }
+  const biomeLabel = BIOME_LABELS[biome];
 
   return (
     <span
       className="statusbar-cursor-readout tabular-nums"
-      title={`Coordinate (${xRound}, ${yRound}) u · ${biomeLabel} · Quota ${cell.height}/255 · ${coverLabel}`}
+      title={`Coordinate (${xRound}, ${yRound}) u · ${biomeLabel} · Quota ${hVal}/255 · ${coverLabel}`}
     >
-      ({xRound}, {yRound}) u · Quota {cell.height} · {coverLabel}
+      ({xRound}, {yRound}) u · Quota {hVal} · {coverLabel}
     </span>
   );
 }

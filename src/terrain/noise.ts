@@ -4,6 +4,9 @@
  * pan, zoom, undo/redo, partial region rendering, and print export.
  */
 
+const INV_U32 = 1 / 4294967296;
+const INV_HALF_U32 = 1 / 2147483647.5;
+
 export function hash2D(seed: number, ix: number, iy: number): number {
   let h = (seed >>> 0) ^ Math.imul(ix | 0, 0x9e3779b1) ^ Math.imul(iy | 0, 0x85ebca77);
   h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
@@ -12,11 +15,11 @@ export function hash2D(seed: number, ix: number, iy: number): number {
 }
 
 export function hash2DFloat(seed: number, ix: number, iy: number): number {
-  return hash2D(seed, ix, iy) / 4294967296;
+  return hash2D(seed, ix, iy) * INV_U32;
 }
 
 export function hash2DBipolar(seed: number, ix: number, iy: number): number {
-  return (hash2D(seed, ix, iy) / 2147483647.5) - 1.0;
+  return hash2D(seed, ix, iy) * INV_HALF_U32 - 1.0;
 }
 
 export function smoothstep01(t: number): number {
@@ -34,14 +37,42 @@ export function valueNoise2D(seed: number, x: number, y: number): number {
   const sx = fx * fx * (3 - 2 * fx);
   const sy = fy * fy * (3 - 2 * fy);
 
-  const n00 = hash2DFloat(seed, x0, y0);
-  const n10 = hash2DFloat(seed, x0 + 1, y0);
-  const n01 = hash2DFloat(seed, x0, y0 + 1);
-  const n11 = hash2DFloat(seed, x0 + 1, y0 + 1);
+  const u = seed >>> 0;
+  const mx0 = Math.imul(x0 | 0, 0x9e3779b1);
+  const mx1 = Math.imul((x0 + 1) | 0, 0x9e3779b1);
+  const my0 = Math.imul(y0 | 0, 0x85ebca77);
+  const my1 = Math.imul((y0 + 1) | 0, 0x85ebca77);
+
+  let h = u ^ mx0 ^ my0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  const n00 = ((h ^ (h >>> 16)) >>> 0) * INV_U32;
+
+  h = u ^ mx1 ^ my0;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  const n10 = ((h ^ (h >>> 16)) >>> 0) * INV_U32;
+
+  h = u ^ mx0 ^ my1;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  const n01 = ((h ^ (h >>> 16)) >>> 0) * INV_U32;
+
+  h = u ^ mx1 ^ my1;
+  h = Math.imul(h ^ (h >>> 16), 0x85ebca6b);
+  h = Math.imul(h ^ (h >>> 13), 0xc2b2ae35);
+  const n11 = ((h ^ (h >>> 16)) >>> 0) * INV_U32;
 
   const nx0 = n00 + (n10 - n00) * sx;
   const nx1 = n01 + (n11 - n01) * sx;
   return nx0 + (nx1 - nx0) * sy;
+}
+
+export function fastOrganicNoise2D(seed: number, x: number, y: number): number {
+  const u = seed >>> 0;
+  const n0 = valueNoise2D(u, x, y);
+  const n1 = valueNoise2D((u + 0x9e3779b9) >>> 0, x * 2.03 + 3.1, y * 2.03 - 1.7);
+  return n0 * 0.67 + n1 * 0.33;
 }
 
 export function fbm2D(seed: number, x: number, y: number, octaves = 3): number {

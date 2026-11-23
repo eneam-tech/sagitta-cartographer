@@ -864,6 +864,12 @@ describe('Coordinates, camera, shortcuts, and EditorStore', () => {
     store.setTool('forest');
     const smartCoverHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
     expect(smartCoverHtml).toContain('Uniforme');
+    expect(smartCoverHtml).toContain('Organicità bordo');
+    expect(smartCoverHtml).toContain('radure naturali');
+
+    store.setTool('fields');
+    const smartFieldsHtml = renderToStaticMarkup(createElement(PropertiesPanel, { store }));
+    expect(smartFieldsHtml).toContain('parcelle');
 
     // GenerateWorldDialog SSR + typography check
     store.openDialog('generateWorld');

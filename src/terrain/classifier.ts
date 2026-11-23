@@ -280,7 +280,13 @@ export function computeLocalDistanceFieldInto(
   }
 
   // Pass 2: 1D horizontal Felzenszwalb-Huttenlocher parabola lower envelope
-  for (let cy = 0; cy < sh; cy += 1) {
+  // Note: horizontal rows are independent, so we only sweep rows inside outRect.
+  const offX = outRect.x - sx;
+  const offY = outRect.y - sy;
+  const ow = outRect.width;
+  const oh = outRect.height;
+
+  for (let cy = offY, cyEnd = offY + oh; cy < cyEnd; cy += 1) {
     const rowOff = cy * sw;
     let firstFinite = -1;
     let allZero = true;
@@ -333,11 +339,6 @@ export function computeLocalDistanceFieldInto(
   }
 
   // Slice outRect from sampleRect
-  const offX = outRect.x - sx;
-  const offY = outRect.y - sy;
-  const ow = outRect.width;
-  const oh = outRect.height;
-
   for (let oy = 0; oy < oh; oy += 1) {
     const srcRow = (offY + oy) * sw + offX;
     const dstRow = oy * ow;

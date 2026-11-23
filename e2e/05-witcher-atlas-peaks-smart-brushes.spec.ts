@@ -148,16 +148,33 @@ test.describe('Core 5: Witcher 3 Atlas, Procedural Generator, Peaked Mountains &
     expect(plateauCell.height).toBeGreaterThanOrEqual(200);
     expect(plateauCell.height).toBeLessThanOrEqual(235);
 
-    // 4. Smart materials (Foresta, Campi, Palude, Sabbia) on known land
+    // 4. Smart materials (Foresta, Campi, Sabbia, Palude, Roccia, Neve, Mattoni) + drag timing check
     await page.getByRole('button', { name: 'Superfici (C)' }).click();
     const mats = page.getByRole('group', { name: 'Materiali di copertura' });
+    await expect(page.getByRole('slider', { name: /Organicità bordo/ })).toBeVisible();
     await setBrushDiameter(page, 120);
+
     await mats.getByRole('button', { name: /^Foresta\b/ }).click();
-    await clickOnMap(page, 0.26, 0.57);
+    await expect(page.locator('#editor-properties-panel')).toContainText('radure naturali');
+    const dragStartMs = Date.now();
+    await dragOnMap(page, 0.25, 0.56, 0.44, 0.60, 12);
+    const dragElapsedMs = Date.now() - dragStartMs;
+    expect(dragElapsedMs).toBeLessThan(2500);
+
+    await mats.getByRole('button', { name: /^Campi\b/ }).click();
+    await expect(page.locator('#editor-properties-panel')).toContainText('parcelle');
+    await dragOnMap(page, 0.45, 0.47, 0.50, 0.52, 8);
+
+    await mats.getByRole('button', { name: /^Sabbia\b/ }).click();
+    await clickOnMap(page, 0.34, 0.52);
     await mats.getByRole('button', { name: /^Palude\b/ }).click();
     await clickOnMap(page, 0.46, 0.68);
-    await mats.getByRole('button', { name: /^Campi\b/ }).click();
-    await clickOnMap(page, 0.48, 0.50);
+    await mats.getByRole('button', { name: /^Roccia\b/ }).click();
+    await dragOnMap(page, 0.62, 0.42, 0.68, 0.48, 8);
+    await mats.getByRole('button', { name: /^Neve\b/ }).click();
+    await clickOnMap(page, 0.62, 0.30);
+    await mats.getByRole('button', { name: /^Mattoni\b/ }).click();
+    await clickOnMap(page, 0.42, 0.39);
 
     // 5. Vector River + Road
     await page.getByRole('button', { name: 'Fiumi e Strade (R)' }).click();
@@ -207,10 +224,12 @@ test.describe('Core 5: Witcher 3 Atlas, Procedural Generator, Peaked Mountains &
       ])
     );
 
-    // Deselect before visual capture
-    await page.keyboard.press('Escape');
+    // Clear selection before visual capture so map renders cleanly without selection handles
+    await page.getByRole('button', { name: 'Selezione (V)' }).click();
+    await clickOnMap(page, 0.05, 0.05);
+    await page.getByRole('button', { name: 'Superfici (C)' }).click();
     await page.screenshot({
-      path: '/Users/eneaminelli/.gemini/antigravity/brain/7ce58378-5b1e-4108-b61e-d58c8716d10d/scratch/witcher-atlas-preview.png'
+      path: '/Users/eneaminelli/.gemini/antigravity/brain/7ce58378-5b1e-4108-b61e-d58c8716d10d/scratch/witcher-smart-covers-preview.png'
     });
 
     expect(tracker.errors).toEqual([]);
