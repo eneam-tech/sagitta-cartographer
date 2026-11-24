@@ -18,8 +18,11 @@ import {
   PoiLibraryPanel
 } from './objects';
 import { PersistenceService } from './persistence';
+import { registerSagittaServiceWorker } from './pwa/registerSw';
 import { EditorStore, attachEditorKeyboardListeners } from './state/editorStore';
 import { TerrainRenderer, TerrainStrokeSession } from './terrain';
+import { PeerTransferManager } from './transfer/peerTransfer';
+import { IncomingTransferDialog } from './ui/DeviceTransferDialog';
 import { DialogsHost } from './ui/Dialogs';
 import { ExportPdfDialog } from './ui/ExportPdfDialog';
 import { PropertiesPanel } from './ui/PropertiesPanel';
@@ -227,8 +230,22 @@ function populateBenchmarkMap(store: EditorStore, symbolCount = 2000): void {
   store.loadDocument(doc);
 }
 
+function extractAndClearPairParam(): string | null {
+  if (typeof window === 'undefined' || !window.location) return null;
+  const params = new URLSearchParams(window.location.search);
+  const rawPair = params.get('pair');
+  if (!rawPair) return null;
+  params.delete('pair');
+  const nextSearch = params.toString();
+  const nextUrl = `${window.location.pathname}${nextSearch ? `?${nextSearch}` : ''}${window.location.hash}`;
+  window.history.replaceState(null, '', nextUrl);
+  return rawPair;
+}
+
 export default function App() {
   const [store, setStore] = useState<EditorStore | null>(null);
+  const [peerManager, setPeerManager] = useState<PeerTransferManager | null>(null);
+  const [swUpdateApply, setSwUpdateApply] = useState<(() => void) | null>(null);
   const [inlineLabelSession, setInlineLabelSession] = useState<InlineLabelEditRequest | null>(null);
   const [benchmarkRunning, setBenchmarkRunning] = useState(false);
   const [benchmarkReport, setBenchmarkReport] = useState<BenchmarkReport | null>(null);
@@ -236,6 +253,7 @@ export default function App() {
 
   const objectsControllerRef = useRef<ObjectsLayerController | null>(null);
   const persistenceRef = useRef<PersistenceService | null>(null);
+  const initialPairCodeRef = useRef<string | null | undefined>(undefined);
 
   const qaMode =
     typeof window !== 'undefined' &&
@@ -246,7 +264,7 @@ export default function App() {
 
     const strokeSession = new TerrainStrokeSession();
     const renderer = new TerrainRenderer();
-    const persistence = new PersistenceService({ debounceMs: 350 });
+    const persistence = new PersistenceService({ debounceMs: 400, terrainDebounceMs: 2500 });
     persistenceRef.current = persistence;
 
     const editorStore = new EditorStore({
@@ -256,7 +274,42 @@ export default function App() {
       persistence
     });
 
+    const peer = new PeerTransferManager();
     setStore(editorStore);
+    setPeerManager(peer);
+
+    if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
+      void navigator.storage.persist().catch(() => {});
+    }
+
+    const handleVisibilityChange = () => {
+      if (typeof document !== 'undefined' && document.visibilityState === 'hidden') {
+        void persistence.flushPending();
+      }
+    };
+    const handlePageHide = () => {
+      void persistence.flushPending();
+    };
+    if (typeof document !== 'undefined') {
+      document.addEventListener('visibilitychange', handleVisibilityChange);
+    }
+    window.addEventListener('pagehide', handlePageHide);
+
+    const detachSw = registerSagittaServiceWorker((applyFn) => {
+      if (!cancelled) {
+        setSwUpdateApply(() => applyFn);
+      }
+    });
+
+    if (initialPairCodeRef.current === undefined) {
+      initialPairCodeRef.current = extractAndClearPairParam();
+    }
+    const pendingPairCode = initialPairCodeRef.current;
+    if (pendingPairCode) {
+      if (peer.joinRoom(pendingPairCode)) {
+        editorStore.openDialog('deviceTransfer');
+      }
+    }
 
     const detachKeyboard = attachEditorKeyboardListeners(editorStore);
     const onDeleteKeyDown = (e: KeyboardEvent) => {
@@ -289,7 +342,11 @@ export default function App() {
         if (currentDoc.manifest.revision > 0 || editorStore.getStrokeSession().isActive()) {
           return;
         }
+        const preserveTransferDialog = editorStore.getSnapshot().activeDialog === 'deviceTransfer';
         await editorStore.openLocalProject(projects[0].id);
+        if (!cancelled && preserveTransferDialog) {
+          editorStore.openDialog('deviceTransfer');
+        }
       })
       .catch(() => {
         // IndexedDB non disponibile: mantiene la carta vuota in memoria
@@ -297,6 +354,11 @@ export default function App() {
 
     return () => {
       cancelled = true;
+      detachSw();
+      if (typeof document !== 'undefined') {
+        document.removeEventListener('visibilitychange', handleVisibilityChange);
+      }
+      window.removeEventListener('pagehide', handlePageHide);
       window.removeEventListener('keydown', onDeleteKeyDown);
       detachKeyboard();
       if (window.__MAP_EDITOR_DEBUG__?.store === editorStore) {
@@ -305,6 +367,8 @@ export default function App() {
       objectsControllerRef.current?.dispose();
       objectsControllerRef.current = null;
       persistenceRef.current = null;
+      peer.dispose();
+      setPeerManager(null);
       editorStore.dispose();
       persistence.dispose();
       renderer.dispose();
@@ -433,7 +497,7 @@ export default function App() {
 
   return (
     <div className="editor-shell">
-      <TopBar store={store} />
+      <TopBar store={store} peerManager={peerManager ?? undefined} />
       <div className="editor-workspace">
         <ToolRail store={store} />
         <MapViewport
@@ -471,7 +535,31 @@ export default function App() {
         />
       </div>
       <StatusBar store={store} />
-      <DialogsHost store={store} exportPdfDialogSlot={<ExportPdfDialog store={store} />} />
+      <DialogsHost
+        store={store}
+        peerManager={peerManager ?? undefined}
+        exportPdfDialogSlot={<ExportPdfDialog store={store} />}
+      />
+      {peerManager ? <IncomingTransferDialog store={store} peerManager={peerManager} /> : null}
+      {swUpdateApply ? (
+        <div className="pwa-update-toast" role="status" aria-live="polite">
+          <span>Nuova versione di Sagitta - Cartografo pronta</span>
+          <button
+            type="button"
+            className="btn btn-primary btn-compact"
+            onClick={() => swUpdateApply()}
+          >
+            Ricarica
+          </button>
+          <button
+            type="button"
+            className="btn btn-ghost btn-compact"
+            onClick={() => setSwUpdateApply(null)}
+          >
+            Dopo
+          </button>
+        </div>
+      ) : null}
 
       {qaMode ? (
         <div

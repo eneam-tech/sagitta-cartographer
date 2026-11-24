@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { MAP_THEMES, MapTheme } from '../theme/theme';
+import { PeerTransferManager, PeerTransferSnapshot } from '../transfer/peerTransfer';
 import {
   ApplePencilIcon,
   CheckSavedIcon,
@@ -12,13 +13,18 @@ import {
   PropertiesIcon,
   RedoIcon,
   ResizeCanvasIcon,
+  SendDeviceIcon,
   ShortcutsIcon,
   UndoIcon
 } from './icons';
 
 export interface TopBarProps {
   store: EditorStore;
+  peerManager?: PeerTransferManager;
 }
+
+const NOOP_SUBSCRIBE = () => () => {};
+const getNullPeerSnapshot = (): PeerTransferSnapshot | null => null;
 
 function getThemePreviewDots(theme: MapTheme): [string, string, string] {
   const accent =
@@ -30,8 +36,13 @@ function getThemePreviewDots(theme: MapTheme): [string, string, string] {
   return [theme.colors.sea, theme.colors.land, accent];
 }
 
-export function TopBar({ store }: TopBarProps) {
+export function TopBar({ store, peerManager }: TopBarProps) {
   const snap = useEditorStore(store);
+  const peerSnap = useSyncExternalStore(
+    peerManager ? peerManager.subscribe : NOOP_SUBSCRIBE,
+    peerManager ? peerManager.getSnapshot : getNullPeerSnapshot,
+    peerManager ? peerManager.getSnapshot : getNullPeerSnapshot
+  );
   const {
     doc,
     canUndo,
@@ -405,10 +416,30 @@ export function TopBar({ store }: TopBarProps) {
                 <span>Solo Apple Pencil</span>
                 <span className="dropdown-item-meta">{pencilOnlyMode ? 'Attivo' : 'Spento'}</span>
               </button>
+              {peerManager ? (
+                <button
+                  ref={(el) => {
+                    menuItemRefs.current[7] = el;
+                  }}
+                  type="button"
+                  role="menuitem"
+                  className="dropdown-item"
+                  onClick={() => {
+                    projectBtnRef.current?.focus();
+                    setMenuOpen(false);
+                    store.openDialog('deviceTransfer');
+                  }}
+                >
+                  <span>Collega dispositivo…</span>
+                  <span className="dropdown-item-meta">
+                    {peerSnap?.status === 'connected' && peerSnap.peerName ? peerSnap.peerName : 'P2P'}
+                  </span>
+                </button>
+              ) : null}
               <div className="dropdown-divider" role="separator" />
               <button
                 ref={(el) => {
-                  menuItemRefs.current[7] = el;
+                  menuItemRefs.current[8] = el;
                 }}
                 type="button"
                 role="menuitem"
@@ -514,6 +545,29 @@ export function TopBar({ store }: TopBarProps) {
             {pageWidthMm}×{pageHeightMm} mm
           </span>
         </button>
+
+        {peerManager && peerSnap?.status === 'connected' && peerSnap.peerName ? (
+          <button
+            type="button"
+            className="btn btn-secondary topbar-send-peer-btn has-tooltip-bottom"
+            disabled={Boolean(peerSnap.transferProgress)}
+            aria-label={`Invia a ${peerSnap.peerName}`}
+            data-tooltip={`Invia a ${peerSnap.peerName}`}
+            onClick={() => {
+              if (store.getStrokeSession().isActive()) {
+                store.commitTerrainStroke();
+              }
+              void peerManager.sendMap(store.getDocument(), store.getExtraAssetBlobs());
+            }}
+          >
+            <SendDeviceIcon size={18} />
+            <span className="topbar-send-peer-label">
+              {peerSnap.transferProgress
+                ? `${Math.round(peerSnap.transferProgress.ratio * 100)}%`
+                : `Invia a ${peerSnap.peerName}`}
+            </span>
+          </button>
+        ) : null}
 
         <button
           type="button"

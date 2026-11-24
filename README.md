@@ -1,6 +1,6 @@
-# Il tavolo del cartografo — Editor di mappe fantasy
+# Sagitta - Cartografo — Editor di mappe fantasy
 
-Prima versione utilizzabile dell'editor web per mappe fantasy da tavolo (tipo documento: **mondo**), costruito con React, TypeScript, Konva, IndexedDB, fflate e pdf-lib.
+Prima versione utilizzabile dell'editor web e PWA offline per mappe fantasy da tavolo (tipo documento: **mondo**), costruito con React, TypeScript, Konva, IndexedDB, fflate, pdf-lib e segnalazione WebRTC su Cloudflare Durable Objects.
 
 ## Documentazione di riferimento
 
@@ -47,6 +47,21 @@ Funzionalità integrate per **iPad e Apple Pencil**:
 - **Sensibilità alla pressione Apple Pencil**: modula dinamicamente diametro e intensità dei pennelli di terreno, rilievo e superfici (con campionamento ad alta frequenza `getCoalescedEvents`).
 - **Gesti multi-touch**: **pizzico a 2 dita** per zoom e spostamento simultaneo, **tocco a 2 dita** per Annulla e **tocco a 3 dita** per Ripristina.
 
+## PWA Offline, Trasferimento P2P e Deploy Cloudflare (`em-sagitta-cartografo`)
+
+- **PWA offline completa**: Service Worker (`sw.js`) con precache di app, font e simboli POI, icone PNG (`public/icons/`) e richiesta `navigator.storage.persist()` su iPadOS.
+- **Autosalvataggio rapido su iPad**: salva direttamente la maschera grezza `maskU8` in IndexedDB senza ricodifica PNG ad ogni tratto (`400 ms` per oggetti, `2500 ms` per pennellate terreno) con flush automatico al passaggio in background.
+- **Invia a `<dispositivo>` (WebRTC P2P)**: in `Progetto → Collega dispositivo…` abbini due dispositivi tramite codice a 6 caratteri o QR leggibile dall’app; le mappe `.zip` viaggiano cifrate end-to-end tra i dispositivi previa conferma esplicita, usando solo un leggero handshake WebSocket sul Durable Object [worker/index.ts](worker/index.ts).
+- **Hardening e honeypot**: `public/_headers` (CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`), `robots.txt`, e decoy sintetici (`X-API-KEY.json`, `password.txt`, `secrets-config.json`, [worker/honeypot.ts](worker/honeypot.ts)).
+- **Deploy su Cloudflare**:
+  ```bash
+  npm run build
+  # Consigliato (App + Assets + Durable Object per «Invia a dispositivo» in un unico deploy Workers):
+  npx cf deploy
+  # Oppure solo sito statico su Cloudflare Pages:
+  # npx wrangler pages deploy dist --project-name=em-sagitta-cartografo
+  ```
+
 ## Funzionalità incluse (v0.3 · Incremento 3)
 
 - **Pennelli intelligenti sensibili al contesto (`Intelligente` / `Geometrico`)**: *Terra* e *Acqua* generano coste frastagliate con isolotti satelliti, rilievo naturale verso l’interno e rispetto di scogliere o insenature esistenti (con slider **Frastagliatura costa** `0–100%` e modalità classica *Geometrico*/*Uniforme* sempre selezionabile). Tutte le **10 superfici/materiali** (*Naturale*, *Foresta*, *Campi*, *Prateria*, *Sabbia*, *Roccia*, *Neve*, *Palude*, *Mattoni*, *Lava*) integrano ora il piazzamento geografico intelligente con cursore **Organicità bordo** (`0–100%`): *Foresta* forma radure ed evita spiagge basse e vette estreme; *Campi* si allineano a parcelle agricole su pianure/colline dolci; *Sabbia* livella e spande spiagge costiere e dune al vento; *Palude* scava conche umide in pianura; *Roccia* aderisce a scogliere e pendii; *Neve* segue la quota nivale; *Mattoni* si allinea a isolati urbani; *Lava* solidifica in roccia lavica al contatto col mare. Il ciclo di pennellata usa rendering incrementale per canale, accorpamento rAF e livello statico separato per garantire tracciamento fluido ad alto framerate.
@@ -57,4 +72,4 @@ Funzionalità integrate per **iPad e Apple Pencil**:
 - **Libreria ampliata a 38 POI ed etichettatura rapida**: **38** simboli cartografici originali `CC0-1.0` (inclusi *Metropoli murata*, *Rocca collinare*, *Drakkar nordico*, *Rosa con cartiglio*, *Banco di nubi*, *Santuario* e *Tana di mostro*) con ricerca istantanea, filtri per 6 categorie, posa **Singola** o **Scatter**, opzione **`Etichetta alla posa`** e pulsante **`Aggiungi etichetta`** nell’ispettore.
 - **Persistenza e retrocompatibilità v1/v2 -> v3**: autosalvataggio IndexedDB con rilevamento conflitti ed archivi `.zip` portabili con migrazione automatica di progetti `schemaVersion = 1` e `2` verso `schemaVersion = 3`.
 - **Esportazione PDF**: anteprima completa della carta (inclusa eventuale cornice d’atlante), selettore **150 / 200 / 300 ppi** con adattamento sicuro fino a `32M px` / `8192 px`, senza maniglie né livelli nascosti.
-- **Verifica automatica**: 81 test unitari/integrazione Vitest + 6 suite end-to-end Playwright (`e2e/01`–`e2e/06`).
+- **Verifica automatica**: 7 suite automatiche Vitest e 7 suite end-to-end Playwright (`e2e/01`–`e2e/07`).

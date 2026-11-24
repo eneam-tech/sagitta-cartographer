@@ -382,3 +382,23 @@ export function ApplePencilIcon({ size = 24, ...rest }: IconProps) {
     </svg>
   );
 }
+
+export function DeviceLinkIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <rect x="2.8" y="4.5" width="11.5" height="9" rx="1.6" />
+      <path d="M5.5 16.5h6" />
+      <rect x="13.5" y="9.5" width="7.7" height="11" rx="1.6" />
+      <circle cx="17.35" cy="18.2" r="0.7" fill="currentColor" stroke="none" />
+    </svg>
+  );
+}
+
+export function SendDeviceIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M21 3 10 14" />
+      <path d="m21 3-6.8 18-3.8-7.4L3 9.8 21 3Z" />
+    </svg>
+  );
+}

@@ -61,7 +61,7 @@ print_urls() {
 }
 
 echo "=================================================="
-echo "  Il tavolo del cartografo — Avvio Mac + Wi-Fi iPad"
+echo "  Sagitta - Cartografo — Avvio Mac + Wi-Fi iPad"
 echo "  Cartella: $PROJECT_DIR"
 
 LISTENING_LINES="$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"

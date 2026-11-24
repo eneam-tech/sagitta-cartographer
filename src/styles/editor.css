@@ -2159,6 +2159,7 @@ pre {
   .topbar-canvas-btn,
   .topbar-generate-btn,
   .topbar-pencil-btn,
+  .topbar-send-peer-btn,
   .topbar-shortcuts-btn {
     display: none;
   }
@@ -2168,6 +2169,131 @@ pre {
   .resize-anchor-preview-grid {
     grid-template-columns: minmax(0, 1fr);
   }
+}
+
+/* Trasferimento P2P tra dispositivi e aggiornamento offline PWA */
+.topbar-send-peer-btn {
+  border-color: var(--ui-accent);
+  color: var(--ui-accent);
+}
+
+.transfer-inline-row {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  flex-wrap: wrap;
+}
+
+.transfer-inline-row .text-input {
+  flex: 1 1 180px;
+}
+
+.transfer-code-panel {
+  display: flex;
+  flex-direction: column;
+  align-items: stretch;
+  gap: var(--ui-space-3);
+  padding: var(--ui-space-3);
+  background-color: var(--ui-raised);
+  border: var(--ui-border-w) solid var(--ui-line-subtle);
+  border-radius: var(--ui-radius-control);
+}
+
+.transfer-code-display {
+  font-family: var(--ui-font-display);
+  font-size: 28px;
+  line-height: 34px;
+  font-weight: 600;
+  letter-spacing: 0.14em;
+  text-align: center;
+  color: var(--ui-accent);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  background-color: var(--ui-bench);
+  border: var(--ui-border-w) solid var(--ui-line);
+  border-radius: var(--ui-radius-control);
+}
+
+.transfer-qr-frame {
+  align-self: center;
+  padding: var(--ui-space-2);
+  background-color: #F3EEDF;
+  border-radius: var(--ui-radius-control);
+  box-shadow: 0 6px 18px rgba(8, 13, 18, 0.45);
+  line-height: 0;
+}
+
+.transfer-scanner-wrap {
+  border-radius: var(--ui-radius-control);
+  overflow: hidden;
+  border: var(--ui-border-w) solid var(--ui-line);
+  background-color: var(--ui-bench);
+}
+
+.transfer-scanner-video {
+  display: block;
+  width: 100%;
+  max-height: 240px;
+  object-fit: cover;
+}
+
+.transfer-connected-card {
+  padding: var(--ui-space-3);
+  background-color: var(--ui-raised);
+  border: var(--ui-border-w) solid var(--ui-accent);
+  border-radius: var(--ui-radius-control);
+}
+
+.transfer-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  font-size: 15px;
+  line-height: 22px;
+  font-weight: 600;
+  color: var(--ui-success);
+}
+
+.transfer-progress-track {
+  width: 100%;
+  height: 8px;
+  border-radius: 4px;
+  background-color: var(--ui-bench);
+  overflow: hidden;
+  border: var(--ui-border-w) solid var(--ui-line-subtle);
+}
+
+.transfer-progress-fill {
+  height: 100%;
+  background-color: var(--ui-accent);
+  transition: width 100ms linear;
+}
+
+.transfer-advanced {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ui-muted);
+}
+
+.transfer-advanced summary {
+  cursor: pointer;
+}
+
+.pwa-update-toast {
+  position: fixed;
+  right: var(--ui-space-4);
+  bottom: calc(var(--ui-statusbar-h) + var(--ui-space-3));
+  z-index: 95;
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+  padding: var(--ui-space-2) var(--ui-space-3);
+  background-color: var(--ui-panel);
+  color: var(--ui-text);
+  border: var(--ui-border-w) solid var(--ui-accent);
+  border-radius: var(--ui-radius-control);
+  box-shadow: 0 10px 26px rgba(8, 13, 18, 0.65);
+  font-size: 15px;
+  line-height: 22px;
 }
 
 /* Controlli Apple Pencil e tocco */

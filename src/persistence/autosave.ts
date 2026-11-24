@@ -16,7 +16,8 @@ import {
   SavedProjectSummary
 } from './types';
 
-const DEFAULT_DEBOUNCE_MS = 350;
+const DEFAULT_DEBOUNCE_MS = 400;
+const DEFAULT_TERRAIN_DEBOUNCE_MS = 2500;
 const QUOTA_ERROR_MESSAGE =
   'Spazio locale esaurito. Scarica una copia del progetto.';
 const UNAVAILABLE_ERROR_MESSAGE =
@@ -26,6 +27,7 @@ const CONFLICT_ERROR_MESSAGE =
 
 export interface PersistenceServiceOptions {
   debounceMs?: number;
+  terrainDebounceMs?: number;
   idbFactory?: IDBFactory | null;
   dbName?: string;
   encodeMaskPngFn?: MaskPngEncoderFn;
@@ -39,6 +41,7 @@ interface SaveSnapshot {
   revision: number;
   document: MapDocument;
   extraAssets?: Map<string, Blob>;
+  preclonedTerrain: boolean;
 }
 
 interface FlushWaiter {
@@ -57,6 +60,7 @@ interface ProjectQueue {
 
 export class PersistenceService implements IPersistenceService {
   private readonly debounceMs: number;
+  private readonly terrainDebounceMs: number;
   private readonly db: CartografoIndexedDb;
   private readonly onBeforePersist?: (doc: MapDocument) => Promise<void> | void;
 
@@ -73,6 +77,8 @@ export class PersistenceService implements IPersistenceService {
 
   constructor(options: PersistenceServiceOptions = {}) {
     this.debounceMs = options.debounceMs ?? DEFAULT_DEBOUNCE_MS;
+    this.terrainDebounceMs =
+      options.terrainDebounceMs ?? options.debounceMs ?? DEFAULT_TERRAIN_DEBOUNCE_MS;
     this.onBeforePersist = options.onBeforePersist;
     this.db = new CartografoIndexedDb({
       idbFactory: options.idbFactory,
@@ -157,7 +163,8 @@ export class PersistenceService implements IPersistenceService {
       seq: ++this.enqueueSeq,
       revision: clonedDoc.manifest.revision,
       document: clonedDoc,
-      extraAssets: extraAssets ? new Map(extraAssets) : undefined
+      extraAssets: extraAssets ? new Map(extraAssets) : undefined,
+      preclonedTerrain: !canReuseTerrain
     };
   }
 
@@ -180,7 +187,8 @@ export class PersistenceService implements IPersistenceService {
       queue.timer = null;
     }
 
-    if (this.debounceMs <= 0) {
+    const delayMs = snapshot.preclonedTerrain ? this.terrainDebounceMs : this.debounceMs;
+    if (delayMs <= 0) {
       queue.debouncedSnapshot = null;
       queue.readySnapshot = snapshot;
       void this.runProjectQueue(projectId);
@@ -196,7 +204,35 @@ export class PersistenceService implements IPersistenceService {
         queue.debouncedSnapshot = null;
       }
       void this.runProjectQueue(projectId);
-    }, this.debounceMs);
+    }, delayMs);
+  }
+
+  flushPending(): Promise<void> {
+    if (this.disposed) {
+      return Promise.resolve();
+    }
+
+    const waits: Promise<void>[] = [];
+    for (const [projectId, queue] of this.queues.entries()) {
+      if (queue.timer !== null) {
+        clearTimeout(queue.timer);
+        queue.timer = null;
+      }
+      if (queue.debouncedSnapshot) {
+        queue.readySnapshot = queue.debouncedSnapshot;
+        queue.debouncedSnapshot = null;
+      }
+      if (queue.readySnapshot || queue.running) {
+        const targetSeq = queue.latestEnqueuedSeq;
+        waits.push(
+          new Promise<void>((resolve) => {
+            queue.flushWaiters.push({ targetSeq, resolve });
+            void this.runProjectQueue(projectId);
+          })
+        );
+      }
+    }
+    return waits.length > 0 ? Promise.all(waits).then(() => {}) : Promise.resolve();
   }
 
   flushNow(doc: MapDocument, extraAssets?: Map<string, Blob>): Promise<void> {
@@ -309,7 +345,9 @@ export class PersistenceService implements IPersistenceService {
           if (this.onBeforePersist) {
             await this.onBeforePersist(job.document);
           }
-          await this.db.saveProject(job.document, job.extraAssets);
+          await this.db.saveProject(job.document, job.extraAssets, {
+            preclonedTerrain: job.preclonedTerrain
+          });
           if (this.disposed) {
             this.resolveAllWaiters(queue);
             break;
@@ -429,6 +467,10 @@ export class PersistenceService implements IPersistenceService {
     extraAssets?: Map<string, Blob>
   ): Promise<Uint8Array> {
     return exportProjectArchive(doc, extraAssets);
+  }
+
+  async saveArchiveCopy(doc: MapDocument, extraAssets?: Map<string, Blob>): Promise<void> {
+    await this.db.saveProject(doc, extraAssets);
   }
 
   async importArchive(bytes: Uint8Array): Promise<ArchiveImportResult> {

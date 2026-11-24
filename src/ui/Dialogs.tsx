@@ -9,6 +9,8 @@ import {
 import { SavedProjectSummary } from '../persistence/types';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { MAP_THEMES, MapTheme, getBuiltinThemeById } from '../theme/theme';
+import { PeerTransferManager } from '../transfer/peerTransfer';
+import { DeviceTransferDialog } from './DeviceTransferDialog';
 import { ResizeCanvasDialog } from './ResizeCanvasDialog';
 import { GenerateWorldDialog } from './GenerateWorldDialog';
 import { AlertErrorIcon, CloseIcon } from './icons';
@@ -686,9 +688,10 @@ function ShortcutsDialog({ store }: { store: EditorStore }) {
 export interface DialogsHostProps {
   store: EditorStore;
   exportPdfDialogSlot?: ReactNode;
+  peerManager?: PeerTransferManager;
 }
 
-export function DialogsHost({ store, exportPdfDialogSlot }: DialogsHostProps) {
+export function DialogsHost({ store, exportPdfDialogSlot, peerManager }: DialogsHostProps) {
   const snap = useEditorStore(store);
   const { activeDialog, doc } = snap;
 
@@ -705,6 +708,12 @@ export function DialogsHost({ store, exportPdfDialogSlot }: DialogsHostProps) {
   }
   if (activeDialog === 'generateWorld') {
     return <GenerateWorldDialog store={store} />;
+  }
+  if (activeDialog === 'deviceTransfer') {
+    if (peerManager) {
+      return <DeviceTransferDialog store={store} peerManager={peerManager} />;
+    }
+    return null;
   }
   if (activeDialog === 'shortcuts') {
     return <ShortcutsDialog store={store} />;

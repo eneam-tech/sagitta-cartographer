@@ -1,0 +1,7 @@
+{
+  "service": "sagitta-edge-honeypot-decoy",
+  "warning": "synthetic-canary-token-monitored",
+  "x-api-key": "SAGITTA-CANARY-K9X4-91B8E4C20F7A119D",
+  "secondary_key": "SAGITTA-CANARY-R3M7-004F8A9C12E6B501",
+  "issued_at": "2026-01-15T00:00:00Z"
+}

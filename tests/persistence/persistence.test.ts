@@ -1447,4 +1447,57 @@ describe('Persistence, Archive & v1 Migration', () => {
     const reloaded = await service.loadProject(doc.manifest.id);
     expect(reloaded!.document.manifest).toEqual(doc.manifest);
   });
+
+  it('salva maschera grezza maskU8 senza ricodifica PNG per default e supporta flushPending con debounce terreno differenziato', async () => {
+    const fdb = new FakeIDBFactory();
+    const { doc, extraAssets } = createRichSampleDocument();
+
+    const db = new CartografoIndexedDb({ idbFactory: fdb });
+    await db.saveProject(doc, extraAssets);
+
+    const rawBlob = await new Promise<Record<string, unknown> | undefined>((resolve, reject) => {
+      const req = fdb.open('cartografo-db', 1);
+      req.onsuccess = () => {
+        const idb = req.result;
+        const tx = idb.transaction(['terrainBlobs'], 'readonly');
+        const getReq = tx.objectStore('terrainBlobs').getAll();
+        getReq.onsuccess = () => resolve((getReq.result as Record<string, unknown>[])[0]);
+        getReq.onerror = () => reject(getReq.error);
+      };
+      req.onerror = () => reject(req.error);
+    });
+
+    expect(rawBlob?.maskU8).toBeInstanceOf(Uint8Array);
+    expect(rawBlob?.maskPng).toBeUndefined();
+
+    const loaded = await db.loadProject(doc.manifest.id);
+    expect(loaded).not.toBeNull();
+    expectBytesEqual(loaded!.document.terrain.mask, doc.terrain.mask);
+    expectBytesEqual(loaded!.document.terrain.height, doc.terrain.height);
+    expectBytesEqual(loaded!.document.terrain.cover, doc.terrain.cover);
+    db.close();
+
+    // Debounce terreno lungo + flushPending immediato
+    const service = new PersistenceService({
+      idbFactory: fdb,
+      debounceMs: 15,
+      terrainDebounceMs: 5000
+    });
+    activeServices.push(service);
+
+    const freshDoc = createEmptyDocument({ title: 'Flush Background', widthPx: 64, heightPx: 64 });
+    freshDoc.manifest.revision = 1;
+    freshDoc.terrainVersion = 1;
+    freshDoc.terrain.mask[10] = 255;
+
+    service.scheduleSave(freshDoc);
+    expect(service.getState().status).toBe('saving');
+
+    await service.flushPending();
+    expect(service.getState()).toEqual({ status: 'saved', savedRevision: 1 });
+
+    const reloadedFresh = await service.loadProject(freshDoc.manifest.id);
+    expect(reloadedFresh).not.toBeNull();
+    expect(reloadedFresh!.document.terrain.mask[10]).toBe(255);
+  });
 });

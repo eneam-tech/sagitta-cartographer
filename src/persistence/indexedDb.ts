@@ -107,7 +107,10 @@ export interface TerrainBlobRecord {
   key: string;
   projectId: string;
   terrainVersion: number;
-  maskPng: Uint8Array;
+  maskPng?: Uint8Array;
+  maskU8?: Uint8Array;
+  widthPx?: number;
+  heightPx?: number;
   heightU8: Uint8Array;
   coverU8: Uint8Array;
 }
@@ -141,7 +144,10 @@ export interface IndexedDbOptions {
 }
 
 interface PreparedTerrainPayload {
-  maskPng: Uint8Array;
+  maskPng?: Uint8Array;
+  maskU8?: Uint8Array;
+  widthPx: number;
+  heightPx: number;
   heightU8: Uint8Array;
   coverU8: Uint8Array;
 }
@@ -175,6 +181,7 @@ export class CartografoIndexedDb {
   private readonly dbName: string;
   private readonly encodeMaskPngFn: MaskPngEncoderFn;
   private readonly decodeMaskPngFn: MaskPngDecoderFn;
+  private readonly useCustomMaskEncoder: boolean;
   private readonly delayBeforeWriteMs: number;
 
   private dbPromise: Promise<IDBDatabase> | null = null;
@@ -191,6 +198,7 @@ export class CartografoIndexedDb {
         ? ((globalThis as unknown as { indexedDB?: IDBFactory }).indexedDB ?? null)
         : options.idbFactory;
     this.dbName = options.dbName ?? CARTOGRAFO_DB_NAME;
+    this.useCustomMaskEncoder = Boolean(options.encodeMaskPngFn);
     this.encodeMaskPngFn = options.encodeMaskPngFn ?? encodeMaskPng;
     this.decodeMaskPngFn = options.decodeMaskPngFn ?? decodeMaskPng;
     this.delayBeforeWriteMs = options.delayBeforeWriteMs ?? 0;
@@ -300,7 +308,8 @@ export class CartografoIndexedDb {
    */
   async saveProject(
     doc: MapDocument,
-    extraAssets?: Map<string, Blob>
+    extraAssets?: Map<string, Blob>,
+    options?: { preclonedTerrain?: boolean }
   ): Promise<void> {
     // Capture immutable document snapshot synchronously before any await.
     const manifest = validateDocumentManifest(structuredClone(doc.manifest));
@@ -309,11 +318,24 @@ export class CartografoIndexedDb {
     const id = manifest.id;
     const widthPx = doc.terrain.widthPx;
     const heightPx = doc.terrain.heightPx;
+    const reusePrecloned = Boolean(options?.preclonedTerrain);
 
     let forcePrepareTerrain = !this.hasCachedTerrainVersion(id, terrainVersion);
-    let rawMaskCopy = forcePrepareTerrain ? new Uint8Array(doc.terrain.mask) : null;
-    let rawHeightCopy = forcePrepareTerrain ? new Uint8Array(doc.terrain.height) : null;
-    let rawCoverCopy = forcePrepareTerrain ? new Uint8Array(doc.terrain.cover) : null;
+    let rawMaskCopy = forcePrepareTerrain
+      ? reusePrecloned
+        ? doc.terrain.mask
+        : new Uint8Array(doc.terrain.mask)
+      : null;
+    let rawHeightCopy = forcePrepareTerrain
+      ? reusePrecloned
+        ? doc.terrain.height
+        : new Uint8Array(doc.terrain.height)
+      : null;
+    let rawCoverCopy = forcePrepareTerrain
+      ? reusePrecloned
+        ? doc.terrain.cover
+        : new Uint8Array(doc.terrain.cover)
+      : null;
 
     const rawAssetEntries = extraAssets ? Array.from(extraAssets.entries()) : [];
     const preparedAssets: PreparedAssetPayload[] = [];
@@ -336,12 +358,24 @@ export class CartografoIndexedDb {
         rawMaskCopy = null;
         rawHeightCopy = null;
         rawCoverCopy = null;
-        const maskPng = await this.encodeMaskPngFn(maskCopy, widthPx, heightPx);
-        preparedTerrain = {
-          maskPng: new Uint8Array(maskPng),
-          heightU8,
-          coverU8
-        };
+        if (this.useCustomMaskEncoder) {
+          const maskPng = await this.encodeMaskPngFn(maskCopy, widthPx, heightPx);
+          preparedTerrain = {
+            maskPng: new Uint8Array(maskPng),
+            widthPx,
+            heightPx,
+            heightU8,
+            coverU8
+          };
+        } else {
+          preparedTerrain = {
+            maskU8: maskCopy,
+            widthPx,
+            heightPx,
+            heightU8,
+            coverU8
+          };
+        }
       }
 
       if (this.delayBeforeWriteMs > 0) {
@@ -512,7 +546,14 @@ export class CartografoIndexedDb {
             key: newMaskKey,
             projectId: id,
             terrainVersion,
-            maskPng: preparedTerrain.maskPng,
+            ...(preparedTerrain.maskPng ? { maskPng: preparedTerrain.maskPng } : {}),
+            ...(preparedTerrain.maskU8
+              ? {
+                  maskU8: preparedTerrain.maskU8,
+                  widthPx: preparedTerrain.widthPx,
+                  heightPx: preparedTerrain.heightPx
+                }
+              : {}),
             heightU8: preparedTerrain.heightU8,
             coverU8: preparedTerrain.coverU8
           };
@@ -656,7 +697,28 @@ export class CartografoIndexedDb {
       );
     }
 
-    const decoded = this.decodeMaskPngFn(new Uint8Array(terrain.maskPng));
+    let decoded: { width: number; height: number; mask: Uint8Array };
+    if (
+      terrain.maskU8 &&
+      terrain.maskU8.length > 0 &&
+      typeof terrain.widthPx === 'number' &&
+      typeof terrain.heightPx === 'number' &&
+      terrain.widthPx > 0 &&
+      terrain.heightPx > 0 &&
+      terrain.maskU8.length === terrain.widthPx * terrain.heightPx
+    ) {
+      decoded = {
+        width: terrain.widthPx,
+        height: terrain.heightPx,
+        mask: new Uint8Array(terrain.maskU8)
+      };
+    } else if (terrain.maskPng) {
+      decoded = this.decodeMaskPngFn(new Uint8Array(terrain.maskPng));
+    } else {
+      throw new Error(
+        `Dati maschera del terreno mancanti per il progetto "${project.id}".`
+      );
+    }
     const rawManifest = project.manifest as unknown as Record<string, unknown> | undefined;
     const sourceVersion = assertSupportedSchemaVersion(rawManifest?.schemaVersion);
     const manifest = migrateManifestToV3(rawManifest, {

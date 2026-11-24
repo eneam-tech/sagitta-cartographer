@@ -73,6 +73,7 @@ export type EditorDialogKind =
   | 'exportPdf'
   | 'resizeCanvas'
   | 'generateWorld'
+  | 'deviceTransfer'
   | 'shortcuts'
   | 'conflict'
   | 'storageError'
@@ -1945,6 +1946,32 @@ export class EditorStore {
       return result;
     } catch (err) {
       const message = err instanceof Error ? err.message : 'Archivio non valido o incompleto.';
+      this.statusNotice = { tone: 'error', text: message };
+      this.notify();
+      return null;
+    }
+  }
+
+  async saveIncomingArchiveToLibrary(bytes: Uint8Array): Promise<string | null> {
+    try {
+      const result = await this.persistence.importArchive(bytes);
+      const copyCapable = this.persistence as IPersistenceService & {
+        saveArchiveCopy?: (doc: MapDocument, extraAssets?: Map<string, Blob>) => Promise<void>;
+      };
+      if (typeof copyCapable.saveArchiveCopy === 'function') {
+        await copyCapable.saveArchiveCopy(result.document, result.extraAssetBlobs);
+      } else {
+        await this.persistence.saveAsCopy(result.document, result.extraAssetBlobs);
+      }
+      this.statusNotice = {
+        tone: 'success',
+        text: `Mappa «${result.document.manifest.title}» salvata nell’archivio locale.`
+      };
+      this.notify();
+      return result.document.manifest.title;
+    } catch (err) {
+      const message =
+        err instanceof Error ? err.message : 'Impossibile salvare la mappa ricevuta in archivio.';
       this.statusNotice = { tone: 'error', text: message };
       this.notify();
       return null;
