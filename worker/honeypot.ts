@@ -36,7 +36,7 @@ export function isHoneypotPath(pathname: string): boolean {
 
 function randomHex(byteCount: number): string {
   const buf = new Uint8Array(byteCount);
-  const cryptoObj = globalThis.crypto;
+  const cryptoObj = typeof crypto !== 'undefined' ? crypto : undefined;
   if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
     cryptoObj.getRandomValues(buf);
   } else {

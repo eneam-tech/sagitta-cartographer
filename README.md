@@ -47,20 +47,17 @@ Funzionalità integrate per **iPad e Apple Pencil**:
 - **Sensibilità alla pressione Apple Pencil**: modula dinamicamente diametro e intensità dei pennelli di terreno, rilievo e superfici (con campionamento ad alta frequenza `getCoalescedEvents`).
 - **Gesti multi-touch**: **pizzico a 2 dita** per zoom e spostamento simultaneo, **tocco a 2 dita** per Annulla e **tocco a 3 dita** per Ripristina.
 
-## PWA Offline, Trasferimento P2P e Deploy Cloudflare (`em-sagitta-cartografo`)
+## PWA Offline, Trasferimento P2P e Deploy Cloudflare (`sagitta-cartographer`)
 
 - **PWA offline completa**: Service Worker (`sw.js`) con precache di app, font e simboli POI, icone PNG (`public/icons/`) e richiesta `navigator.storage.persist()` su iPadOS.
 - **Autosalvataggio rapido su iPad**: salva direttamente la maschera grezza `maskU8` in IndexedDB senza ricodifica PNG ad ogni tratto (`400 ms` per oggetti, `2500 ms` per pennellate terreno) con flush automatico al passaggio in background.
-- **Invia a `<dispositivo>` (WebRTC P2P)**: in `Progetto → Collega dispositivo…` abbini due dispositivi tramite codice a 6 caratteri o QR leggibile dall’app; le mappe `.zip` viaggiano cifrate end-to-end tra i dispositivi previa conferma esplicita, usando solo un leggero handshake WebSocket sul Durable Object [worker/index.ts](worker/index.ts).
-- **Hardening e honeypot**: `public/_headers` (CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`), `robots.txt`, e decoy sintetici (`X-API-KEY.json`, `password.txt`, `secrets-config.json`, [worker/honeypot.ts](worker/honeypot.ts)).
-- **Deploy su Cloudflare**:
-  ```bash
-  npm run build
-  # Consigliato (App + Assets + Durable Object per «Invia a dispositivo» in un unico deploy Workers):
-  npx cf deploy
-  # Oppure solo sito statico su Cloudflare Pages:
-  # npx wrangler pages deploy dist --project-name=em-sagitta-cartografo
-  ```
+- **Invia a `<dispositivo>` (WebRTC P2P)**: in `Progetto → Collega dispositivo…` abbini due dispositivi tramite codice a 6 caratteri o QR leggibile dall’app; le mappe `.zip` viaggiano cifrate end-to-end tra i dispositivi previa conferma esplicita, usando solo un leggero handshake WebSocket sul Durable Object SQLite `PairingRoomDurableObject` ([worker/index.ts](worker/index.ts)).
+- **Hardening, honeypot e log dinamici**: `public/_headers` (CSP, `X-Frame-Options: DENY`, `Referrer-Policy: no-referrer`), `robots.txt`, decoy sintetici (`X-API-KEY.json`, `password.txt`, `secrets-config.json`, [worker/honeypot.ts](worker/honeypot.ts)) e telemetria JSON strutturata (`observability.enabled: true` in `wrangler.jsonc` per `honeypot_hit`, `signal_origin_rejected`, `signal_peer_connected`, `signal_peers_matched`, `signal_rate_limited`, `signal_peer_disconnected`, `signal_room_expired`).
+- **Deploy su Cloudflare (Workers Builds da GitHub o locale)**:
+  - **Cloudflare Workers Builds**: Build command `npm run build`, Deploy command `npx wrangler deploy` (configurazione in [wrangler.jsonc](wrangler.jsonc)).
+  - **Sviluppo locale Worker + Durable Object + Assets**: `npm run build && npm run cf:dev`
+  - **Deploy manuale da terminale**: `npm run cf:deploy`
+  - **Log live da terminale**: `npm run cf:tail` (oppure dalla dashboard Cloudflare in **Workers & Pages → `sagitta-cartographer` → Observability → Logs**).
 
 ## Funzionalità incluse (v0.3 · Incremento 3)
 

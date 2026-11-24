@@ -133,7 +133,7 @@ export function formatPairingCode(raw: string): string {
 
 export function generatePairingCode(): string {
   const bytes = new Uint8Array(PAIRING_CODE_RAW_LENGTH);
-  const cryptoObj = globalThis.crypto;
+  const cryptoObj = typeof crypto !== 'undefined' ? crypto : undefined;
   if (cryptoObj && typeof cryptoObj.getRandomValues === 'function') {
     cryptoObj.getRandomValues(bytes);
   } else {
@@ -334,7 +334,8 @@ export function parseDataTransferControlMessage(raw: string): DataTransferContro
 }
 
 export async function computeSha256Hex(bytes: Uint8Array): Promise<string> {
-  const subtle = globalThis.crypto?.subtle;
+  const cryptoObj = typeof crypto !== 'undefined' ? crypto : undefined;
+  const subtle = cryptoObj?.subtle;
   if (!subtle) {
     throw new Error('Web Crypto SHA-256 non disponibile in questo contesto.');
   }

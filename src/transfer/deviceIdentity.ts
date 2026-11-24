@@ -108,5 +108,5 @@ export function resolveDefaultSignalUrl(): string {
     return `${wsProto}//${window.location.host}/api/signal`;
   }
 
-  return 'wss://em-sagitta-cartografo.pages.dev/api/signal';
+  return 'wss://sagitta-cartographer.workers.dev/api/signal';
 }

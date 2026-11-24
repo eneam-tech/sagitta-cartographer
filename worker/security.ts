@@ -17,7 +17,8 @@ export const DEFAULT_CSP = [
 
 export function isAllowedOrigin(
   originHeader: string | null,
-  extraAllowedOrigins?: string
+  extraAllowedOrigins?: string,
+  requestOrigin?: string
 ): boolean {
   if (!originHeader) return false;
 
@@ -42,10 +43,29 @@ export function isAllowedOrigin(
   const host = parsed.hostname.toLowerCase();
   const proto = parsed.protocol.toLowerCase();
 
+  if (requestOrigin && proto === 'https:') {
+    try {
+      const parsedRequest = new URL(requestOrigin);
+      if (normalizedOrigin === parsedRequest.origin.toLowerCase()) {
+        return true;
+      }
+    } catch {
+      // Ignora requestOrigin non valido
+    }
+  }
+
   if (proto === 'https:') {
-    if (host === 'em-sagitta-cartografo.pages.dev') return true;
-    if (/^[a-z0-9-]+\.em-sagitta-cartografo\.pages\.dev$/.test(host)) return true;
-    if (/^em-sagitta-cartografo(?:-[a-z0-9-]+)?\.[a-z0-9-]+\.workers\.dev$/.test(host)) {
+    if (host === 'sagitta-cartographer.pages.dev' || host === 'em-sagitta-cartografo.pages.dev') {
+      return true;
+    }
+    if (/^[a-z0-9-]+\.(?:sagitta-cartographer|em-sagitta-cartografo)\.pages\.dev$/.test(host)) {
+      return true;
+    }
+    if (
+      /^(?:[a-z0-9-]+-)?(?:sagitta-cartographer|em-sagitta-cartografo)(?:-[a-z0-9-]+)?\.[a-z0-9-]+\.workers\.dev$/.test(
+        host
+      )
+    ) {
       return true;
     }
   }

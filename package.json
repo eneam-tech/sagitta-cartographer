@@ -6,13 +6,17 @@
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
-    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json",
+    "typecheck": "tsc --noEmit && tsc --noEmit -p tsconfig.e2e.json && tsc --noEmit -p tsconfig.worker.json",
     "test": "vitest run",
     "test:e2e": "playwright test",
     "test:e2e:ui": "playwright test --ui",
     "test:e2e:headed": "playwright test --headed",
     "test:all": "npm run typecheck && npm run test && npm run test:e2e",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "cf:types": "wrangler types worker/worker-configuration.d.ts",
+    "cf:dev": "wrangler dev",
+    "cf:deploy": "npm run build && wrangler deploy",
+    "cf:tail": "wrangler tail"
   },
   "dependencies": {
     "@fontsource/source-sans-3": "^5.1.0",
@@ -34,6 +38,7 @@
     "fake-indexeddb": "^6.0.0",
     "typescript": "^5.7.3",
     "vite": "^6.1.0",
-    "vitest": "^3.0.5"
+    "vitest": "^3.0.5",
+    "wrangler": "^4.167.0"
   }
 }

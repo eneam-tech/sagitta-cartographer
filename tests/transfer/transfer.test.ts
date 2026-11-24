@@ -139,6 +139,15 @@ describe('Trasferimento P2P, QR e sicurezza Cloudflare', () => {
     expect(passBody).toContain('sagitta-canary-pass-');
 
     // Origin allowlist
+    expect(isAllowedOrigin('https://sagitta-cartographer.eneaminelli.workers.dev')).toBe(true);
+    expect(isAllowedOrigin('https://pr-12-sagitta-cartographer.eneaminelli.workers.dev')).toBe(true);
+    expect(isAllowedOrigin('https://sagitta-cartographer.pages.dev')).toBe(true);
+    expect(
+      isAllowedOrigin('https://mappe.esempio.it', undefined, 'https://mappe.esempio.it')
+    ).toBe(true);
+    expect(
+      isAllowedOrigin('https://evil.example', undefined, 'https://mappe.esempio.it')
+    ).toBe(false);
     expect(isAllowedOrigin('https://em-sagitta-cartografo.pages.dev')).toBe(true);
     expect(isAllowedOrigin('https://preview-123.em-sagitta-cartografo.pages.dev')).toBe(true);
     expect(isAllowedOrigin('https://em-sagitta-cartografo.eneaminelli.workers.dev')).toBe(true);

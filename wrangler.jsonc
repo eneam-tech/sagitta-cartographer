@@ -1,0 +1,52 @@
+{
+  "$schema": "./node_modules/wrangler/config-schema.json",
+  "name": "sagitta-cartographer",
+  "main": "worker/index.ts",
+  "compatibility_date": "2026-11-24",
+  "upload_source_maps": true,
+  "observability": {
+    "enabled": true,
+    "head_sampling_rate": 1,
+    "logs": {
+      "enabled": true,
+      "invocation_logs": true,
+      "persist": true
+    },
+    "traces": {
+      "enabled": true
+    }
+  },
+  "assets": {
+    "directory": "./dist",
+    "binding": "ASSETS",
+    "html_handling": "auto-trailing-slash",
+    "not_found_handling": "single-page-application",
+    "run_worker_first": [
+      "/api/*",
+      "/.env*",
+      "/X-API-KEY.json",
+      "/password.txt",
+      "/secrets-config.json",
+      "/api-keys.json",
+      "/config.secrets.json",
+      "/phpmyadmin",
+      "/wp-login.php",
+      "/wp-admin/*",
+      "/.git/*"
+    ]
+  },
+  "durable_objects": {
+    "bindings": [
+      {
+        "name": "PAIRING_ROOMS",
+        "class_name": "PairingRoomDurableObject"
+      }
+    ]
+  },
+  "migrations": [
+    {
+      "tag": "v1",
+      "new_sqlite_classes": ["PairingRoomDurableObject"]
+    }
+  ]
+}

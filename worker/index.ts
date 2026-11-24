@@ -25,6 +25,29 @@ interface PeerAttachment {
 const RATE_WINDOW_MS = 10_000;
 const MAX_MSGS_PER_WINDOW = 50;
 
+function maskRoomTag(roomName?: string): string {
+  if (!roomName || roomName.length < 3) return 'unknown';
+  return `${roomName.slice(0, 3)}-***`;
+}
+
+function logEvent(
+  level: 'info' | 'warn',
+  event: string,
+  fields: Record<string, unknown>
+): void {
+  const line = JSON.stringify({
+    event,
+    service: 'sagitta-cartographer',
+    timestamp: new Date().toISOString(),
+    ...fields
+  });
+  if (level === 'warn') {
+    console.warn(line);
+  } else {
+    console.info(line);
+  }
+}
+
 function readAttachment(ws: WebSocket): PeerAttachment | null {
   try {
     const raw = ws.deserializeAttachment() as PeerAttachment | null;
@@ -70,6 +93,12 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
 
     await this.ctx.storage.setAlarm(now + PAIRING_ROOM_TTL_MS);
 
+    logEvent('info', 'signal_peer_connected', {
+      roomTag: maskRoomTag(this.ctx.id.name),
+      activePeers: this.ctx.getWebSockets().length,
+      ttlMs: PAIRING_ROOM_TTL_MS
+    });
+
     return new Response(null, {
       status: 101,
       webSocket: client
@@ -101,6 +130,10 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
     }
     attachment.msgCount += 1;
     if (attachment.msgCount > MAX_MSGS_PER_WINDOW) {
+      logEvent('warn', 'signal_rate_limited', {
+        roomTag: maskRoomTag(this.ctx.id.name),
+        msgCount: attachment.msgCount
+      });
       ws.send(
         JSON.stringify({
           type: 'error',
@@ -138,6 +171,7 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
     if (parsed.type === 'hello') {
       attachment.deviceName = parsed.deviceName;
       attachment.deviceKind = parsed.deviceKind;
+      ws.serializeAttachment(attachment);
 
       const peers = this.ctx.getWebSockets();
       const sorted = peers
@@ -145,7 +179,9 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
         .filter(
           (entry): entry is { sock: WebSocket; meta: PeerAttachment } => entry.meta !== null
         )
-        .sort((a, b) => a.meta.joinedAt - b.meta.joinedAt);
+        .sort(
+          (a, b) => a.meta.joinedAt - b.meta.joinedAt || a.meta.peerId.localeCompare(b.meta.peerId)
+        );
 
       if (sorted.length === 1) {
         attachment.role = 'initiator';
@@ -175,6 +211,11 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
               peerKind: first.meta.deviceKind
             })
           );
+          logEvent('info', 'signal_peers_matched', {
+            roomTag: maskRoomTag(this.ctx.id.name),
+            initiatorKind: first.meta.deviceKind,
+            responderKind: second.meta.deviceKind
+          });
         }
       }
 
@@ -209,7 +250,13 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
     } catch {
       // Socket già chiuso
     }
-    if (this.ctx.getWebSockets().length === 0) {
+    const remainingPeers = this.ctx.getWebSockets().filter((peer) => peer !== ws).length;
+    logEvent('info', 'signal_peer_disconnected', {
+      roomTag: maskRoomTag(this.ctx.id.name),
+      remainingPeers,
+      code
+    });
+    if (remainingPeers === 0) {
       await this.ctx.storage.deleteAlarm();
       await this.ctx.storage.deleteAll();
     }
@@ -225,7 +272,9 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
   }
 
   async alarm(): Promise<void> {
-    for (const ws of this.ctx.getWebSockets()) {
+    const activeSockets = this.ctx.getWebSockets();
+    const closedPeers = activeSockets.length;
+    for (const ws of activeSockets) {
       try {
         ws.send(
           JSON.stringify({
@@ -240,6 +289,10 @@ export class PairingRoomDurableObject extends DurableObject<Env> {
       }
     }
     await this.ctx.storage.deleteAll();
+    logEvent('info', 'signal_room_expired', {
+      roomTag: maskRoomTag(this.ctx.id.name),
+      closedPeers
+    });
   }
 
   private notifyPeerLeft(leavingWs: WebSocket, reason: string): void {
@@ -261,23 +314,28 @@ export default {
     const url = new URL(request.url);
 
     if (isHoneypotPath(url.pathname)) {
-      const cfInfo = (request as Request & { cf?: { country?: string } }).cf;
-      console.warn(
-        JSON.stringify({
-          event: 'honeypot_hit',
-          path: url.pathname,
-          method: request.method,
-          country: cfInfo?.country ?? null,
-          userAgent: (request.headers.get('user-agent') || '').slice(0, 120),
-          timestamp: new Date().toISOString()
-        })
-      );
+      const cfInfo = (
+        request as Request & { cf?: { country?: string; colo?: string; asn?: number } }
+      ).cf;
+      logEvent('warn', 'honeypot_hit', {
+        path: url.pathname,
+        method: request.method,
+        country: cfInfo?.country ?? null,
+        colo: cfInfo?.colo ?? null,
+        asn: cfInfo?.asn ?? null,
+        userAgent: (request.headers.get('user-agent') || '').slice(0, 120),
+        delayMs: 450
+      });
       await new Promise((resolve) => setTimeout(resolve, 450));
       return createHoneypotResponse(url.pathname);
     }
 
     if (url.pathname === '/api/health') {
-      const res = Response.json({ ok: true, service: 'em-sagitta-cartografo' });
+      const res = Response.json({
+        ok: true,
+        service: 'sagitta-cartographer',
+        signalEndpoint: '/api/signal'
+      });
       applySecurityHeaders(res.headers);
       res.headers.set('Cache-Control', 'no-store');
       return res;
@@ -291,7 +349,11 @@ export default {
         return new Response('Richiesto upgrade WebSocket.', { status: 426 });
       }
       const origin = request.headers.get('Origin');
-      if (!isAllowedOrigin(origin, env.ALLOWED_ORIGINS)) {
+      if (!isAllowedOrigin(origin, env.ALLOWED_ORIGINS, url.origin)) {
+        logEvent('warn', 'signal_origin_rejected', {
+          origin: origin ?? null,
+          host: url.host
+        });
         return new Response('Origine non autorizzata.', { status: 403 });
       }
 
