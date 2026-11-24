@@ -51,9 +51,12 @@ print_urls() {
     echo "  iPad (Bonjour):  http://${LOCAL_HOST}.local:${PORT}/"
   fi
   echo "--------------------------------------------------"
-  echo "  Su iPad (stessa rete Wi-Fi del Mac):"
-  echo "  1. Apri uno degli indirizzi iPad in Safari."
-  echo "  2. Tocca Condividi -> «Aggiungi alla schermata Home» per schermo intero."
+  echo "  Su iPad (stessa rete Wi-Fi del Mac, no rete Ospiti):"
+  echo "  1. Lascia aperta questa finestra del Terminale sul Mac."
+  echo "  2. In Safari su iPad scrivi l'indirizzo completo con http:// iniziale."
+  echo "  3. Se richiesto o bloccato: abilita «Rete locale» per Safari (iPad)"
+  echo "     e per Terminale (Mac -> Impostazioni -> Privacy e sicurezza -> Rete locale)."
+  echo "  4. Opzionale: Condividi -> «Aggiungi alla schermata Home» per schermo intero."
   echo "=================================================="
 }
 
@@ -61,12 +64,31 @@ echo "=================================================="
 echo "  Il tavolo del cartografo — Avvio Mac + Wi-Fi iPad"
 echo "  Cartella: $PROJECT_DIR"
 
-if lsof -nP -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
-  echo "  Stato: server già attivo sulla porta ${PORT}"
-  echo "--------------------------------------------------"
-  print_urls
-  open "$LOCAL_URL"
-  exit 0
+LISTENING_LINES="$(lsof -nP -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"
+if [[ -n "$LISTENING_LINES" ]]; then
+  if [[ "$LISTENING_LINES" == *"*:${PORT}"* ]]; then
+    echo "  Stato: server già attivo sulla rete Wi-Fi (porta ${PORT})"
+    echo "--------------------------------------------------"
+    print_urls
+    open "$LOCAL_URL"
+    exit 0
+  else
+    echo "  Trovato un vecchio server solo locale su 127.0.0.1:${PORT} — riavvio sulla rete Wi-Fi..."
+    OLD_PIDS=(${(f)"$(lsof -t -nP -iTCP:${PORT} -sTCP:LISTEN 2>/dev/null || true)"})
+    if (( ${#OLD_PIDS[@]} > 0 )); then
+      kill "${OLD_PIDS[@]}" 2>/dev/null || true
+      for _ in {1..20}; do
+        if ! lsof -nP -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+          break
+        fi
+        sleep 0.1
+      done
+      if lsof -nP -iTCP:${PORT} -sTCP:LISTEN >/dev/null 2>&1; then
+        kill -9 "${OLD_PIDS[@]}" 2>/dev/null || true
+        sleep 0.2
+      fi
+    fi
+  fi
 fi
 
 if [[ ! -d "node_modules" ]]; then
@@ -91,4 +113,4 @@ print_urls
 echo "  Lascia questa finestra aperta mentre usi l'editor (Ctrl+C per chiudere)."
 
 (sleep 1 && open "$LOCAL_URL") >/dev/null 2>&1 &
-npm run preview -- --host 0.0.0.0 --port "${PORT}" --strictPort
+npm run preview -- --host --port "${PORT}" --strictPort
