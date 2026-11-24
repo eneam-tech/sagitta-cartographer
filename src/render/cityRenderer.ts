@@ -461,6 +461,8 @@ export function drawBuildingToContext(
 
 /**
  * Renders a `PlazaObject` (flagstone square with curb border + centerpiece landmark).
+ * Supports two-pass rendering (`'casing'` outer curb before streets/plazas fill,
+ * `'fill'` flagstone interior + centerpiece on top) so entering roads fuse seamlessly.
  */
 export function drawPlazaToContext(
   ctx: CanvasRenderingContext2D,
@@ -468,7 +470,7 @@ export function drawPlazaToContext(
   theme: MapTheme,
   scaleX: number,
   scaleY: number,
-  options?: { applyTransform?: boolean }
+  options?: { applyTransform?: boolean; pass?: 'full' | 'casing' | 'fill' }
 ): void {
   const palette = getCityThemePalette(theme);
   const w = Math.max(8, plaza.width * scaleX);
@@ -476,6 +478,7 @@ export function drawPlazaToContext(
   const minDim = Math.min(w, h);
   const avgScale = (scaleX + scaleY) * 0.5;
   const curbW = clampNumber(avgScale * 1.6, 1, 3.2);
+  const pass = options?.pass ?? 'full';
 
   ctx.save();
   if (options?.applyTransform !== false) {
@@ -485,102 +488,99 @@ export function drawPlazaToContext(
   ctx.lineJoin = 'round';
   ctx.lineCap = 'round';
 
-  tracePlazaShapePath(ctx, plaza.shape, w, h);
-  ctx.fillStyle = plaza.fillColor || palette.plazaFill;
-  ctx.fill();
-
-  // Subtle flagstone cross & concentric guide marks
-  ctx.save();
-  ctx.strokeStyle = plaza.borderColor || palette.streetBorder;
-  ctx.globalAlpha *= 0.22;
-  ctx.lineWidth = Math.max(0.6, curbW * 0.5);
-  ctx.beginPath();
-  ctx.moveTo(-w * 0.34, 0);
-  ctx.lineTo(w * 0.34, 0);
-  ctx.moveTo(0, -h * 0.34);
-  ctx.lineTo(0, h * 0.34);
-  ctx.stroke();
-  ctx.restore();
-
-  tracePlazaShapePath(ctx, plaza.shape, w, h);
-  ctx.strokeStyle = plaza.borderColor || palette.streetBorder;
-  ctx.lineWidth = curbW;
-  ctx.stroke();
-
-  // Inner curb inlay
-  if (minDim > 18) {
-    tracePlazaShapePath(ctx, plaza.shape, w - curbW * 3.5, h - curbW * 3.5);
-    ctx.save();
+  if (pass === 'casing' || pass === 'full') {
+    tracePlazaShapePath(ctx, plaza.shape, w, h);
     ctx.strokeStyle = plaza.borderColor || palette.streetBorder;
-    ctx.globalAlpha *= 0.45;
-    ctx.lineWidth = Math.max(0.6, curbW * 0.55);
+    ctx.lineWidth = curbW * 2.1;
     ctx.stroke();
-    ctx.restore();
   }
 
-  // Centerpiece landmarks
-  if (plaza.centerpiece === 'fountain') {
-    const r = Math.max(3.5, minDim * 0.16);
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = palette.canalWater;
-    ctx.fill();
-    ctx.strokeStyle = theme.colors.ink;
-    ctx.lineWidth = Math.max(0.8, curbW * 0.75);
-    ctx.stroke();
-
-    ctx.beginPath();
-    ctx.arc(0, 0, r * 0.36, 0, Math.PI * 2);
-    ctx.fillStyle = palette.plazaFill;
-    ctx.fill();
-    ctx.stroke();
-  } else if (plaza.centerpiece === 'obelisk') {
-    const s = Math.max(3, minDim * 0.14);
-    ctx.fillStyle = palette.roofShadow;
-    ctx.beginPath();
-    ctx.moveTo(0, 0);
-    ctx.lineTo(s * 1.4, s * 1.1);
-    ctx.lineTo(s * 0.8, s * 1.5);
-    ctx.closePath();
+  if (pass === 'fill' || pass === 'full') {
+    tracePlazaShapePath(ctx, plaza.shape, w, h);
+    ctx.fillStyle = plaza.fillColor || palette.plazaFill;
     ctx.fill();
 
-    ctx.fillStyle = palette.wallStone;
-    ctx.strokeStyle = theme.colors.ink;
-    ctx.lineWidth = Math.max(0.8, curbW * 0.7);
-    ctx.fillRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
-    ctx.strokeRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
-  } else if (plaza.centerpiece === 'market-stalls') {
-    const colors = [palette.roofPalette[0] ?? '#9E4638', palette.roofPalette[1] ?? '#B35A43', '#D9C28E'];
-    const sw = Math.max(3.5, minDim * 0.14);
-    const sh = Math.max(2.5, minDim * 0.09);
-    const offsets = [
-      [-sw * 1.35, -sh * 1.6],
-      [sw * 0.35, -sh * 1.6],
-      [-sw * 1.35, sh * 0.65],
-      [sw * 0.35, sh * 0.65]
-    ];
-    for (let i = 0; i < offsets.length; i += 1) {
-      const [ox, oy] = offsets[i];
-      ctx.fillStyle = colors[i % colors.length];
-      ctx.fillRect(ox, oy, sw, sh);
-      ctx.strokeStyle = theme.colors.ink;
-      ctx.lineWidth = Math.max(0.6, curbW * 0.55);
-      ctx.strokeRect(ox, oy, sw, sh);
+    // Subtle flagstone cross & concentric center medallion
+    ctx.save();
+    ctx.strokeStyle = plaza.borderColor || palette.streetBorder;
+    ctx.globalAlpha *= 0.22;
+    ctx.lineWidth = Math.max(0.6, curbW * 0.5);
+    ctx.beginPath();
+    ctx.moveTo(-w * 0.34, 0);
+    ctx.lineTo(w * 0.34, 0);
+    ctx.moveTo(0, -h * 0.34);
+    ctx.lineTo(0, h * 0.34);
+    if (minDim > 20) {
+      ctx.moveTo(minDim * 0.28, 0);
+      ctx.arc(0, 0, minDim * 0.28, 0, Math.PI * 2);
     }
-  } else if (plaza.centerpiece === 'tree') {
-    const r = Math.max(4, minDim * 0.16);
-    ctx.beginPath();
-    ctx.arc(r * 0.25, r * 0.25, r, 0, Math.PI * 2);
-    ctx.fillStyle = palette.roofShadow;
-    ctx.fill();
-
-    ctx.beginPath();
-    ctx.arc(0, 0, r, 0, Math.PI * 2);
-    ctx.fillStyle = palette.parkGreen;
-    ctx.fill();
-    ctx.strokeStyle = theme.colors.ink;
-    ctx.lineWidth = Math.max(0.8, curbW * 0.7);
     ctx.stroke();
+    ctx.restore();
+
+    // Centerpiece landmarks
+    if (plaza.centerpiece === 'fountain') {
+      const r = Math.max(3.5, minDim * 0.16);
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = palette.canalWater;
+      ctx.fill();
+      ctx.strokeStyle = theme.colors.ink;
+      ctx.lineWidth = Math.max(0.8, curbW * 0.75);
+      ctx.stroke();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, r * 0.36, 0, Math.PI * 2);
+      ctx.fillStyle = palette.plazaFill;
+      ctx.fill();
+      ctx.stroke();
+    } else if (plaza.centerpiece === 'obelisk') {
+      const s = Math.max(3, minDim * 0.14);
+      ctx.fillStyle = palette.roofShadow;
+      ctx.beginPath();
+      ctx.moveTo(0, 0);
+      ctx.lineTo(s * 1.4, s * 1.1);
+      ctx.lineTo(s * 0.8, s * 1.5);
+      ctx.closePath();
+      ctx.fill();
+
+      ctx.fillStyle = palette.wallStone;
+      ctx.strokeStyle = theme.colors.ink;
+      ctx.lineWidth = Math.max(0.8, curbW * 0.7);
+      ctx.fillRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
+      ctx.strokeRect(-s * 0.55, -s * 0.55, s * 1.1, s * 1.1);
+    } else if (plaza.centerpiece === 'market-stalls') {
+      const colors = [palette.roofPalette[0] ?? '#9E4638', palette.roofPalette[1] ?? '#B35A43', '#D9C28E'];
+      const sw = Math.max(3.5, minDim * 0.14);
+      const sh = Math.max(2.5, minDim * 0.09);
+      const offsets = [
+        [-sw * 1.35, -sh * 1.6],
+        [sw * 0.35, -sh * 1.6],
+        [-sw * 1.35, sh * 0.65],
+        [sw * 0.35, sh * 0.65]
+      ];
+      for (let i = 0; i < offsets.length; i += 1) {
+        const [ox, oy] = offsets[i];
+        ctx.fillStyle = colors[i % colors.length];
+        ctx.fillRect(ox, oy, sw, sh);
+        ctx.strokeStyle = theme.colors.ink;
+        ctx.lineWidth = Math.max(0.6, curbW * 0.55);
+        ctx.strokeRect(ox, oy, sw, sh);
+      }
+    } else if (plaza.centerpiece === 'tree') {
+      const r = Math.max(4, minDim * 0.16);
+      ctx.beginPath();
+      ctx.arc(r * 0.25, r * 0.25, r, 0, Math.PI * 2);
+      ctx.fillStyle = palette.roofShadow;
+      ctx.fill();
+
+      ctx.beginPath();
+      ctx.arc(0, 0, r, 0, Math.PI * 2);
+      ctx.fillStyle = palette.parkGreen;
+      ctx.fill();
+      ctx.strokeStyle = theme.colors.ink;
+      ctx.lineWidth = Math.max(0.8, curbW * 0.7);
+      ctx.stroke();
+    }
   }
 
   ctx.restore();
@@ -598,7 +598,9 @@ export function drawUrbanPathSegmentsToContext(
   pts: readonly number[],
   theme: MapTheme | undefined,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  pass: 'full' | 'casing' | 'fill' = 'full',
+  wallCasingPhase: 'shadow' | 'ink' | 'both' = 'both'
 ): boolean {
   if (
     path.kind !== 'avenue' &&
@@ -628,99 +630,113 @@ export function drawUrbanPathSegmentsToContext(
 
   if (path.kind === 'avenue' || path.kind === 'alley') {
     const casingPx = path.kind === 'avenue' ? Math.max(2.0, avgScale * 2.4) : Math.max(1.2, avgScale * 1.4);
-    traceLine();
-    ctx.strokeStyle = palette?.streetBorder ?? 'rgba(33, 21, 12, 0.58)';
-    ctx.lineWidth = baseWidthPx + casingPx;
-    ctx.stroke();
-
-    traceLine();
-    ctx.strokeStyle = path.color || palette?.streetFill || '#EAE0C8';
-    ctx.lineWidth = baseWidthPx;
-    ctx.stroke();
+    if (pass === 'casing' || pass === 'full') {
+      traceLine();
+      ctx.strokeStyle = palette?.streetBorder ?? 'rgba(33, 21, 12, 0.58)';
+      ctx.lineWidth = baseWidthPx + casingPx;
+      ctx.stroke();
+    }
+    if (pass === 'fill' || pass === 'full') {
+      traceLine();
+      ctx.strokeStyle = path.color || palette?.streetFill || '#EAE0C8';
+      ctx.lineWidth = baseWidthPx;
+      ctx.stroke();
+    }
     return true;
   }
 
   if (path.kind === 'canal') {
-    // Masonry embankment along canal edges
-    traceLine();
-    ctx.strokeStyle = palette?.wallStone ?? '#6E665C';
-    ctx.lineWidth = baseWidthPx + Math.max(2.6, avgScale * 3.2);
-    ctx.stroke();
-
-    // Dark ink inner rim
-    traceLine();
-    ctx.strokeStyle = inkColor;
-    ctx.lineWidth = baseWidthPx + Math.max(0.8, avgScale * 0.9);
-    ctx.stroke();
-
-    // Water channel core
-    traceLine();
-    ctx.strokeStyle = path.color || palette?.canalWater || '#5F939C';
-    ctx.lineWidth = baseWidthPx;
-    ctx.stroke();
-
-    // Gentle highlight center filament
-    if (baseWidthPx >= 5) {
-      ctx.save();
-      ctx.globalAlpha *= 0.25;
+    if (pass === 'casing' || pass === 'full') {
+      // Masonry embankment along canal edges
       traceLine();
-      ctx.strokeStyle = '#EAF6F6';
-      ctx.lineWidth = Math.max(1, baseWidthPx * 0.25);
+      ctx.strokeStyle = palette?.wallStone ?? '#6E665C';
+      ctx.lineWidth = baseWidthPx + Math.max(2.6, avgScale * 3.2);
       ctx.stroke();
-      ctx.restore();
+
+      // Dark ink inner rim
+      traceLine();
+      ctx.strokeStyle = inkColor;
+      ctx.lineWidth = baseWidthPx + Math.max(0.8, avgScale * 0.9);
+      ctx.stroke();
+    }
+
+    if (pass === 'fill' || pass === 'full') {
+      // Water channel core
+      traceLine();
+      ctx.strokeStyle = path.color || palette?.canalWater || '#5F939C';
+      ctx.lineWidth = baseWidthPx;
+      ctx.stroke();
+
+      // Gentle highlight center filament
+      if (baseWidthPx >= 5) {
+        ctx.save();
+        ctx.globalAlpha *= 0.25;
+        traceLine();
+        ctx.strokeStyle = '#EAF6F6';
+        ctx.lineWidth = Math.max(1, baseWidthPx * 0.25);
+        ctx.stroke();
+        ctx.restore();
+      }
     }
     return true;
   }
 
   // City Wall ('wall'): SE shadow + ink perimeter + stone masonry core + battlements
-  ctx.save();
-  ctx.translate(Math.max(1.5, baseWidthPx * 0.18), Math.max(1.5, baseWidthPx * 0.18));
-  traceLine();
-  ctx.strokeStyle = palette?.roofShadow ?? 'rgba(20, 15, 12, 0.34)';
-  ctx.lineWidth = baseWidthPx + Math.max(1.2, avgScale * 1.2);
-  ctx.stroke();
-  ctx.restore();
-
-  traceLine();
-  ctx.strokeStyle = inkColor;
-  ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.0);
-  ctx.stroke();
-
-  traceLine();
-  ctx.strokeStyle = path.color || palette?.wallStone || '#6E665C';
-  ctx.lineWidth = baseWidthPx;
-  ctx.stroke();
-
-  // Battlement / merlon ticks perpendicular to wall center
-  const tickStepPx = Math.max(5, baseWidthPx * 0.72);
-  const tickHalfLen = baseWidthPx * 0.48;
-  ctx.beginPath();
-  let carry = 0;
-  for (let i = 0; i < vertexCount - 1; i += 1) {
-    const ax = pts[i * 2] * scaleX;
-    const ay = pts[i * 2 + 1] * scaleY;
-    const bx = pts[(i + 1) * 2] * scaleX;
-    const by = pts[(i + 1) * 2 + 1] * scaleY;
-    const dx = bx - ax;
-    const dy = by - ay;
-    const segLen = Math.hypot(dx, dy);
-    if (segLen < 1e-3) continue;
-    const nx = -dy / segLen;
-    const ny = dx / segLen;
-    let dist = tickStepPx - carry;
-    while (dist <= segLen) {
-      const t = dist / segLen;
-      const px = ax + dx * t;
-      const py = ay + dy * t;
-      ctx.moveTo(px + nx * tickHalfLen * 0.45, py + ny * tickHalfLen * 0.45);
-      ctx.lineTo(px + nx * tickHalfLen, py + ny * tickHalfLen);
-      dist += tickStepPx;
+  if (pass === 'casing' || pass === 'full') {
+    if (wallCasingPhase !== 'ink') {
+      ctx.save();
+      ctx.translate(Math.max(1.5, baseWidthPx * 0.18), Math.max(1.5, baseWidthPx * 0.18));
+      traceLine();
+      ctx.strokeStyle = palette?.roofShadow ?? 'rgba(20, 15, 12, 0.34)';
+      ctx.lineWidth = baseWidthPx + Math.max(1.2, avgScale * 1.2);
+      ctx.stroke();
+      ctx.restore();
     }
-    carry = (carry + segLen) % tickStepPx;
+    if (wallCasingPhase !== 'shadow') {
+      traceLine();
+      ctx.strokeStyle = inkColor;
+      ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.0);
+      ctx.stroke();
+    }
   }
-  ctx.strokeStyle = inkColor;
-  ctx.lineWidth = Math.max(0.8, baseWidthPx * 0.14);
-  ctx.stroke();
+
+  if (pass === 'fill' || pass === 'full') {
+    traceLine();
+    ctx.strokeStyle = path.color || palette?.wallStone || '#6E665C';
+    ctx.lineWidth = baseWidthPx;
+    ctx.stroke();
+
+    // Battlement / merlon ticks perpendicular to wall center
+    const tickStepPx = Math.max(5, baseWidthPx * 0.72);
+    const tickHalfLen = baseWidthPx * 0.48;
+    ctx.beginPath();
+    let carry = 0;
+    for (let i = 0; i < vertexCount - 1; i += 1) {
+      const ax = pts[i * 2] * scaleX;
+      const ay = pts[i * 2 + 1] * scaleY;
+      const bx = pts[(i + 1) * 2] * scaleX;
+      const by = pts[(i + 1) * 2 + 1] * scaleY;
+      const dx = bx - ax;
+      const dy = by - ay;
+      const segLen = Math.hypot(dx, dy);
+      if (segLen < 1e-3) continue;
+      const nx = -dy / segLen;
+      const ny = dx / segLen;
+      let dist = tickStepPx - carry;
+      while (dist <= segLen) {
+        const t = dist / segLen;
+        const px = ax + dx * t;
+        const py = ay + dy * t;
+        ctx.moveTo(px + nx * tickHalfLen * 0.45, py + ny * tickHalfLen * 0.45);
+        ctx.lineTo(px + nx * tickHalfLen, py + ny * tickHalfLen);
+        dist += tickStepPx;
+      }
+      carry = (carry + segLen) % tickStepPx;
+    }
+    ctx.strokeStyle = inkColor;
+    ctx.lineWidth = Math.max(0.8, baseWidthPx * 0.14);
+    ctx.stroke();
+  }
 
   return true;
 }

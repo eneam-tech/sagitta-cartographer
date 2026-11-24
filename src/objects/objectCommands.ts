@@ -1035,7 +1035,7 @@ export function getPathKindDefaults(kind: PathKind, theme: MapTheme): {
   const c = theme.colors;
   const city = theme.city;
   if (kind === 'river') {
-    return { strokeWidthDoc: 14, color: c.pathRiver, smooth: true, dashed: false, tapered: true };
+    return { strokeWidthDoc: 11, color: c.pathRiver, smooth: true, dashed: false, tapered: true };
   }
   if (kind === 'road') {
     return {

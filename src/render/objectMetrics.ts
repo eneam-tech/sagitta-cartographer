@@ -15,6 +15,42 @@ import {
   drawPlazaToContext,
   drawUrbanPathSegmentsToContext
 } from './cityRenderer';
+import {
+  RiverRenderPass,
+  RiverWorldOrigin,
+  drawNaturalRiverToContext
+} from './riverRenderer';
+
+export type NetworkPass = RiverRenderPass;
+export type NetworkGroup = 'river' | 'canal' | 'street' | 'wall';
+
+export interface DrawPathOptions {
+  pass?: NetworkPass;
+  doc?: MapDocument;
+  worldOrigin?: RiverWorldOrigin;
+  wallCasingPhase?: 'shadow' | 'ink' | 'both';
+}
+
+export function getObjectNetworkGroup(obj: MapObject): NetworkGroup | null {
+  if (obj.type === 'plaza') return 'street';
+  if (obj.type !== 'path') return null;
+  if (obj.kind === 'river') return 'river';
+  if (obj.kind === 'canal') return 'canal';
+  if ((obj.kind === 'avenue' || obj.kind === 'road' || obj.kind === 'alley') && !obj.dashed) {
+    return 'street';
+  }
+  if (obj.kind === 'wall') return 'wall';
+  return null;
+}
+
+export function getNetworkFillSubOrder(obj: MapObject): number {
+  if (obj.type === 'plaza') return 3;
+  if (obj.type !== 'path') return 4;
+  if (obj.kind === 'alley') return 0;
+  if (obj.kind === 'road') return 1;
+  if (obj.kind === 'avenue') return 2;
+  return 4;
+}
 
 export function resolveLabelFontCss(label: LabelObject, theme: MapTheme, scale = 1): string {
   const spec = getFontSpec(theme, label.fontId);
@@ -173,20 +209,18 @@ function drawTaperedRibbon(
 /**
  * Renders a single `PathObject` onto a Canvas2D context using `(scaleX, scaleY)`
  * from document units to canvas pixels. Handles smooth curves, borders (dashed),
- * rivers (continuous tapered polygon fill), and clockwise rotation.
+ * natural continent rivers, urban road/canal/wall networks, and clockwise rotation.
  */
 export function drawPathToContext(
   ctx: CanvasRenderingContext2D,
   path: PathObject,
   scaleX: number,
   scaleY: number,
-  theme?: MapTheme
+  theme?: MapTheme,
+  options?: DrawPathOptions
 ): void {
   if (path.points.length < 4) return;
-  const pts = path.smooth !== false ? sampleSmoothPathPoints(path.points, 5) : path.points;
-  const vertexCount = Math.floor(pts.length / 2);
-  if (vertexCount < 2) return;
-
+  const pass: NetworkPass = options?.pass ?? 'full';
   const avgScale = (scaleX + scaleY) * 0.5;
   const baseWidthPx = Math.max(0.75, path.strokeWidthDoc * avgScale);
   const pathAlpha = path.opacity === undefined ? 1 : Math.min(1, Math.max(0, path.opacity));
@@ -200,38 +234,94 @@ export function drawPathToContext(
   ctx.lineJoin = 'round';
   ctx.strokeStyle = path.color;
 
-  if (drawUrbanPathSegmentsToContext(ctx, path, pts, theme, scaleX, scaleY)) {
+  if (path.kind === 'river') {
+    drawNaturalRiverToContext(ctx, path, scaleX, scaleY, theme, {
+      pass,
+      doc: options?.doc,
+      worldOrigin: options?.worldOrigin
+    });
     ctx.restore();
     return;
   }
 
-  if (path.tapered && vertexCount >= 2 && typeof ctx.fill === 'function' && typeof ctx.closePath === 'function') {
-    drawTaperedRibbon(ctx, pts, scaleX, scaleY, baseWidthPx, path.color);
+  const pts = path.smooth !== false ? sampleSmoothPathPoints(path.points, 5) : path.points;
+  const vertexCount = Math.floor(pts.length / 2);
+  if (vertexCount < 2) {
+    ctx.restore();
+    return;
+  }
+
+  if (
+    drawUrbanPathSegmentsToContext(
+      ctx,
+      path,
+      pts,
+      theme,
+      scaleX,
+      scaleY,
+      pass,
+      options?.wallCasingPhase ?? 'both'
+    )
+  ) {
+    ctx.restore();
+    return;
+  }
+
+  if (
+    path.tapered &&
+    vertexCount >= 2 &&
+    typeof ctx.fill === 'function' &&
+    typeof ctx.closePath === 'function'
+  ) {
+    if (pass !== 'casing') {
+      drawTaperedRibbon(ctx, pts, scaleX, scaleY, baseWidthPx, path.color);
+    }
     ctx.restore();
     return;
   }
 
   if (path.dashed) {
+    if (pass === 'casing') {
+      ctx.restore();
+      return;
+    }
     const dashDoc = Math.max(4, path.strokeWidthDoc * 2.2);
     const gapDoc = Math.max(3, path.strokeWidthDoc * 1.4);
     ctx.setLineDash([dashDoc * avgScale, gapDoc * avgScale]);
-  } else {
+  } else if (typeof ctx.setLineDash === 'function') {
     ctx.setLineDash([]);
   }
 
-  ctx.beginPath();
-  ctx.moveTo(pts[0] * scaleX, pts[1] * scaleY);
-  for (let i = 1; i < vertexCount; i += 1) {
-    ctx.lineTo(pts[i * 2] * scaleX, pts[i * 2 + 1] * scaleY);
-  }
+  const tracePlain = () => {
+    ctx.beginPath();
+    ctx.moveTo(pts[0] * scaleX, pts[1] * scaleY);
+    for (let i = 1; i < vertexCount; i += 1) {
+      ctx.lineTo(pts[i * 2] * scaleX, pts[i * 2 + 1] * scaleY);
+    }
+  };
+
   if (path.kind === 'road' && !path.dashed) {
-    ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.4);
-    ctx.strokeStyle = 'rgba(33, 21, 12, 0.56)';
-    ctx.stroke();
-    ctx.strokeStyle = path.color;
+    if (pass === 'casing' || pass === 'full') {
+      tracePlain();
+      ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.4);
+      ctx.strokeStyle = theme?.city?.streetBorder ?? 'rgba(33, 21, 12, 0.56)';
+      ctx.stroke();
+    }
+    if (pass === 'fill' || pass === 'full') {
+      tracePlain();
+      ctx.strokeStyle = path.color;
+      ctx.lineWidth = baseWidthPx;
+      ctx.stroke();
+    }
+    ctx.restore();
+    return;
   }
-  ctx.lineWidth = baseWidthPx;
-  ctx.stroke();
+
+  if (pass !== 'casing') {
+    tracePlain();
+    ctx.lineWidth = baseWidthPx;
+    ctx.stroke();
+  }
   ctx.restore();
 }
 
@@ -241,7 +331,8 @@ function drawSingleMapObject(
   doc: MapDocument,
   assets: LoadedAssetMap,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  options?: DrawPathOptions
 ): void {
   if (obj.type === 'stamp') {
     const resource = assets.get(obj.assetId);
@@ -272,18 +363,24 @@ function drawSingleMapObject(
     ctx.fillText(obj.text, 0, 0);
     ctx.restore();
   } else if (obj.type === 'path') {
-    drawPathToContext(ctx, obj, scaleX, scaleY, doc.theme);
+    drawPathToContext(ctx, obj, scaleX, scaleY, doc.theme, {
+      doc,
+      ...options
+    });
   } else if (obj.type === 'building') {
     drawBuildingToContext(ctx, obj, doc.theme, scaleX, scaleY);
   } else if (obj.type === 'plaza') {
-    drawPlazaToContext(ctx, obj, doc.theme, scaleX, scaleY);
+    drawPlazaToContext(ctx, obj, doc.theme, scaleX, scaleY, {
+      pass: options?.pass
+    });
   }
 }
 
 /**
  * Shared canvas-2d object rendering routine used by PDF export and live preview
  * thumbnails so exported maps match the interactive map geometry, font metrics,
- * layer stacking/visibility/opacity, z-order, clockwise rotations, and page clipping.
+ * layer stacking/visibility/opacity, seamless merged road/river/canal/wall networks,
+ * clockwise rotations, and page clipping.
  */
 export function drawMapObjectsToContext(
   ctx: CanvasRenderingContext2D,
@@ -328,11 +425,81 @@ export function drawMapObjectsToContext(
     const items = objectsByLayer.get(layer.id);
     if (!items || items.length === 0) continue;
 
+    const riverItems: MapObject[] = [];
+    const canalItems: MapObject[] = [];
+    const streetItems: MapObject[] = [];
+    const wallItems: MapObject[] = [];
+    const otherItems: MapObject[] = [];
+
+    for (const obj of items) {
+      const group = getObjectNetworkGroup(obj);
+      if (group === 'river') riverItems.push(obj);
+      else if (group === 'canal') canalItems.push(obj);
+      else if (group === 'street') streetItems.push(obj);
+      else if (group === 'wall') wallItems.push(obj);
+      else otherItems.push(obj);
+    }
+
     ctx.save();
     ctx.globalAlpha = Math.min(1, Math.max(0, layer.opacity));
-    for (const obj of items) {
-      drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY);
+
+    // 1. River network (two-pass: all banks/valleys -> all water fills/thalwegs)
+    if (riverItems.length > 0) {
+      for (const obj of riverItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'casing' });
+      }
+      for (const obj of riverItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'fill' });
+      }
     }
+
+    // 2. Canal network (stone embankments/rims -> canal water cores)
+    if (canalItems.length > 0) {
+      for (const obj of canalItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'casing' });
+      }
+      for (const obj of canalItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'fill' });
+      }
+    }
+
+    // 3. Street & Plaza network (all borders -> fills sorted alley -> road -> avenue -> plaza)
+    if (streetItems.length > 0) {
+      for (const obj of streetItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'casing' });
+      }
+      const sortedFills = [...streetItems].sort(
+        (a, b) => getNetworkFillSubOrder(a) - getNetworkFillSubOrder(b)
+      );
+      for (const obj of sortedFills) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'fill' });
+      }
+    }
+
+    // 4. Fortified Wall network (SE shadows -> ink outlines -> masonry fill & merlons)
+    if (wallItems.length > 0) {
+      for (const obj of wallItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, {
+          pass: 'casing',
+          wallCasingPhase: 'shadow'
+        });
+      }
+      for (const obj of wallItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, {
+          pass: 'casing',
+          wallCasingPhase: 'ink'
+        });
+      }
+      for (const obj of wallItems) {
+        drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'fill' });
+      }
+    }
+
+    // 5. All remaining non-network objects (buildings, stamps, labels, borders, freehand, dashed roads)
+    for (const obj of otherItems) {
+      drawSingleMapObject(ctx, obj, doc, assets, scaleX, scaleY, { pass: 'full' });
+    }
+
     ctx.restore();
   }
 

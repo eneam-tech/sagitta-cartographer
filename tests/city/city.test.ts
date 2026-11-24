@@ -21,10 +21,13 @@ import {
   createPlazaObject
 } from '../../src/objects/objectCommands';
 import {
+  distPointToSegment,
   doOrientedRectsOverlap,
   findNearestUrbanStreet,
   findOverlappingBuildingIdsForPlaza,
+  findSnapPointForPathKind,
   findSnapPointOnUrbanPaths,
+  getPathWorldPoints,
   sampleLandMaskAtDoc
 } from '../../src/city/geometry';
 import {
@@ -46,6 +49,7 @@ import {
   drawUrbanPathSegmentsToContext
 } from '../../src/render/cityRenderer';
 import { drawMapObjectsToContext } from '../../src/render/objectMetrics';
+import { getRiverWorldSpinePoints } from '../../src/render/riverRenderer';
 import { EditorStore } from '../../src/state/editorStore';
 
 function createMockCanvasContext(): {
@@ -473,5 +477,188 @@ describe('Modalità Urbana / Città (kind: "city")', () => {
 
     expect(ops.filter((o) => o === 'fill').length).toBeGreaterThan(20);
     expect(ops.filter((o) => o === 'stroke').length).toBeGreaterThan(20);
+  });
+
+  it('rete stradale organica genera 1-4 arterie principali e fitta rete non-ortogonale connessa', () => {
+    const doc = createEmptyDocument({ kind: 'city', seed: 919 });
+    const configs = [
+      { rect: { x: 400, y: 350, width: 320, height: 240 }, seed: 11 },
+      { rect: { x: 350, y: 280, width: 880, height: 640 }, seed: 42 },
+      { rect: { x: 240, y: 220, width: 1200, height: 860 }, seed: 777 }
+    ];
+
+    for (const cfg of configs) {
+      const generated = generateStreetGridInRect(doc, cfg.rect, {
+        style: 'organic',
+        spacingDoc: 96,
+        angleDeg: 14,
+        autoFillBuildings: false,
+        districtPreset: 'residential',
+        density: 0.72,
+        buildingScale: 1,
+        irregularity: 0.35,
+        seed: cfg.seed
+      });
+
+      const paths = generated.filter((o) => o.type === 'path');
+      const avenues = paths.filter((p) => p.kind === 'avenue');
+      const secondary = paths.filter((p) => p.kind === 'road' || p.kind === 'alley');
+
+      expect(avenues.length).toBeGreaterThanOrEqual(1);
+      expect(avenues.length).toBeLessThanOrEqual(4);
+      expect(secondary.length).toBeGreaterThanOrEqual(6);
+
+      // Verify organic angular diversity (NOT just 0/90 deg orthogonal axes)
+      const angleBuckets = new Set<number>();
+      for (const p of paths) {
+        const wPts = getPathWorldPoints(p);
+        for (let i = 0; i < wPts.length / 2 - 1; i += 1) {
+          const deg =
+            (((Math.atan2(wPts[i * 2 + 3] - wPts[i * 2 + 1], wPts[i * 2 + 2] - wPts[i * 2]) *
+              180) /
+              Math.PI) %
+              180 +
+              180) %
+            180;
+          angleBuckets.add(Math.floor(deg / 18)); // 10 buckets of 18 deg across [0..180)
+        }
+      }
+      expect(angleBuckets.size).toBeGreaterThanOrEqual(5);
+
+      // Verify every secondary road attaches to at least one other road/avenue
+      for (const sec of secondary) {
+        const wPts = getPathWorldPoints(sec);
+        const startX = wPts[0];
+        const startY = wPts[1];
+        let touchesOther = false;
+        for (const other of paths) {
+          if (other.id === sec.id) continue;
+          const oPts = getPathWorldPoints(other);
+          for (let j = 0; j < oPts.length / 2 - 1; j += 1) {
+            const hit = distPointToSegment(
+              startX,
+              startY,
+              oPts[j * 2],
+              oPts[j * 2 + 1],
+              oPts[j * 2 + 2],
+              oPts[j * 2 + 3]
+            );
+            if (hit.dist < 3) {
+              touchesOther = true;
+              break;
+            }
+          }
+          if (touchesOther) break;
+        }
+        expect(touchesOther).toBe(true);
+      }
+    }
+  });
+
+  it('esegue compositing a due passate (casing -> fill) su strade, piazze e fiumi affluenti + snap fiume e piazza ruotata', () => {
+    const doc = createEmptyDocument({ kind: 'city', seed: 123 });
+    const palette = CITY_MEDIEVAL_THEME.city!;
+
+    const roadA = createPathObject({
+      kind: 'road',
+      points: [200, 400, 900, 400],
+      strokeWidthDoc: 10,
+      theme: doc.theme
+    });
+    const roadB = createPathObject({
+      kind: 'avenue',
+      points: [550, 150, 550, 750],
+      strokeWidthDoc: 16,
+      theme: doc.theme
+    });
+    const plaza = createPlazaObject({
+      shape: 'rect',
+      x: 550,
+      y: 400,
+      width: 100,
+      height: 80,
+      rotationDeg: 35,
+      fillColor: palette.plazaFill,
+      borderColor: palette.streetBorder,
+      centerpiece: 'none'
+    });
+    const riverMain = createPathObject({
+      kind: 'river',
+      points: [100, 150, 400, 260, 750, 320],
+      strokeWidthDoc: 10,
+      theme: doc.theme
+    });
+    const riverTributary = createPathObject({
+      kind: 'river',
+      points: [260, 50, 390, 250],
+      strokeWidthDoc: 7,
+      theme: doc.theme
+    });
+    doc.manifest.objects = [roadA, plaza, roadB, riverMain, riverTributary];
+
+    const trace: Array<{ op: 'stroke' | 'fill'; style: unknown; width?: number }> = [];
+    const ctxState = {
+      save: () => {},
+      restore: () => {},
+      translate: () => {},
+      rotate: () => {},
+      beginPath: () => {},
+      moveTo: () => {},
+      lineTo: () => {},
+      arc: () => {},
+      ellipse: () => {},
+      rect: () => {},
+      clip: () => {},
+      closePath: () => {},
+      setLineDash: () => {},
+      globalAlpha: 1,
+      strokeStyle: '#000',
+      fillStyle: '#000',
+      lineWidth: 1,
+      stroke: () => {
+        trace.push({ op: 'stroke', style: ctxState.strokeStyle, width: ctxState.lineWidth });
+      },
+      fill: () => {
+        trace.push({ op: 'fill', style: ctxState.fillStyle });
+      }
+    };
+    const ctx = ctxState as unknown as CanvasRenderingContext2D;
+
+    drawMapObjectsToContext(ctx, doc, new Map(), 1, 1);
+
+    // Every streetBorder stroke (casing) must appear strictly BEFORE streetFill & plazaFill fills
+    const streetBorderIdxs = trace
+      .map((t, i) => (t.op === 'stroke' && t.style === palette.streetBorder && (t.width ?? 0) >= 3 ? i : -1))
+      .filter((i) => i >= 0);
+    const streetFillIdxs = trace
+      .map((t, i) => (t.op === 'stroke' && t.style === palette.streetFill ? i : -1))
+      .filter((i) => i >= 0);
+    const plazaFillIdx = trace.findIndex((t) => t.op === 'fill' && t.style === palette.plazaFill);
+
+    expect(streetBorderIdxs.length).toBeGreaterThanOrEqual(3);
+    expect(streetFillIdxs.length).toBe(2);
+    expect(plazaFillIdx).toBeGreaterThan(-1);
+    expect(Math.max(...streetBorderIdxs)).toBeLessThan(Math.min(...streetFillIdxs));
+    expect(Math.max(...streetFillIdxs)).toBeLessThan(plazaFillIdx);
+
+    // River water fill happens strictly after both river casing passes
+    const riverWaterIdxs = trace
+      .map((t, i) => (t.op === 'fill' && t.style === doc.theme.colors.pathRiver ? i : -1))
+      .filter((i) => i >= 0);
+    expect(riverWaterIdxs).toHaveLength(2);
+    expect(riverWaterIdxs[0]).toBeGreaterThan(2); // after both valley & bank casing fills
+
+    // Tributary snap hits meandered spine of riverMain
+    const spinePts = getRiverWorldSpinePoints(riverMain);
+    const midSpineIdx = Math.floor(spinePts.length / 4);
+    const midX = spinePts[midSpineIdx * 2];
+    const midY = spinePts[midSpineIdx * 2 + 1];
+    const riverSnap = findSnapPointForPathKind(doc, midX + 5, midY - 6, 'river', 24);
+    expect(riverSnap.snapped).toBe(true);
+    expect(Math.hypot(riverSnap.x - midX, riverSnap.y - midY)).toBeLessThan(6);
+
+    // Road snap works on rotated plaza boundary
+    const plazaSnap = findSnapPointForPathKind(doc, plaza.x + 62, plaza.y + 38, 'road', 32);
+    expect(plazaSnap.snapped).toBe(true);
   });
 });

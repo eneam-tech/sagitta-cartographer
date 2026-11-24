@@ -94,20 +94,34 @@ export function PathToolPanel({ store }: PathToolPanelProps) {
           {pathTapered ? (
             <>
               <path
-                d={pathSmooth ? 'M 18 36 Q 82 14, 128 28' : 'M 18 36 L 128 28'}
-                fill="none"
-                stroke={pathColor}
-                strokeWidth={Math.max(1.5, previewStroke * 0.45)}
-                strokeLinecap="round"
+                d={
+                  pathSmooth
+                    ? 'M 18 37 Q 62 19, 108 29 Q 156 41, 222 19 Q 223 23, 222 27 Q 155 47, 107 33 Q 63 22, 18 37 Z'
+                    : 'M 18 37 L 122 27 L 222 19 L 222 27 L 122 31 Z'
+                }
+                fill={doc.theme.colors.ink}
+                fillOpacity={0.55}
+                stroke={doc.theme.colors.ink}
+                strokeOpacity={0.45}
+                strokeWidth={Math.max(1.2, previewStroke * 0.24)}
                 strokeLinejoin="round"
               />
               <path
-                d={pathSmooth ? 'M 128 28 Q 174 42, 222 20' : 'M 128 28 L 222 20'}
+                d={
+                  pathSmooth
+                    ? 'M 18 37 Q 62 19, 108 29 Q 156 41, 222 19 Q 223 23, 222 27 Q 155 47, 107 33 Q 63 22, 18 37 Z'
+                    : 'M 18 37 L 122 27 L 222 19 L 222 27 L 122 31 Z'
+                }
+                fill={pathColor}
+              />
+              <path
+                d={pathSmooth ? 'M 86 25 Q 142 40, 214 23' : 'M 96 29 L 214 23'}
                 fill="none"
-                stroke={pathColor}
-                strokeWidth={Math.max(2, previewStroke * 1.05)}
+                stroke="#FAF6EC"
+                strokeOpacity={0.34}
+                strokeWidth={Math.max(0.8, previewStroke * 0.16)}
                 strokeLinecap="round"
-                strokeLinejoin="round"
+                strokeDasharray="6 8"
               />
             </>
           ) : (

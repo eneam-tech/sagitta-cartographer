@@ -4,7 +4,7 @@ import { getCatalogItemById, svgToDataUrl } from '../assets/catalog';
 import {
   findNearestUrbanStreet,
   findOverlappingBuildingIdsForPlaza,
-  findSnapPointOnUrbanPaths,
+  findSnapPointForPathKind,
   getCityThemePalette,
   sampleLandMaskAtDoc
 } from '../city/geometry';
@@ -51,10 +51,15 @@ import {
 } from '../objects/objectCommands';
 import { drawBuildingToContext, drawPlazaToContext } from '../render/cityRenderer';
 import {
+  NetworkGroup,
+  NetworkPass,
   drawPathToContext,
+  getNetworkFillSubOrder,
+  getObjectNetworkGroup,
   resolveLabelHaloWidth,
   sampleSmoothPathPoints
 } from '../render/objectMetrics';
+import { buildNaturalRiverSpine } from '../render/riverRenderer';
 import { EditorSnapshot, EditorStore, shouldIgnoreShortcut } from '../state/editorStore';
 import { MapTheme, getDefaultLabelColor, getFontSpec } from '../theme/theme';
 import type { ViewportLayersHandle, ViewportPointerContext } from './MapViewport';
@@ -146,6 +151,23 @@ function distToSegment(
   return Math.hypot(px - (ax + t * dx), py - (ay + t * dy));
 }
 
+const NETWORK_GROUP_ORDER: readonly NetworkGroup[] = ['river', 'canal', 'street', 'wall'];
+
+function getLocalPathHitPoints(pathObj: PathObject): number[] {
+  if (pathObj.kind === 'river') {
+    const { points } = buildNaturalRiverSpine(pathObj);
+    if (points.length >= 2) {
+      const out = new Array<number>(points.length * 2);
+      for (let i = 0; i < points.length; i += 1) {
+        out[i * 2] = points[i].x;
+        out[i * 2 + 1] = points[i].y;
+      }
+      return out;
+    }
+  }
+  return pathObj.smooth !== false ? sampleSmoothPathPoints(pathObj.points, 5) : pathObj.points;
+}
+
 function computePathSelfRect(pathObj: PathObject | undefined): {
   x: number;
   y: number;
@@ -168,7 +190,8 @@ function computePathSelfRect(pathObj: PathObject | undefined): {
     if (px > maxX) maxX = px;
     if (py > maxY) maxY = py;
   }
-  const pad = Math.max(6, pathObj.strokeWidthDoc * 0.65);
+  const meanderPad = pathObj.kind === 'river' ? 18 : 0;
+  const pad = Math.max(6, pathObj.strokeWidthDoc * 0.65) + meanderPad;
   return {
     x: minX - pad,
     y: minY - pad,
@@ -237,7 +260,7 @@ function isPointInsideObject(
   }
 
   if (obj.type === 'path') {
-    const pts = obj.smooth !== false ? sampleSmoothPathPoints(obj.points, 5) : obj.points;
+    const pts = getLocalPathHitPoints(obj);
     const count = Math.floor(pts.length / 2);
     if (count < 2) return false;
     const hitRadius = Math.max(12, obj.strokeWidthDoc * 0.75);
@@ -303,6 +326,8 @@ export class ObjectsLayerController {
   private readonly onRequestInlineLabelEdit?: (request: InlineLabelEditRequest) => void;
 
   private readonly layerGroupMap = new Map<string, Konva.Group>();
+  private readonly layerNetworkCasingShapes = new Map<string, Map<NetworkGroup, Konva.Shape>>();
+  private readonly layerNetworkMembers = new Map<string, Map<NetworkGroup, MapObject[]>>();
   private readonly nodeMap = new Map<string, Konva.Image | Konva.Text | Konva.Shape>();
   private readonly syncedObjectMap = new Map<string, MapObject>();
   private readonly assetCache = new Map<string, CachedAssetEntry>();
@@ -512,7 +537,10 @@ export class ObjectsLayerController {
           tapered,
           smooth
         };
-        drawPathToContext(rawCtx, previewObj, 1, 1, theme);
+        drawPathToContext(rawCtx, previewObj, 1, 1, theme, {
+          pass: 'full',
+          doc: snap.doc
+        });
       }
     });
 
@@ -604,6 +632,44 @@ export class ObjectsLayerController {
             rawCtx.moveTo(cx, cy);
             rawCtx.lineTo(cx + Math.cos(a) * maxR, cy + Math.sin(a) * maxR);
           }
+        } else if (snap.streetGridStyle === 'organic') {
+          const hubX = x0 + w * 0.46;
+          const hubY = y0 + h * 0.48;
+          rawCtx.save();
+          rawCtx.beginPath();
+          rawCtx.rect(x0, y0, w, h);
+          rawCtx.clip();
+
+          // 3 curved primary arterials converging organically across the rect
+          rawCtx.lineWidth = 2.6;
+          rawCtx.beginPath();
+          rawCtx.moveTo(x0, y0 + h * 0.32);
+          rawCtx.quadraticCurveTo(hubX, hubY - h * 0.04, x0 + w, y0 + h * 0.62);
+          rawCtx.moveTo(x0 + w * 0.34, y0);
+          rawCtx.quadraticCurveTo(hubX + w * 0.04, hubY, x0 + w * 0.62, y0 + h);
+          rawCtx.moveTo(hubX - w * 0.02, hubY);
+          rawCtx.quadraticCurveTo(x0 + w * 0.72, y0 + h * 0.28, x0 + w, y0 + h * 0.18);
+          rawCtx.stroke();
+
+          // Irregular connecting secondary collector branches
+          rawCtx.lineWidth = 1.6;
+          rawCtx.beginPath();
+          const branches: ReadonlyArray<readonly [number, number, number, number, number, number]> = [
+            [0.24, 0.38, 0.28, 0.56, 0.2, 0.78],
+            [0.39, 0.2, 0.56, 0.24, 0.74, 0.28],
+            [0.72, 0.28, 0.78, 0.48, 0.72, 0.54],
+            [0.34, 0.66, 0.48, 0.69, 0.57, 0.76],
+            [0.62, 0.53, 0.69, 0.71, 0.84, 0.82],
+            [0.14, 0.45, 0.32, 0.41, 0.42, 0.21]
+          ];
+          for (const [x1, y1, cx1, cy1, x2, y2] of branches) {
+            rawCtx.moveTo(x0 + w * x1, y0 + h * y1);
+            rawCtx.quadraticCurveTo(x0 + w * cx1, y0 + h * cy1, x0 + w * x2, y0 + h * y2);
+          }
+          rawCtx.stroke();
+          rawCtx.restore();
+          rawCtx.restore();
+          return;
         } else {
           const rad = (snap.streetGridAngleDeg * Math.PI) / 180;
           const diag = Math.hypot(w, h) * 0.52;
@@ -900,7 +966,21 @@ export class ObjectsLayerController {
       const objects = doc.manifest.objects;
       const seenIds = new Set<string>();
       const themeChanged = themeSignature !== this.lastThemeSignature;
-      const perLayerZCount = new Map<string, number>();
+
+      // Track network buckets per layer for seamless two-pass casing->fill compositing
+      const layerBuckets = new Map<
+        string,
+        Record<NetworkGroup | 'other', MapObject[]>
+      >();
+      for (const layer of nonTerrainLayers) {
+        layerBuckets.set(layer.id, {
+          river: [],
+          canal: [],
+          street: [],
+          wall: [],
+          other: []
+        });
+      }
 
       for (let i = 0; i < objects.length; i += 1) {
         const obj = objects[i];
@@ -908,8 +988,12 @@ export class ObjectsLayerController {
         const targetLayerId = resolveObjectLayerId(obj, doc.manifest.layers);
         const targetGroup = this.layerGroupMap.get(targetLayerId);
         const layerEditable = this.isLayerIdEditable(targetLayerId, doc.manifest.layers);
-        const zInLayer = perLayerZCount.get(targetLayerId) ?? 0;
-        perLayerZCount.set(targetLayerId, zInLayer + 1);
+
+        const bucket = layerBuckets.get(targetLayerId);
+        const netGroup = getObjectNetworkGroup(obj);
+        if (bucket) {
+          bucket[netGroup ?? 'other'].push(obj);
+        }
 
         let node = this.nodeMap.get(obj.id);
 
@@ -933,9 +1017,6 @@ export class ObjectsLayerController {
           }
           this.nodeMap.set(obj.id, node);
           this.syncedObjectMap.set(obj.id, obj);
-          if (node.zIndex() !== zInLayer) {
-            node.zIndex(zInLayer);
-          }
           objectsLayerDirty = true;
         } else {
           if (targetGroup && node.getParent() !== targetGroup) {
@@ -955,10 +1036,6 @@ export class ObjectsLayerController {
           }
           if (node.listening() !== layerEditable) {
             node.listening(layerEditable);
-          }
-          if (node.zIndex() !== zInLayer) {
-            node.zIndex(zInLayer);
-            objectsLayerDirty = true;
           }
         }
 
@@ -983,9 +1060,97 @@ export class ObjectsLayerController {
 
       for (const [layerId, group] of this.layerGroupMap.entries()) {
         if (!activeLayerIds.has(layerId)) {
+          const casingMap = this.layerNetworkCasingShapes.get(layerId);
+          if (casingMap) {
+            for (const cShape of casingMap.values()) {
+              cShape.destroy();
+            }
+            this.layerNetworkCasingShapes.delete(layerId);
+          }
+          this.layerNetworkMembers.delete(layerId);
           group.destroy();
           this.layerGroupMap.delete(layerId);
           objectsLayerDirty = true;
+        }
+      }
+
+      // Synchronize two-pass casing underlays (when >= 2 network members share a layer)
+      // and enforce identical intra-layer z-order as drawMapObjectsToContext().
+      for (const layer of nonTerrainLayers) {
+        const group = this.layerGroupMap.get(layer.id);
+        const bucket = layerBuckets.get(layer.id);
+        if (!group || !bucket) continue;
+
+        let casingShapes = this.layerNetworkCasingShapes.get(layer.id);
+        if (!casingShapes) {
+          casingShapes = new Map();
+          this.layerNetworkCasingShapes.set(layer.id, casingShapes);
+        }
+        let membersByNet = this.layerNetworkMembers.get(layer.id);
+        if (!membersByNet) {
+          membersByNet = new Map();
+          this.layerNetworkMembers.set(layer.id, membersByNet);
+        }
+
+        const orderedChildren: Konva.Node[] = [];
+
+        for (const netGroup of NETWORK_GROUP_ORDER) {
+          const members = bucket[netGroup];
+          const useMergedCasing = members.length >= 2;
+          membersByNet.set(netGroup, useMergedCasing ? members : []);
+
+          let casingShape = casingShapes.get(netGroup);
+          if (useMergedCasing) {
+            if (!casingShape) {
+              casingShape = this.createNetworkCasingShape(layer.id, netGroup);
+              group.add(casingShape);
+              casingShapes.set(netGroup, casingShape);
+              objectsLayerDirty = true;
+            }
+            if (!casingShape.visible()) {
+              casingShape.visible(true);
+              objectsLayerDirty = true;
+            }
+            orderedChildren.push(casingShape);
+          } else if (casingShape) {
+            casingShape.destroy();
+            casingShapes.delete(netGroup);
+            objectsLayerDirty = true;
+          }
+
+          const fillMembers =
+            netGroup === 'street' && members.length > 1
+              ? [...members].sort(
+                  (a, b) => getNetworkFillSubOrder(a) - getNetworkFillSubOrder(b)
+                )
+              : members;
+          const memberPass: NetworkPass = useMergedCasing ? 'fill' : 'full';
+          for (const member of fillMembers) {
+            const mNode = this.nodeMap.get(member.id);
+            if (!mNode) continue;
+            if (mNode.getAttr('networkRenderPass') !== memberPass) {
+              mNode.setAttr('networkRenderPass', memberPass);
+              objectsLayerDirty = true;
+            }
+            orderedChildren.push(mNode);
+          }
+        }
+
+        for (const other of bucket.other) {
+          const oNode = this.nodeMap.get(other.id);
+          if (!oNode) continue;
+          if (oNode.getAttr('networkRenderPass') !== 'full') {
+            oNode.setAttr('networkRenderPass', 'full');
+          }
+          orderedChildren.push(oNode);
+        }
+
+        for (let z = 0; z < orderedChildren.length; z += 1) {
+          const child = orderedChildren[z];
+          if (child.zIndex() !== z) {
+            child.zIndex(z);
+            objectsLayerDirty = true;
+          }
         }
       }
     }
@@ -1139,29 +1304,27 @@ export class ObjectsLayerController {
 
     const isLineDrawTool =
       effectiveTool === 'path' || effectiveTool === 'street' || effectiveTool === 'cityWall';
-    let snapPoint: { x: number; y: number; snapped: boolean } | null = null;
-    if (
-      (effectiveTool === 'street' || effectiveTool === 'cityWall') &&
-      this.cursorInside &&
-      !inlineActive &&
-      (effectiveTool === 'cityWall' || snapshot.streetSnapEnabled)
-    ) {
-      snapPoint = findSnapPointOnUrbanPaths(
-        snapshot.doc,
-        this.cursorDocPoint.x,
-        this.cursorDocPoint.y,
-        20
-      );
-    }
+    const resolvedSnap =
+      this.cursorInside && !inlineActive && isLineDrawTool
+        ? this.resolveSnapForLineTool(
+            snapshot,
+            effectiveTool,
+            this.cursorDocPoint.x,
+            this.cursorDocPoint.y
+          )
+        : null;
+    const snapPoint = resolvedSnap?.hit ?? null;
 
-    if (snapPoint && snapPoint.snapped) {
-      const w =
-        effectiveTool === 'cityWall' ? snapshot.wallStrokeWidthDoc : snapshot.streetStrokeWidthDoc;
+    if (resolvedSnap && resolvedSnap.hit.snapped) {
       this.streetSnapRing.setAttrs({
         visible: true,
-        x: snapPoint.x,
-        y: snapPoint.y,
-        radius: Math.max(8, w * 0.65)
+        x: resolvedSnap.hit.x,
+        y: resolvedSnap.hit.y,
+        radius: Math.max(8, resolvedSnap.strokeW * 0.65),
+        stroke: resolvedSnap.isWater ? '#9CDEEF' : '#E0BB79',
+        fill: resolvedSnap.isWater
+          ? 'rgba(156, 222, 239, 0.18)'
+          : 'rgba(224, 187, 121, 0.18)'
       });
       this.streetSnapRing.moveToTop();
       dirty = true;
@@ -1287,6 +1450,78 @@ export class ObjectsLayerController {
     return dirty;
   }
 
+  private createNetworkCasingShape(layerId: string, netGroup: NetworkGroup): Konva.Shape {
+    return new KonvaCtor.Shape({
+      id: `__casing-${layerId}-${netGroup}`,
+      name: `network-casing-${netGroup}`,
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx) => {
+        const members = this.layerNetworkMembers.get(layerId)?.get(netGroup);
+        if (!members || members.length < 2) return;
+        const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+        if (!rawCtx) return;
+        const doc = this.store.getDocument();
+
+        const drawMemberCasing = (
+          member: MapObject,
+          wallCasingPhase: 'shadow' | 'ink' | 'both'
+        ) => {
+          const mNode = this.nodeMap.get(member.id);
+          if (!mNode || !mNode.visible()) return;
+          const nx = mNode.x();
+          const ny = mNode.y();
+          const rot = mNode.rotation();
+          const sx = mNode.scaleX();
+          const sy = mNode.scaleY();
+
+          rawCtx.save();
+          rawCtx.translate(nx, ny);
+          rawCtx.rotate((rot * Math.PI) / 180);
+          rawCtx.scale(sx, sy);
+
+          if (member.type === 'plaza') {
+            const pObj = (mNode.getAttr('plazaObject') as PlazaObject | undefined) ?? member;
+            drawPlazaToContext(rawCtx, { ...pObj, rotationDeg: rot }, doc.theme, 1, 1, {
+              applyTransform: false,
+              pass: 'casing'
+            });
+          } else if (member.type === 'path') {
+            const pathObj = (mNode.getAttr('pathObject') as PathObject | undefined) ?? member;
+            drawPathToContext(
+              rawCtx,
+              { ...pathObj, x: 0, y: 0, rotationDeg: 0 },
+              1,
+              1,
+              doc.theme,
+              {
+                pass: 'casing',
+                doc,
+                worldOrigin: { x: nx, y: ny, rotationDeg: rot },
+                wallCasingPhase
+              }
+            );
+          }
+          rawCtx.restore();
+        };
+
+        if (netGroup === 'wall') {
+          for (const member of members) {
+            drawMemberCasing(member, 'shadow');
+          }
+          for (const member of members) {
+            drawMemberCasing(member, 'ink');
+          }
+          return;
+        }
+
+        for (const member of members) {
+          drawMemberCasing(member, 'both');
+        }
+      }
+    });
+  }
+
   private createNodeForObject(
     obj: MapObject,
     doc: MapDocument,
@@ -1353,13 +1588,15 @@ export class ObjectsLayerController {
           if (!pObj) return;
           const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
           if (!rawCtx) return;
+          const renderPass =
+            (konvaShape.getAttr('networkRenderPass') as NetworkPass | undefined) ?? 'full';
           drawPlazaToContext(
             rawCtx,
             { ...pObj, rotationDeg: konvaShape.rotation() },
             this.store.getDocument().theme,
             1,
             1,
-            { applyTransform: false }
+            { applyTransform: false, pass: renderPass }
           );
         },
         hitFunc: (ctx, konvaShape) => {
@@ -1392,21 +1629,30 @@ export class ObjectsLayerController {
           if (!pathObj) return;
           const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
           if (!rawCtx) return;
+          const docNow = this.store.getDocument();
+          const renderPass =
+            (konvaShape.getAttr('networkRenderPass') as NetworkPass | undefined) ?? 'full';
           drawPathToContext(
             rawCtx,
             { ...pathObj, x: 0, y: 0, rotationDeg: 0 },
             1,
             1,
-            this.store.getDocument().theme
+            docNow.theme,
+            {
+              pass: renderPass,
+              doc: docNow,
+              worldOrigin: {
+                x: konvaShape.x(),
+                y: konvaShape.y(),
+                rotationDeg: konvaShape.rotation()
+              }
+            }
           );
         },
         hitFunc: (ctx, konvaShape) => {
           const pathObj = konvaShape.getAttr('pathObject') as PathObject | undefined;
           if (!pathObj || pathObj.points.length < 4) return;
-          const pts =
-            pathObj.smooth !== false
-              ? sampleSmoothPathPoints(pathObj.points, 5)
-              : pathObj.points;
+          const pts = getLocalPathHitPoints(pathObj);
           const count = Math.floor(pts.length / 2);
           if (count < 2) return;
           ctx.beginPath();
@@ -1978,6 +2224,35 @@ export class ObjectsLayerController {
     this.detachPathWindowListeners = null;
   }
 
+  private resolveSnapForLineTool(
+    snap: EditorSnapshot,
+    tool: string,
+    docX: number,
+    docY: number
+  ): { hit: { x: number; y: number; snapped: boolean }; strokeW: number; isWater: boolean } | null {
+    let activeKind: PathKind | null = null;
+    let strokeW = snap.pathStrokeWidthDoc;
+
+    if (tool === 'street' && snap.streetSnapEnabled) {
+      activeKind = snap.streetPathKind;
+      strokeW = snap.streetStrokeWidthDoc;
+    } else if (tool === 'cityWall') {
+      activeKind = 'wall';
+      strokeW = snap.wallStrokeWidthDoc;
+    } else if (tool === 'path' && (snap.pathKind === 'river' || snap.pathKind === 'road')) {
+      activeKind = snap.pathKind;
+      strokeW = snap.pathStrokeWidthDoc;
+    }
+
+    if (!activeKind) return null;
+    const hit = findSnapPointForPathKind(snap.doc, docX, docY, activeKind);
+    return {
+      hit,
+      strokeW,
+      isWater: activeKind === 'river' || activeKind === 'canal'
+    };
+  }
+
   private commitPathDraft(finalPoint?: Point2D): void {
     const draft = this.pathDraft;
     if (!draft) return;
@@ -1989,20 +2264,10 @@ export class ObjectsLayerController {
     if (finalPoint) {
       let fx = finalPoint.x;
       let fy = finalPoint.y;
-      if (
-        (draft.tool === 'street' && snap.streetSnapEnabled) ||
-        draft.tool === 'cityWall'
-      ) {
-        const hit = findSnapPointOnUrbanPaths(
-          snap.doc,
-          fx,
-          fy,
-          draft.tool === 'cityWall' ? 18 : 20
-        );
-        if (hit.snapped) {
-          fx = hit.x;
-          fy = hit.y;
-        }
+      const resolvedSnap = this.resolveSnapForLineTool(snap, draft.tool, fx, fy);
+      if (resolvedSnap && resolvedSnap.hit.snapped) {
+        fx = resolvedSnap.hit.x;
+        fy = resolvedSnap.hit.y;
       }
       const lastX = draft.points[draft.points.length - 2];
       const lastY = draft.points[draft.points.length - 1];
@@ -2341,17 +2606,10 @@ export class ObjectsLayerController {
 
       let startX = ctx.docX;
       let startY = ctx.docY;
-      if ((tool === 'street' && snap.streetSnapEnabled) || tool === 'cityWall') {
-        const snapHit = findSnapPointOnUrbanPaths(
-          snap.doc,
-          startX,
-          startY,
-          tool === 'cityWall' ? 18 : 20
-        );
-        if (snapHit.snapped) {
-          startX = snapHit.x;
-          startY = snapHit.y;
-        }
+      const resolvedSnap = this.resolveSnapForLineTool(snap, tool, startX, startY);
+      if (resolvedSnap && resolvedSnap.hit.snapped) {
+        startX = resolvedSnap.hit.x;
+        startY = resolvedSnap.hit.y;
       }
 
       const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
@@ -2655,25 +2913,24 @@ export class ObjectsLayerController {
           appended = true;
         }
       }
-      if (
-        (this.pathDraft.tool === 'street' && snap.streetSnapEnabled) ||
-        this.pathDraft.tool === 'cityWall'
-      ) {
-        const snapHit = findSnapPointOnUrbanPaths(
-          snap.doc,
-          ctx.docX,
-          ctx.docY,
-          this.pathDraft.tool === 'cityWall' ? 18 : 20
-        );
-        const strokeW =
-          this.pathDraft.tool === 'cityWall' ? snap.wallStrokeWidthDoc : snap.streetStrokeWidthDoc;
+      const resolvedSnap = this.resolveSnapForLineTool(
+        snap,
+        this.pathDraft.tool,
+        ctx.docX,
+        ctx.docY
+      );
+      if (resolvedSnap) {
         this.streetSnapRing.setAttrs({
-          visible: snapHit.snapped,
-          x: snapHit.x,
-          y: snapHit.y,
-          radius: Math.max(8, strokeW * 0.65)
+          visible: resolvedSnap.hit.snapped,
+          x: resolvedSnap.hit.x,
+          y: resolvedSnap.hit.y,
+          radius: Math.max(8, resolvedSnap.strokeW * 0.65),
+          stroke: resolvedSnap.isWater ? '#9CDEEF' : '#E0BB79',
+          fill: resolvedSnap.isWater
+            ? 'rgba(156, 222, 239, 0.18)'
+            : 'rgba(224, 187, 121, 0.18)'
         });
-        if (snapHit.snapped) {
+        if (resolvedSnap.hit.snapped) {
           this.streetSnapRing.moveToTop();
         }
         appended = true;
@@ -2832,6 +3089,14 @@ export class ObjectsLayerController {
     }
     this.nodeMap.clear();
     this.syncedObjectMap.clear();
+
+    for (const casingMap of this.layerNetworkCasingShapes.values()) {
+      for (const cShape of casingMap.values()) {
+        cShape.destroy();
+      }
+    }
+    this.layerNetworkCasingShapes.clear();
+    this.layerNetworkMembers.clear();
 
     for (const group of this.layerGroupMap.values()) {
       group.destroy();

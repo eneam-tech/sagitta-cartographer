@@ -51,6 +51,9 @@ import {
   getSameLayerAdjacentIndices,
   simplifyPolyline
 } from '../../src/objects';
+import { getPathKindDefaults } from '../../src/objects/objectCommands';
+import { drawPathToContext } from '../../src/render/objectMetrics';
+import { getRiverWorldSpinePoints } from '../../src/render/riverRenderer';
 import { EditorStore } from '../../src/state/editorStore';
 import { TerrainRenderer, TerrainStrokeSession, inspectCellAtDoc, isPointOnLand } from '../../src/terrain';
 import { commitInlineLabelSession } from '../../src/ui/InlineLabelEditor';
@@ -1336,5 +1339,93 @@ describe('POI, labels, object commands, z-order, and Spec §11 interactions', ()
     expect(inspectorHtml).toContain('Aggiungi etichetta');
 
     store.dispose();
+  });
+
+  it('uses refined 11 u default river width, deterministic meander spine pinned at endpoints, and sea-mouth gradient fade on landmass coast', () => {
+    expect(getPathKindDefaults('river', WITCHER_THEME).strokeWidthDoc).toBe(11);
+
+    const doc = createEmptyDocument({ widthPx: 128, heightPx: 90 });
+    const river = createPathObject({
+      id: 'natural-river-test',
+      kind: 'river',
+      points: [180, 220, 620, 480],
+      theme: doc.theme
+    });
+
+    const spineA = getRiverWorldSpinePoints(river);
+    const spineB = getRiverWorldSpinePoints(river);
+    expect(spineA).toEqual(spineB);
+    expect(spineA.length).toBeGreaterThan(20);
+    // Endpoints remain exactly pinned for watertight tributary junctions
+    expect(spineA[0]).toBeCloseTo(180, 2);
+    expect(spineA[1]).toBeCloseTo(220, 2);
+    expect(spineA[spineA.length - 2]).toBeCloseTo(620, 2);
+    expect(spineA[spineA.length - 1]).toBeCloseTo(480, 2);
+
+    // Interior spine deviates naturally from chord line (meander)
+    let maxPerp = 0;
+    const dx = 620 - 180;
+    const dy = 480 - 220;
+    const chordLen = Math.hypot(dx, dy);
+    for (let i = 1; i < spineA.length / 2 - 1; i += 1) {
+      const px = spineA[i * 2];
+      const py = spineA[i * 2 + 1];
+      const cross = Math.abs((px - 180) * dy - (py - 220) * dx) / chordLen;
+      if (cross > maxPerp) maxPerp = cross;
+    }
+    expect(maxPerp).toBeGreaterThan(0.5);
+
+    const recorderOps: string[] = [];
+    const makeCtx = (withGradient: boolean) =>
+      ({
+        save: () => recorderOps.push('save'),
+        restore: () => recorderOps.push('restore'),
+        translate: () => {},
+        rotate: () => {},
+        beginPath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        closePath: () => recorderOps.push('closePath'),
+        fill: () => recorderOps.push('fill'),
+        stroke: () => recorderOps.push('stroke'),
+        setLineDash: () => {},
+        ...(withGradient
+          ? {
+              createLinearGradient: () => {
+                recorderOps.push('createLinearGradient');
+                return { addColorStop: () => {} };
+              }
+            }
+          : {}),
+        globalAlpha: 1,
+        strokeStyle: '#000',
+        fillStyle: '#000',
+        lineWidth: 1,
+        lineCap: 'round',
+        lineJoin: 'round'
+      }) as unknown as CanvasRenderingContext2D;
+
+    // 1. All-water empty doc still renders full river cleanly
+    drawPathToContext(makeCtx(true), river, 1, 1, doc.theme, { pass: 'full', doc });
+    expect(recorderOps.filter((o) => o === 'fill').length).toBeGreaterThanOrEqual(4);
+    expect(recorderOps).not.toContain('createLinearGradient');
+
+    // 2. Document with western landmass and eastern sea triggers smooth coastal mouth fade
+    recorderOps.length = 0;
+    for (let y = 0; y < doc.terrain.heightPx; y += 1) {
+      for (let x = 0; x < Math.floor(doc.terrain.widthPx * 0.45); x += 1) {
+        doc.terrain.mask[y * doc.terrain.widthPx + x] = 255;
+      }
+    }
+    // Coastline is at 45% of space width (~1336 u on A4), so extend river from 180 u into sea at 1750 u
+    const coastRiver = createPathObject({
+      id: 'coastal-river-test',
+      kind: 'river',
+      points: [180, 320, 1300, 320, 1750, 320],
+      theme: doc.theme
+    });
+    drawPathToContext(makeCtx(true), coastRiver, 1, 1, doc.theme, { pass: 'full', doc });
+    expect(recorderOps).toContain('createLinearGradient');
+    expect(recorderOps.filter((o) => o === 'fill').length).toBeGreaterThanOrEqual(6);
   });
 });

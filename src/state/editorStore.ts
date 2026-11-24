@@ -987,7 +987,7 @@ export class EditorStore {
   private poiScatterRadiusDoc = 140;
   private poiScatterDensity = 4;
   private pathKind: PathKind = 'river';
-  private pathStrokeWidthDoc = 14;
+  private pathStrokeWidthDoc = 11;
   private pathColor: string;
   private pathSmooth = true;
   private pathDashed = false;
@@ -1325,7 +1325,7 @@ export class EditorStore {
     const c = this.doc.theme.colors;
     const city = getCityThemePalette(this.doc.theme);
     if (kind === 'river') {
-      this.pathStrokeWidthDoc = 14;
+      this.pathStrokeWidthDoc = 11;
       this.pathColor = c.pathRiver;
       this.pathSmooth = true;
       this.pathDashed = false;

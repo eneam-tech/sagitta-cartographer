@@ -6,6 +6,7 @@ import {
   PathObject,
   PlazaObject
 } from '../model/document';
+import { getRiverWorldSpinePoints } from '../render/riverRenderer';
 import { CITY_MEDIEVAL_THEME, CityThemePalette, MapTheme } from '../theme/theme';
 
 export interface OrientedBox {
@@ -183,12 +184,11 @@ export function distPointToSegment(
   return { dist: Math.hypot(px - projX, py - projY), projX, projY, t };
 }
 
-export function closestPointOnPolyline(
+export function closestPointOnWorldPoints(
   px: number,
   py: number,
-  path: PathObject
+  pts: readonly number[]
 ): NearestPolylineHit | null {
-  const pts = getPathWorldPoints(path);
   const count = Math.floor(pts.length / 2);
   if (count < 2) return null;
 
@@ -220,6 +220,14 @@ export function closestPointOnPolyline(
     projY: bestProjY,
     segmentIndex: bestSeg
   };
+}
+
+export function closestPointOnPolyline(
+  px: number,
+  py: number,
+  path: PathObject
+): NearestPolylineHit | null {
+  return closestPointOnWorldPoints(px, py, getPathWorldPoints(path));
 }
 
 export function findNearestUrbanStreet(
@@ -425,15 +433,13 @@ export function findOverlappingBuildingIdsForPlaza(
   return ids;
 }
 
-/**
- * Snaps a point to the nearest endpoint or segment of existing streets/canals/plaza
- * perimeters when drawing roads manually.
- */
-export function findSnapPointOnUrbanPaths(
+function findSnapPointOnFilteredNetwork(
   doc: MapDocument,
   docX: number,
   docY: number,
-  snapRadiusDoc = 20
+  snapRadiusDoc: number,
+  allowedKinds: ReadonlySet<PathKind>,
+  includePlazas: boolean
 ): { x: number; y: number; snapped: boolean } {
   let bestDist = snapRadiusDoc;
   let bestX = docX;
@@ -441,13 +447,15 @@ export function findSnapPointOnUrbanPaths(
   let snapped = false;
 
   for (const obj of doc.manifest.objects) {
-    if (obj.type === 'path' && obj.kind !== 'freehand' && obj.kind !== 'border') {
-      const pts = getPathWorldPoints(obj);
+    if (obj.type === 'path' && allowedKinds.has(obj.kind)) {
+      const pts =
+        obj.kind === 'river' ? getRiverWorldSpinePoints(obj) : getPathWorldPoints(obj);
       const count = Math.floor(pts.length / 2);
-      // Prioritize endpoints first with slight bonus
-      for (let i = 0; i < count; i += 1) {
-        const vx = pts[i * 2];
-        const vy = pts[i * 2 + 1];
+      if (count < 2) continue;
+      // Prioritize endpoints first with slight bonus for crisp confluence / junction snaps
+      for (const idx of [0, count - 1]) {
+        const vx = pts[idx * 2];
+        const vy = pts[idx * 2 + 1];
         const d = Math.hypot(docX - vx, docY - vy) * 0.8;
         if (d < bestDist) {
           bestDist = d;
@@ -456,24 +464,31 @@ export function findSnapPointOnUrbanPaths(
           snapped = true;
         }
       }
-      const hit = closestPointOnPolyline(docX, docY, obj);
+      const hit = closestPointOnWorldPoints(docX, docY, pts);
       if (hit && hit.dist < bestDist) {
         bestDist = hit.dist;
         bestX = hit.projX;
         bestY = hit.projY;
         snapped = true;
       }
-    } else if (obj.type === 'plaza') {
+    } else if (includePlazas && obj.type === 'plaza') {
       const hw = obj.width * 0.5;
       const hh = obj.height * 0.5;
+      const rad = (obj.rotationDeg * Math.PI) / 180;
+      const cos = Math.cos(rad);
+      const sin = Math.sin(rad);
+      const toWorld = (lx: number, ly: number) => ({
+        x: obj.x + lx * cos - ly * sin,
+        y: obj.y + lx * sin + ly * cos
+      });
       const cardinals = [
-        { x: obj.x, y: obj.y - hh },
-        { x: obj.x + hw, y: obj.y },
-        { x: obj.x, y: obj.y + hh },
-        { x: obj.x - hw, y: obj.y }
+        toWorld(0, -hh + 1.5),
+        toWorld(hw - 1.5, 0),
+        toWorld(0, hh - 1.5),
+        toWorld(-hw + 1.5, 0)
       ];
       for (const pt of cardinals) {
-        const d = Math.hypot(docX - pt.x, docY - pt.y);
+        const d = Math.hypot(docX - pt.x, docY - pt.y) * 0.82;
         if (d < bestDist) {
           bestDist = d;
           bestX = pt.x;
@@ -481,8 +496,106 @@ export function findSnapPointOnUrbanPaths(
           snapped = true;
         }
       }
+
+      // Also project along rotated plaza edges for non-cardinal entering streets
+      const dx = docX - obj.x;
+      const dy = docY - obj.y;
+      const localX = dx * cos + dy * sin;
+      const localY = -dx * sin + dy * cos;
+      const edges: ReadonlyArray<readonly [number, number, number, number]> = [
+        [-hw, -hh, hw, -hh],
+        [hw, -hh, hw, hh],
+        [hw, hh, -hw, hh],
+        [-hw, hh, -hw, -hh]
+      ];
+      for (const [ax, ay, bx, by] of edges) {
+        const edgeHit = distPointToSegment(localX, localY, ax, ay, bx, by);
+        if (edgeHit.dist < bestDist) {
+          // Nudge 1.5u inward so the street enters cleanly inside the plaza perimeter
+          const lenToCenter = Math.hypot(edgeHit.projX, edgeHit.projY) || 1;
+          const insetX = edgeHit.projX - (edgeHit.projX / lenToCenter) * 1.5;
+          const insetY = edgeHit.projY - (edgeHit.projY / lenToCenter) * 1.5;
+          const wp = toWorld(insetX, insetY);
+          bestDist = edgeHit.dist;
+          bestX = wp.x;
+          bestY = wp.y;
+          snapped = true;
+        }
+      }
     }
   }
 
   return { x: bestX, y: bestY, snapped };
+}
+
+const URBAN_SNAP_KINDS = new Set<PathKind>(['avenue', 'road', 'alley', 'canal', 'wall']);
+const ROAD_SNAP_KINDS = new Set<PathKind>(['avenue', 'road', 'alley']);
+const RIVER_SNAP_KINDS = new Set<PathKind>(['river']);
+const CANAL_SNAP_KINDS = new Set<PathKind>(['canal']);
+
+/**
+ * Snaps a point to the nearest endpoint or segment of existing streets/canals/plaza
+ * perimeters when drawing roads or walls manually.
+ */
+export function findSnapPointOnUrbanPaths(
+  doc: MapDocument,
+  docX: number,
+  docY: number,
+  snapRadiusDoc = 20
+): { x: number; y: number; snapped: boolean } {
+  return findSnapPointOnFilteredNetwork(
+    doc,
+    docX,
+    docY,
+    snapRadiusDoc,
+    URBAN_SNAP_KINDS,
+    true
+  );
+}
+
+/**
+ * Context-aware snap for any vector path tool (`river` -> parent river centerlines,
+ * `road`/`avenue`/`alley` -> roads & plazas, `canal` -> canals, `wall` -> walls & roads).
+ */
+export function findSnapPointForPathKind(
+  doc: MapDocument,
+  docX: number,
+  docY: number,
+  kind: PathKind,
+  snapRadiusDoc?: number
+): { x: number; y: number; snapped: boolean } {
+  if (kind === 'river') {
+    return findSnapPointOnFilteredNetwork(
+      doc,
+      docX,
+      docY,
+      snapRadiusDoc ?? 24,
+      RIVER_SNAP_KINDS,
+      false
+    );
+  }
+  if (kind === 'road' || kind === 'avenue' || kind === 'alley') {
+    return findSnapPointOnFilteredNetwork(
+      doc,
+      docX,
+      docY,
+      snapRadiusDoc ?? 20,
+      ROAD_SNAP_KINDS,
+      true
+    );
+  }
+  if (kind === 'canal') {
+    return findSnapPointOnFilteredNetwork(
+      doc,
+      docX,
+      docY,
+      snapRadiusDoc ?? 20,
+      CANAL_SNAP_KINDS,
+      false
+    );
+  }
+  if (kind === 'wall') {
+    return findSnapPointOnUrbanPaths(doc, docX, docY, snapRadiusDoc ?? 18);
+  }
+  return { x: docX, y: docY, snapped: false };
 }

@@ -52,7 +52,7 @@ const GRID_STYLE_OPTIONS: ReadonlyArray<{
   desc: string;
 }> = [
   { id: 'orthogonal', label: 'Ortogonale', desc: 'Cardo e decumano ad angolo retto.' },
-  { id: 'organic', label: 'Organica', desc: 'Assi curvi con vie secondarie irregolari.' },
+  { id: 'organic', label: 'Organica', desc: 'Poche arterie principali e fitta rete di vie connesse.' },
   { id: 'radial', label: 'Radiale', desc: 'Anelli concentrici e raggi dal centro.' }
 ];
 
