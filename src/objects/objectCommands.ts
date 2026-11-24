@@ -20,6 +20,8 @@ import {
   PlazaShape,
   StampObject,
   TerrainBuffers,
+  WallGateOpening,
+  WallStyle,
   cloneMapObject,
   resolveObjectLayerId,
   safeRandomUUID
@@ -86,9 +88,25 @@ export function areMapObjectsEqual(a: MapObject, b: MapObject): boolean {
       Boolean(a.dashed) !== Boolean(b.dashed) ||
       Boolean(a.tapered) !== Boolean(b.tapered) ||
       (a.smooth !== false) !== (b.smooth !== false) ||
+      (a.wallStyle ?? undefined) !== (b.wallStyle ?? undefined) ||
+      (a.wallSide ?? undefined) !== (b.wallSide ?? undefined) ||
+      Boolean(a.wallClosed) !== Boolean(b.wallClosed) ||
       a.points.length !== b.points.length
     ) {
       return false;
+    }
+    const gatesA = a.wallGates ?? [];
+    const gatesB = b.wallGates ?? [];
+    if (gatesA.length !== gatesB.length) {
+      return false;
+    }
+    for (let i = 0; i < gatesA.length; i += 1) {
+      if (
+        gatesA[i].distanceDoc !== gatesB[i].distanceDoc ||
+        gatesA[i].halfWidthDoc !== gatesB[i].halfWidthDoc
+      ) {
+        return false;
+      }
     }
     for (let i = 0; i < a.points.length; i += 1) {
       if (a.points[i] !== b.points[i]) {
@@ -1023,6 +1041,10 @@ export interface CreatePathObjectOptions {
   tapered?: boolean;
   smooth?: boolean;
   rotationDeg?: number;
+  wallStyle?: WallStyle;
+  wallSide?: 1 | -1;
+  wallClosed?: boolean;
+  wallGates?: readonly WallGateOpening[];
 }
 
 export function getPathKindDefaults(kind: PathKind, theme: MapTheme): {
@@ -1228,7 +1250,18 @@ export function createPathObject(options: CreatePathObjectOptions): PathObject {
     opacity,
     dashed: options.dashed ?? defaults.dashed,
     tapered: options.tapered ?? defaults.tapered,
-    smooth: options.smooth ?? defaults.smooth
+    smooth: options.smooth ?? defaults.smooth,
+    ...(options.wallStyle ? { wallStyle: options.wallStyle } : {}),
+    ...(options.wallSide !== undefined ? { wallSide: options.wallSide } : {}),
+    ...(options.wallClosed ? { wallClosed: true } : {}),
+    ...(options.wallGates && options.wallGates.length > 0
+      ? {
+          wallGates: options.wallGates.map((g) => ({
+            distanceDoc: Number(g.distanceDoc.toFixed(2)),
+            halfWidthDoc: Number(g.halfWidthDoc.toFixed(2))
+          }))
+        }
+      : {})
   };
 }
 

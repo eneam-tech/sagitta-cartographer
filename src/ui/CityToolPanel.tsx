@@ -2,11 +2,14 @@ import { useId } from 'react';
 import { getCityThemePalette } from '../city/geometry';
 import { DISTRICT_PRESETS, DistrictPresetId } from '../city/smartDistrictBrush';
 import { StreetGridStyle } from '../city/streetGridTool';
+import { WallDrawMode } from '../city/wallGeometry';
 import {
   BuildingRenderStyle,
   BuildingShape,
   PlazaCenterpiece,
-  PlazaShape
+  PlazaShape,
+  WallStyle,
+  WallTowerShape
 } from '../model/document';
 import { getBuildingShapeLabel, getPlazaShapeLabel } from '../objects/objectCommands';
 import { SyncedRangeField, normalizeColorHex } from '../objects/uiControls';
@@ -54,6 +57,44 @@ const GRID_STYLE_OPTIONS: ReadonlyArray<{
   { id: 'orthogonal', label: 'Ortogonale', desc: 'Cardo e decumano ad angolo retto.' },
   { id: 'organic', label: 'Organica', desc: 'Poche arterie principali e fitta rete di vie connesse.' },
   { id: 'radial', label: 'Radiale', desc: 'Anelli concentrici e raggi dal centro.' }
+];
+
+const WALL_DRAW_MODE_OPTIONS: ReadonlyArray<{
+  id: WallDrawMode;
+  label: string;
+  hint: string;
+}> = [
+  {
+    id: 'polyline',
+    label: 'Cortine',
+    hint: 'Fai clic per posare cortine dritte (o trascina per un tratto). Shift: 15° · Clic sul primo nodo per chiudere · Invio o doppio clic termina · Backspace annulla.'
+  },
+  {
+    id: 'arc',
+    label: 'Arco',
+    hint: 'Fai clic su inizio (A), fine (B) e poi sul raggio (C) per tracciare un arco circolare.'
+  },
+  {
+    id: 'freehand',
+    label: 'Mano libera',
+    hint: 'Trascina un tracciato continuo: le mura vengono rettificate in cortine nette e torrioni angolari.'
+  }
+];
+
+const WALL_STYLE_OPTIONS: ReadonlyArray<{
+  id: WallStyle;
+  label: string;
+  desc: string;
+}> = [
+  { id: 'stone', label: 'Pietra', desc: 'Cortina merlata in conci con cammino di ronda e spalto esterno.' },
+  { id: 'palisade', label: 'Palizzata', desc: 'Steccato ligneo di tronchi con passerella interna.' },
+  { id: 'bastion', label: 'Bastioni', desc: 'Fortificazione stellare con spalti angolari a punta.' },
+  { id: 'low-wall', label: 'Muretto', desc: 'Cinta bassa in pietra a secco senza torri o porte.' }
+];
+
+const WALL_TOWER_SHAPE_OPTIONS: ReadonlyArray<{ id: WallTowerShape; label: string }> = [
+  { id: 'round', label: 'Tondi' },
+  { id: 'square', label: 'Quadrati' }
 ];
 
 const PLAZA_SHAPE_OPTIONS: ReadonlyArray<{ id: PlazaShape; label: string }> = [
@@ -557,49 +598,150 @@ export function CityToolPanel({ store }: CityToolPanelProps) {
     );
   }
 
+  const activeWallModeMeta =
+    WALL_DRAW_MODE_OPTIONS.find((m) => m.id === snap.wallDrawMode) ?? WALL_DRAW_MODE_OPTIONS[0];
+  const activeWallStyleMeta =
+    WALL_STYLE_OPTIONS.find((s) => s.id === snap.wallStyle) ?? WALL_STYLE_OPTIONS[0];
+  const isLowWall = snap.wallStyle === 'low-wall';
+
   return (
     <div className="panel-group">
       <h3 className="panel-subheading">Mura cittadine</h3>
-      <p className="panel-hint">
-        Trascina il perimetro difensivo: i torrioni e le porte fortificate agli incroci stradali vengono generati in automatico.
-      </p>
+      <p className="panel-hint">{activeWallModeMeta.hint}</p>
+
+      <div className="form-field">
+        <span className="field-label">Modalità tracciamento</span>
+        <div className="segmented-group" role="group" aria-label="Modalità tracciamento mura">
+          {WALL_DRAW_MODE_OPTIONS.map((opt) => {
+            const active = snap.wallDrawMode === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className="segmented-btn"
+                aria-pressed={active}
+                onClick={() => store.setWallDrawMode(opt.id)}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {snap.wallDrawMode === 'arc' ? (
+        <label className="pencil-check-row">
+          <input
+            type="checkbox"
+            checked={snap.wallArcFaceted}
+            onChange={(e) => store.setWallArcFaceted(e.target.checked)}
+          />
+          <span>Arco sfaccettato a cortine</span>
+        </label>
+      ) : null}
+
+      <div className="form-field">
+        <span className="field-label">Stile fortificazione</span>
+        <div className="city-shape-grid" role="group" aria-label="Stile fortificazione mura">
+          {WALL_STYLE_OPTIONS.map((opt) => {
+            const active = snap.wallStyle === opt.id;
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className="segmented-btn"
+                aria-pressed={active}
+                onClick={() => {
+                  const prevStyle = snap.wallStyle;
+                  store.setWallStyle(opt.id);
+                  if (opt.id === 'palisade') {
+                    store.setWallTowerShape('square');
+                  } else if (prevStyle === 'palisade' && opt.id === 'stone') {
+                    store.setWallTowerShape('round');
+                  }
+                }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+        <span style={{ fontSize: '13px', lineHeight: '18px', color: 'var(--ui-muted)' }}>
+          {activeWallStyleMeta.desc}
+        </span>
+      </div>
+
+      {!isLowWall ? (
+        <div className="form-field">
+          <span className="field-label">Forma torrioni</span>
+          <div className="segmented-group" role="group" aria-label="Forma torrioni">
+            {WALL_TOWER_SHAPE_OPTIONS.map((opt) => {
+              const active = snap.wallTowerShape === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="segmented-btn"
+                  aria-pressed={active}
+                  onClick={() => store.setWallTowerShape(opt.id)}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+      ) : null}
 
       <SyncedRangeField
         label="Spessore cortina"
         value={snap.wallStrokeWidthDoc}
-        min={6}
+        min={4}
         max={30}
         step={1}
         unit="u"
         onChange={(v) => store.setWallStrokeWidthDoc(v)}
       />
 
-      <SyncedRangeField
-        label="Passo torrioni"
-        value={snap.wallTowerSpacingDoc}
-        min={45}
-        max={240}
-        step={5}
-        unit="u"
-        onChange={(v) => store.setWallTowerSpacingDoc(v)}
-      />
+      {!isLowWall ? (
+        <>
+          <SyncedRangeField
+            label="Passo torrioni"
+            value={snap.wallTowerSpacingDoc}
+            min={45}
+            max={240}
+            step={5}
+            unit="u"
+            onChange={(v) => store.setWallTowerSpacingDoc(v)}
+          />
+
+          <label className="pencil-check-row">
+            <input
+              type="checkbox"
+              checked={snap.wallAutoTowers}
+              onChange={(e) => store.setWallAutoTowers(e.target.checked)}
+            />
+            <span>Torrioni difensivi automatici</span>
+          </label>
+
+          <label className="pencil-check-row">
+            <input
+              type="checkbox"
+              checked={snap.wallAutoGates}
+              onChange={(e) => store.setWallAutoGates(e.target.checked)}
+            />
+            <span>Porte con torri gemelle sugli incroci stradali</span>
+          </label>
+        </>
+      ) : null}
 
       <label className="pencil-check-row">
         <input
           type="checkbox"
-          checked={snap.wallAutoTowers}
-          onChange={(e) => store.setWallAutoTowers(e.target.checked)}
+          checked={snap.wallInvertSide}
+          onChange={(e) => store.setWallInvertSide(e.target.checked)}
         />
-        <span>Torrioni difensivi automatici</span>
-      </label>
-
-      <label className="pencil-check-row">
-        <input
-          type="checkbox"
-          checked={snap.wallAutoGates}
-          onChange={(e) => store.setWallAutoGates(e.target.checked)}
-        />
-        <span>Porte con torri gemelle sugli incroci stradali</span>
+        <span>Inverti lato esterno</span>
       </label>
     </div>
   );

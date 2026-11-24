@@ -426,10 +426,13 @@ export function generateProceduralCity(
     }
 
     const wallObjects = buildSmartCityWallObjects(virtualDoc, wallVertices, {
-      strokeWidthDoc: 13,
+      strokeWidthDoc: options.preset === 'imperial-grid' ? 15 : 13,
       towerSpacingDoc: 108,
       autoTowers: true,
       autoGates: true,
+      wallStyle: options.preset === 'imperial-grid' ? 'bastion' : 'stone',
+      towerShape: options.preset === 'imperial-grid' ? 'square' : 'round',
+      wallClosed: !isHarbor,
       vectorLayerId: layerVec,
       buildingsLayerId: layerBldg,
       ...(renderStyleOverride ? { renderStyle: renderStyleOverride } : {})

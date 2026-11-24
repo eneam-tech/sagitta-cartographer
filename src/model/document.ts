@@ -336,6 +336,14 @@ export interface LabelObject {
   rotationDeg: number;
 }
 
+export type WallStyle = 'stone' | 'palisade' | 'bastion' | 'low-wall';
+export type WallTowerShape = 'round' | 'square';
+
+export interface WallGateOpening {
+  distanceDoc: number;
+  halfWidthDoc: number;
+}
+
 export interface PathObject {
   id: string;
   type: 'path';
@@ -351,6 +359,10 @@ export interface PathObject {
   dashed?: boolean;
   tapered?: boolean;
   smooth?: boolean;
+  wallStyle?: WallStyle;
+  wallSide?: 1 | -1;
+  wallClosed?: boolean;
+  wallGates?: WallGateOpening[];
 }
 
 export type MapObject = StampObject | LabelObject | PathObject | BuildingObject | PlazaObject;
@@ -686,6 +698,39 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
       ) {
         throw new Error(`Opacità tracciato non valida per ${obj.id}.`);
       }
+      if (
+        obj.wallStyle !== undefined &&
+        obj.wallStyle !== 'stone' &&
+        obj.wallStyle !== 'palisade' &&
+        obj.wallStyle !== 'bastion' &&
+        obj.wallStyle !== 'low-wall'
+      ) {
+        throw new Error(`Stile mura non valido per ${obj.id}: ${String(obj.wallStyle)}.`);
+      }
+      if (obj.wallSide !== undefined && obj.wallSide !== 1 && obj.wallSide !== -1) {
+        throw new Error(`Orientamento mura non valido per ${obj.id}.`);
+      }
+      if (obj.wallClosed !== undefined && typeof obj.wallClosed !== 'boolean') {
+        throw new Error(`Chiusura mura non valida per ${obj.id}.`);
+      }
+      if (obj.wallGates !== undefined) {
+        if (!Array.isArray(obj.wallGates)) {
+          throw new Error(`Elenco varchi mura non valido per ${obj.id}.`);
+        }
+        for (const g of obj.wallGates) {
+          if (
+            !g ||
+            typeof g.distanceDoc !== 'number' ||
+            !Number.isFinite(g.distanceDoc) ||
+            g.distanceDoc < 0 ||
+            typeof g.halfWidthDoc !== 'number' ||
+            !Number.isFinite(g.halfWidthDoc) ||
+            g.halfWidthDoc <= 0
+          ) {
+            throw new Error(`Varco mura non valido per ${obj.id}.`);
+          }
+        }
+      }
     } else if (obj.type === 'building') {
       if (
         obj.shape !== 'rect' &&
@@ -740,7 +785,11 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
 
 export function cloneMapObject<T extends MapObject>(obj: T): T {
   if (obj.type === 'path') {
-    return { ...obj, points: [...obj.points] };
+    return {
+      ...obj,
+      points: [...obj.points],
+      ...(obj.wallGates ? { wallGates: obj.wallGates.map((g) => ({ ...g })) } : {})
+    };
   }
   return { ...obj };
 }

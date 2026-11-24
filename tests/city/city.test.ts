@@ -2,6 +2,7 @@ import { describe, expect, it } from 'vitest';
 import {
   DEFAULT_LAYER_BUILDINGS_ID,
   DEFAULT_LAYER_VECTORS_ID,
+  PathObject,
   createEmptyDocument,
   validateDocumentManifest
 } from '../../src/model/document';
@@ -38,6 +39,12 @@ import {
   buildSmartCityWallObjects,
   generateStreetGridInRect
 } from '../../src/city/streetGridTool';
+import {
+  buildCircularArcPoints,
+  detectAutoWallSide,
+  rectifyFreehandWallPolyline,
+  snapWallSegmentAngle
+} from '../../src/city/wallGeometry';
 import {
   CITY_GENERATOR_PRESETS,
   generateProceduralCity
@@ -660,5 +667,256 @@ describe('Modalità Urbana / Città (kind: "city")', () => {
     // Road snap works on rotated plaza boundary
     const plazaSnap = findSnapPointForPathKind(doc, plaza.x + 62, plaza.y + 38, 'road', 32);
     expect(plazaSnap.snapped).toBe(true);
+  });
+
+  it('geometria mura: rettificazione mano libera, archi circolari, snap angolare e lato esterno automatico', () => {
+    // 1. Mano libera quasi dritta con tremolio -> rettificata a 2 vertici aperti
+    const shakyLine: number[] = [];
+    for (let i = 0; i <= 10; i += 1) {
+      shakyLine.push(100 + i * 30, 200 + (i % 2 === 0 ? 3 : -3));
+    }
+    const straight = rectifyFreehandWallPolyline(shakyLine, { strokeWidthDoc: 13 });
+    expect(straight.closed).toBe(false);
+    expect(straight.points).toHaveLength(4);
+    expect(Math.hypot(straight.points[0] - 100, straight.points[1] - 200)).toBeLessThan(8);
+    expect(Math.hypot(straight.points[2] - 400, straight.points[3] - 200)).toBeLessThan(8);
+
+    // 2. Mano libera poligonale chiusa (rettangolo con rumore e ritorno vicino a P0)
+    const closedQuad: number[] = [
+      200, 200, 320, 203, 440, 199,
+      442, 310, 439, 420,
+      320, 423, 202, 419,
+      198, 310, 205, 206
+    ];
+    const quadRect = rectifyFreehandWallPolyline(closedQuad, { strokeWidthDoc: 13 });
+    expect(quadRect.closed).toBe(true);
+    expect(quadRect.points.length / 2).toBeGreaterThanOrEqual(4);
+    expect(quadRect.points.length / 2).toBeLessThanOrEqual(6);
+
+    // 3. Arco circolare a 3 punti: semicirconferenza raggio 100 centrata in (200, 300)
+    const smoothArc = buildCircularArcPoints(100, 300, 300, 300, 200, 200, { faceted: false });
+    expect(smoothArc.length / 2).toBeGreaterThanOrEqual(12);
+    expect(smoothArc[0]).toBeCloseTo(100, 1);
+    expect(smoothArc[1]).toBeCloseTo(300, 1);
+    expect(smoothArc[smoothArc.length - 2]).toBeCloseTo(300, 1);
+    expect(smoothArc[smoothArc.length - 1]).toBeCloseTo(300, 1);
+    const midIdx = Math.floor(smoothArc.length / 4) * 2;
+    const midR = Math.hypot(smoothArc[midIdx] - 200, smoothArc[midIdx + 1] - 300);
+    expect(midR).toBeCloseTo(100, 0);
+
+    const facetedArc = buildCircularArcPoints(100, 300, 300, 300, 200, 200, {
+      faceted: true,
+      facetLengthDoc: 55
+    });
+    expect(facetedArc.length / 2).toBeGreaterThanOrEqual(4);
+    expect(facetedArc.length / 2).toBeLessThanOrEqual(10);
+
+    // 4. Snap angolare a multipli di 15° e determinazione lato esterno in coordinate Y-down
+    const snap0 = snapWallSegmentAngle(0, 0, 100, 4, 15);
+    expect(snap0.x).toBeGreaterThan(99);
+    expect(Math.abs(snap0.y)).toBeLessThan(0.01);
+
+    const snap45 = snapWallSegmentAngle(0, 0, 90, 88, 15);
+    expect(Math.abs(snap45.x - snap45.y)).toBeLessThan(0.5);
+
+    // CW in Y-down -> esterno a destra (-1); CCW -> esterno a sinistra (+1)
+    const cwSquare = [100, 100, 400, 100, 400, 400, 100, 400];
+    const ccwSquare = [100, 100, 100, 400, 400, 400, 400, 100];
+    expect(detectAutoWallSide(cwSquare, true, createEmptyDocument({ kind: 'city' }))).toBe(-1);
+    expect(detectAutoWallSide(ccwSquare, true, createEmptyDocument({ kind: 'city' }))).toBe(1);
+  });
+
+  it('genera i 4 stili di mura con torrioni angolari, varchi stradali reali e persistenza ZIP', async () => {
+    const doc = createEmptyDocument({ kind: 'city', theme: CITY_MEDIEVAL_THEME });
+    const crossRoad = createPathObject({
+      kind: 'avenue',
+      points: [200, 500, 1000, 500],
+      strokeWidthDoc: 16,
+      theme: doc.theme
+    });
+    doc.manifest.objects.push(crossRoad);
+
+    // 1. Pietra chiusa con varchi reali + torri angolari + suddivisione simmetrica
+    const ringPts = [350, 320, 850, 320, 850, 680, 350, 680];
+    const stoneObjs = buildSmartCityWallObjects(doc, ringPts, {
+      strokeWidthDoc: 14,
+      towerSpacingDoc: 160,
+      autoTowers: true,
+      autoGates: true,
+      wallStyle: 'stone',
+      towerShape: 'round',
+      wallClosed: true
+    });
+    const stoneWall = stoneObjs.find((o): o is PathObject => o.type === 'path');
+    expect(stoneWall).toBeDefined();
+    expect(stoneWall!.wallStyle).toBe('stone');
+    expect(stoneWall!.wallClosed).toBe(true);
+    expect(stoneWall!.smooth).toBe(false);
+    expect(stoneWall!.wallGates?.length).toBe(2); // attraversa due cortine verticali a x=350 e x=850
+    const gatehouses = stoneObjs.filter((o) => o.type === 'building' && o.districtTag === 'gatehouse');
+    const cornerTowers = stoneObjs.filter((o) => o.type === 'building' && o.districtTag === 'wall-tower');
+    expect(gatehouses).toHaveLength(4);
+    expect(cornerTowers.length).toBeGreaterThanOrEqual(4);
+
+    // Nessuna torre intermedia deve cadere dentro un varco stradale
+    const closedVerts: Array<{ x: number; y: number }> = [];
+    for (let i = 0; i < ringPts.length / 2; i += 1) {
+      closedVerts.push({ x: ringPts[i * 2], y: ringPts[i * 2 + 1] });
+    }
+    const pointAtDist = (d: number) => {
+      let acc = 0;
+      for (let i = 0; i < closedVerts.length; i += 1) {
+        const a = closedVerts[i];
+        const b = closedVerts[(i + 1) % closedVerts.length];
+        const len = Math.hypot(b.x - a.x, b.y - a.y);
+        if (acc + len >= d) {
+          const t = (d - acc) / len;
+          return { x: a.x + (b.x - a.x) * t, y: a.y + (b.y - a.y) * t };
+        }
+        acc += len;
+      }
+      return closedVerts[0];
+    };
+    for (const g of stoneWall!.wallGates!) {
+      const gateCenter = pointAtDist(g.distanceDoc);
+      expect(g.halfWidthDoc).toBeGreaterThan(6);
+      for (const t of cornerTowers) {
+        expect(Math.hypot(t.x - gateCenter.x, t.y - gateCenter.y)).toBeGreaterThan(
+          g.halfWidthDoc * 0.85
+        );
+      }
+    }
+
+    // 2. Palizzata con torri quadrate
+    const palisadeObjs = buildSmartCityWallObjects(doc, [300, 200, 700, 200], {
+      strokeWidthDoc: 11,
+      towerSpacingDoc: 120,
+      autoTowers: true,
+      autoGates: false,
+      wallStyle: 'palisade',
+      towerShape: 'square',
+      wallClosed: false
+    });
+    const palisadeWall = palisadeObjs.find((o): o is PathObject => o.type === 'path')!;
+    const palisadeTowers = palisadeObjs.filter((o) => o.type === 'building');
+    expect(palisadeWall.wallStyle).toBe('palisade');
+    expect(palisadeTowers.length).toBeGreaterThanOrEqual(2);
+    expect(palisadeTowers.every((b) => b.type === 'building' && b.shape === 'rect')).toBe(true);
+
+    // 3. Bastioni stellari
+    const bastionObjs = buildSmartCityWallObjects(doc, ringPts, {
+      strokeWidthDoc: 15,
+      towerSpacingDoc: 200,
+      autoTowers: true,
+      autoGates: true,
+      wallStyle: 'bastion',
+      towerShape: 'square',
+      wallClosed: true,
+      invertSide: true
+    });
+    const bastionWall = bastionObjs.find((o): o is PathObject => o.type === 'path')!;
+    expect(bastionWall.wallStyle).toBe('bastion');
+    expect(bastionWall.wallSide).toBe(-stoneWall!.wallSide!);
+
+    // 4. Muretto: nessuna torre e nessun varco/porta automatica anche attraversando strade
+    const lowWallObjs = buildSmartCityWallObjects(doc, ringPts, {
+      strokeWidthDoc: 7,
+      towerSpacingDoc: 90,
+      autoTowers: true,
+      autoGates: true,
+      wallStyle: 'low-wall',
+      wallClosed: true
+    });
+    expect(lowWallObjs).toHaveLength(1);
+    expect((lowWallObjs[0] as PathObject).wallStyle).toBe('low-wall');
+    expect((lowWallObjs[0] as PathObject).wallGates).toBeUndefined();
+
+    // 5. Round-trip archivio ZIP mantiene wallStyle, wallSide, wallClosed e wallGates
+    doc.manifest.objects.push(...stoneObjs, ...palisadeObjs, ...bastionObjs, ...lowWallObjs);
+    const bytes = await exportProjectArchive(doc);
+    const restored = await importProjectArchive(bytes);
+    const restoredStone = restored.document.manifest.objects.find((o) => o.id === stoneWall!.id) as PathObject;
+    expect(restoredStone.wallStyle).toBe('stone');
+    expect(restoredStone.wallSide).toBe(stoneWall!.wallSide);
+    expect(restoredStone.wallClosed).toBe(true);
+    expect(restoredStone.wallGates).toEqual(stoneWall!.wallGates);
+  });
+
+  it('renderizza correttamente tutti gli stili di mura e varchi reali sia in 2.5D sia in Planimetria', () => {
+    const createDrawRecorder = () => {
+      const ops: Array<{ op: 'stroke' | 'fill'; stroke: string; fill: string; width: number }> = [];
+      const state = {
+        strokeStyle: '#000',
+        fillStyle: '#000',
+        lineWidth: 1,
+        lineJoin: 'miter',
+        lineCap: 'butt',
+        globalAlpha: 1,
+        save: () => {},
+        restore: () => {},
+        translate: () => {},
+        rotate: () => {},
+        scale: () => {},
+        beginPath: () => {},
+        moveTo: () => {},
+        lineTo: () => {},
+        quadraticCurveTo: () => {},
+        bezierCurveTo: () => {},
+        arc: () => {},
+        rect: () => {},
+        clip: () => {},
+        closePath: () => {},
+        setLineDash: () => {},
+        fillText: () => {},
+        strokeText: () => {},
+        measureText: () => ({ width: 20 }),
+        stroke: () => {
+          ops.push({
+            op: 'stroke',
+            stroke: String(state.strokeStyle),
+            fill: String(state.fillStyle),
+            width: Number(state.lineWidth)
+          });
+        },
+        fill: () => {
+          ops.push({
+            op: 'fill',
+            stroke: String(state.strokeStyle),
+            fill: String(state.fillStyle),
+            width: Number(state.lineWidth)
+          });
+        }
+      };
+      return { ops, ctx: state as unknown as CanvasRenderingContext2D };
+    };
+
+    for (const theme of [CITY_MEDIEVAL_THEME, CITY_INKPLAN_THEME]) {
+      for (const wallStyle of ['stone', 'palisade', 'bastion', 'low-wall'] as const) {
+        const doc = createEmptyDocument({ kind: 'city', theme });
+        const wall = createPathObject({
+          kind: 'wall',
+          points: [200, 200, 650, 200, 650, 500, 200, 500],
+          strokeWidthDoc: 13,
+          smooth: false,
+          wallStyle,
+          wallSide: -1,
+          wallClosed: true,
+          wallGates: wallStyle === 'low-wall' ? undefined : [{ distanceDoc: 225, halfWidthDoc: 16 }],
+          theme
+        });
+        doc.manifest.objects.push(wall);
+        const { ops, ctx } = createDrawRecorder();
+        drawMapObjectsToContext(ctx, doc, new Map(), 1, 1);
+
+        if (wallStyle === 'low-wall') {
+          expect(ops.length).toBeGreaterThanOrEqual(3);
+        } else {
+          expect(ops.length).toBeGreaterThanOrEqual(6);
+        }
+        if (wallStyle === 'bastion') {
+          expect(ops.filter((o) => o.op === 'fill').length).toBeGreaterThanOrEqual(4);
+        }
+      }
+    }
   });
 });

@@ -6,6 +6,9 @@ import {
   MapDocument,
   MapObject,
   PathObject,
+  WallGateOpening,
+  WallStyle,
+  WallTowerShape,
   resolveObjectLayerId
 } from '../model/document';
 import { createBuildingObject, createPathObject } from '../objects/objectCommands';
@@ -22,6 +25,7 @@ import {
   DistrictPresetId,
   generateDistrictBuildingsAlongStroke
 } from './smartDistrictBrush';
+import { detectAutoWallSide } from './wallGeometry';
 
 export type StreetGridStyle = 'orthogonal' | 'organic' | 'radial';
 
@@ -45,6 +49,11 @@ export interface SmartWallOptions {
   towerSpacingDoc: number;
   autoTowers: boolean;
   autoGates: boolean;
+  wallStyle?: WallStyle;
+  towerShape?: WallTowerShape;
+  wallClosed?: boolean;
+  wallSide?: 1 | -1;
+  invertSide?: boolean;
   vectorLayerId?: string;
   buildingsLayerId?: string;
   renderStyle?: 'auto' | BuildingRenderStyle;
@@ -949,15 +958,17 @@ export function generateStreetGridInRect(
 }
 
 /**
- * Creates a fortified city wall path together with bastion towers at corners/intervals
- * and twin gatehouse towers automatically placed where the wall crosses streets.
+ * Creates an architectural city wall (`stone`, `palisade`, `bastion`, or `low-wall`)
+ * with corner-anchored & symmetrically subdivided towers, real road gate openings
+ * (`wallGates`) flanked by twin gatehouses, and outward facing orientation.
  */
 export function buildSmartCityWallObjects(
   doc: MapDocument,
   wallPointsDoc: readonly number[],
   options: SmartWallOptions
 ): MapObject[] {
-  if (wallPointsDoc.length < 4) return [];
+  const rawCount = Math.floor(wallPointsDoc.length / 2);
+  if (rawCount < 2) return [];
 
   const layerVec = resolveObjectLayerId(
     { type: 'path', layerId: options.vectorLayerId ?? DEFAULT_LAYER_VECTORS_ID },
@@ -969,53 +980,104 @@ export function buildSmartCityWallObjects(
   );
 
   const cityPalette = getCityThemePalette(doc.theme);
-  const strokeWidth = clampNumber(options.strokeWidthDoc, 6, 30);
+  const wallStyle: WallStyle = options.wallStyle ?? 'stone';
+  const strokeWidth = clampNumber(options.strokeWidthDoc, 4, 30);
 
-  const wallPath = createPathObject({
-    layerId: layerVec,
-    kind: 'wall',
-    points: wallPointsDoc,
-    strokeWidthDoc: strokeWidth,
-    color: cityPalette.wallStone,
-    theme: doc.theme,
-    smooth: false
-  });
+  // Detect or enforce polygonal ring closure without duplicate end vertex
+  const cleanPts: number[] = [];
+  for (let i = 0; i < rawCount; i += 1) {
+    cleanPts.push(wallPointsDoc[i * 2], wallPointsDoc[i * 2 + 1]);
+  }
+  const endToStart = Math.hypot(
+    cleanPts[(rawCount - 1) * 2] - cleanPts[0],
+    cleanPts[(rawCount - 1) * 2 + 1] - cleanPts[1]
+  );
+  let wallClosed =
+    options.wallClosed !== undefined
+      ? Boolean(options.wallClosed) && rawCount >= 3
+      : rawCount >= 4 && endToStart <= 18;
+  if (wallClosed && endToStart <= 18 && rawCount >= 4) {
+    cleanPts.pop();
+    cleanPts.pop();
+  }
+  const vertexCount = Math.floor(cleanPts.length / 2);
+  if (vertexCount < 2) return [];
+  if (vertexCount < 3) wallClosed = false;
 
-  const result: MapObject[] = [wallPath];
-  const worldPts = getPathWorldPoints(wallPath);
-  const vertexCount = Math.floor(worldPts.length / 2);
-  if (vertexCount < 2) return result;
+  const autoSide = detectAutoWallSide(cleanPts, wallClosed, doc);
+  const resolvedWallSide: 1 | -1 = options.wallSide
+    ? options.wallSide
+    : options.invertSide
+      ? autoSide === 1
+        ? -1
+        : 1
+      : autoSide;
 
-  const towerColor = cityPalette.roofPalette[0] ?? doc.theme.colors.settlement;
+  // Center around wall's bounding box BEFORE projecting gates (distanceDoc is scale-invariant)
+  const edgeCount = wallClosed ? vertexCount : vertexCount - 1;
+  const edgeOffsets = new Array<number>(edgeCount);
+  let totalPerimeter = 0;
+  for (let ei = 0; ei < edgeCount; ei += 1) {
+    const ni = (ei + 1) % vertexCount;
+    edgeOffsets[ei] = totalPerimeter;
+    totalPerimeter += Math.hypot(
+      cleanPts[ni * 2] - cleanPts[ei * 2],
+      cleanPts[ni * 2 + 1] - cleanPts[ei * 2 + 1]
+    );
+  }
+
+  const wallColor =
+    wallStyle === 'palisade'
+      ? doc.theme.city?.renderStyle === 'ink-plan'
+        ? '#A37952'
+        : '#B57B48'
+      : cityPalette.wallStone;
+  const towerColor =
+    wallStyle === 'palisade'
+      ? '#B4693E'
+      : cityPalette.roofPalette[0] ?? doc.theme.colors.settlement;
   const customStyle =
     options.renderStyle && options.renderStyle !== 'auto' ? options.renderStyle : undefined;
+  const resolvedTowerShape: WallTowerShape =
+    wallStyle === 'palisade' ? 'square' : options.towerShape ?? 'round';
 
-  const gateCenters: Array<{ x: number; y: number }> = [];
+  const wallGates: WallGateOpening[] = [];
+  const gateCenters: Array<{ x: number; y: number; radius: number }> = [];
   const addedTowers: Array<{ x: number; y: number }> = [];
+  const towerObjects: MapObject[] = [];
 
-  const canPlaceTower = (x: number, y: number, minGap: number): boolean => {
-    for (const pt of gateCenters) {
-      if (Math.hypot(x - pt.x, y - pt.y) < minGap) return false;
+  const allowFortifications = wallStyle !== 'low-wall';
+  const baseTowerSize =
+    wallStyle === 'bastion'
+      ? clampNumber(strokeWidth * 1.48, 16, 32)
+      : wallStyle === 'palisade'
+        ? clampNumber(strokeWidth * 1.25, 11, 22)
+        : clampNumber(strokeWidth * 1.32, 14, 28);
+
+  const canPlaceTower = (x: number, y: number, minTowerGap: number): boolean => {
+    for (const g of gateCenters) {
+      if (Math.hypot(x - g.x, y - g.y) < g.radius) return false;
     }
     for (const pt of addedTowers) {
-      if (Math.hypot(x - pt.x, y - pt.y) < minGap * 0.85) return false;
+      if (Math.hypot(x - pt.x, y - pt.y) < minTowerGap) return false;
     }
     return true;
   };
 
-  // 1. Auto-detect road crossings and place twin gatehouse towers flanking the road opening
-  if (options.autoGates) {
+  // 1. Auto-detect road crossings -> real gate openings on the wall path + flanking twin towers
+  if (allowFortifications && options.autoGates) {
     for (const obj of doc.manifest.objects) {
       if (obj.type !== 'path') continue;
       if (!URBAN_STREET_PATH_KINDS.has(obj.kind) || obj.kind === 'canal') continue;
       const roadPts = getPathWorldPoints(obj);
       const roadCount = Math.floor(roadPts.length / 2);
 
-      for (let wi = 0; wi < vertexCount - 1; wi += 1) {
-        const ax = worldPts[wi * 2];
-        const ay = worldPts[wi * 2 + 1];
-        const bx = worldPts[(wi + 1) * 2];
-        const by = worldPts[(wi + 1) * 2 + 1];
+      for (let ei = 0; ei < edgeCount; ei += 1) {
+        const ni = (ei + 1) % vertexCount;
+        const ax = cleanPts[ei * 2];
+        const ay = cleanPts[ei * 2 + 1];
+        const bx = cleanPts[ni * 2];
+        const by = cleanPts[ni * 2 + 1];
         const wLen = Math.hypot(bx - ax, by - ay);
         if (wLen < 1) continue;
         const wtx = (bx - ax) / wLen;
@@ -1037,25 +1099,50 @@ export function buildSmartCityWallObjects(
           if (gateCenters.some((g) => Math.hypot(g.x - hit.x, g.y - hit.y) < 34)) {
             continue;
           }
-          gateCenters.push({ x: hit.x, y: hit.y });
-          const halfOpening = Math.max(12, obj.strokeWidthDoc * 0.72 + strokeWidth * 0.45);
-          const towerSize = clampNumber(strokeWidth * 1.45, 16, 30);
 
+          const rdx = roadPts[(ri + 1) * 2] - roadPts[ri * 2];
+          const rdy = roadPts[(ri + 1) * 2 + 1] - roadPts[ri * 2 + 1];
+          const rLen = Math.hypot(rdx, rdy);
+          const crossSin =
+            rLen >= 1
+              ? Math.max(0.45, Math.abs(wtx * (rdy / rLen) - wty * (rdx / rLen)))
+              : 1;
+          const gateHalfW = clampNumber((obj.strokeWidthDoc * 0.65 + 5.5) / crossSin, 11, 34);
+          const distAlong = edgeOffsets[ei] + hit.t * wLen;
+          // Only record opening if not kissing a wall vertex directly
+          if (totalPerimeter > gateHalfW * 2) {
+            wallGates.push({
+              distanceDoc: Number(distAlong.toFixed(2)),
+              halfWidthDoc: Number(gateHalfW.toFixed(2))
+            });
+          }
+
+          const towerSize =
+            wallStyle === 'palisade'
+              ? clampNumber(strokeWidth * 1.48, 14, 26)
+              : clampNumber(strokeWidth * 1.45, 16, 30);
+          gateCenters.push({
+            x: hit.x,
+            y: hit.y,
+            radius: gateHalfW + towerSize * 0.9
+          });
+
+          const towerOffset = gateHalfW + towerSize * 0.28;
           for (const side of [-1, 1]) {
-            const gx = hit.x + wtx * halfOpening * side;
-            const gy = hit.y + wty * halfOpening * side;
+            const gx = hit.x + wtx * towerOffset * side;
+            const gy = hit.y + wty * towerOffset * side;
             addedTowers.push({ x: gx, y: gy });
-            result.push(
+            towerObjects.push(
               createBuildingObject({
                 layerId: layerBldg,
-                shape: 'tower',
+                shape: resolvedTowerShape === 'square' ? 'rect' : 'tower',
                 x: gx,
                 y: gy,
                 width: towerSize,
                 height: towerSize,
                 rotationDeg: wallAngleDeg,
                 roofColor: towerColor,
-                wallColor: cityPalette.wallStone,
+                wallColor,
                 ...(customStyle ? { renderStyle: customStyle } : {}),
                 districtTag: 'gatehouse'
               })
@@ -1066,95 +1153,120 @@ export function buildSmartCityWallObjects(
     }
   }
 
-  // 2. Bastion towers along wall vertices & regular spacing
-  if (options.autoTowers) {
+  // 2. Corner-anchored towers + symmetric curtain subdivision
+  if (allowFortifications && options.autoTowers) {
     const spacing = clampNumber(options.towerSpacingDoc, 45, 260);
-    const towerSize = clampNumber(strokeWidth * 1.32, 14, 28);
-    let accumDist = 0;
+    const cornerShape = resolvedTowerShape === 'square' ? 'rect' : 'tower';
+    const minGap = Math.max(20, baseTowerSize * 1.1);
 
-    for (let i = 0; i < vertexCount - 1; i += 1) {
-      const ax = worldPts[i * 2];
-      const ay = worldPts[i * 2 + 1];
-      const bx = worldPts[(i + 1) * 2];
-      const by = worldPts[(i + 1) * 2 + 1];
-      const segLen = Math.hypot(bx - ax, by - ay);
-      if (segLen < 1) continue;
-      const angleDeg = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+    // Phase A: Anchor towers at corners and open endpoints first
+    for (let vi = 0; vi < vertexCount; vi += 1) {
+      const px = cleanPts[vi * 2];
+      const py = cleanPts[vi * 2 + 1];
+      const isEndpoint = !wallClosed && (vi === 0 || vi === vertexCount - 1);
+      const prevIdx = (vi - 1 + vertexCount) % vertexCount;
+      const nextIdx = (vi + 1) % vertexCount;
+      const inDx = px - cleanPts[prevIdx * 2];
+      const inDy = py - cleanPts[prevIdx * 2 + 1];
+      const outDx = cleanPts[nextIdx * 2] - px;
+      const outDy = cleanPts[nextIdx * 2 + 1] - py;
+      const inLen = Math.hypot(inDx, inDy);
+      const outLen = Math.hypot(outDx, outDy);
 
-      if (i === 0 && canPlaceTower(ax, ay, 28)) {
-        addedTowers.push({ x: ax, y: ay });
-        result.push(
+      let placeAtVertex = isEndpoint;
+      let rotDeg = 0;
+      if (!isEndpoint && inLen >= 1 && outLen >= 1) {
+        const uInX = inDx / inLen;
+        const uInY = inDy / inLen;
+        const uOutX = outDx / outLen;
+        const uOutY = outDy / outLen;
+        const turnAngle = Math.acos(clampNumber(uInX * uOutX + uInY * uOutY, -1, 1));
+        if (turnAngle >= (16 * Math.PI) / 180 && wallStyle !== 'bastion') {
+          placeAtVertex = true;
+        }
+        rotDeg = (Math.atan2(uInY + uOutY, uInX + uOutX) * 180) / Math.PI;
+      } else if (vi === 0 && outLen >= 1) {
+        rotDeg = (Math.atan2(outDy, outDx) * 180) / Math.PI;
+      } else if (inLen >= 1) {
+        rotDeg = (Math.atan2(inDy, inDx) * 180) / Math.PI;
+      }
+
+      if (placeAtVertex && canPlaceTower(px, py, minGap)) {
+        addedTowers.push({ x: px, y: py });
+        const cornerScale = wallStyle === 'bastion' ? 1.12 : 1.05;
+        towerObjects.push(
           createBuildingObject({
             layerId: layerBldg,
-            shape: 'tower',
-            x: ax,
-            y: ay,
-            width: towerSize,
-            height: towerSize,
-            rotationDeg: angleDeg,
+            shape: cornerShape,
+            x: px,
+            y: py,
+            width: Number((baseTowerSize * cornerScale).toFixed(2)),
+            height: Number((baseTowerSize * cornerScale).toFixed(2)),
+            rotationDeg: rotDeg,
             roofColor: towerColor,
-            wallColor: cityPalette.wallStone,
+            wallColor,
             ...(customStyle ? { renderStyle: customStyle } : {}),
             districtTag: 'wall-tower'
           })
         );
       }
+    }
 
-      const subSteps = Math.max(1, Math.ceil(segLen / 18));
-      let prevX = ax;
-      let prevY = ay;
-      for (let s = 1; s <= subSteps; s += 1) {
-        const t = s / subSteps;
+    // Phase B: Subdivide straight curtains symmetrically with intermediate towers
+    for (let ei = 0; ei < edgeCount; ei += 1) {
+      const ni = (ei + 1) % vertexCount;
+      const ax = cleanPts[ei * 2];
+      const ay = cleanPts[ei * 2 + 1];
+      const bx = cleanPts[ni * 2];
+      const by = cleanPts[ni * 2 + 1];
+      const segLen = Math.hypot(bx - ax, by - ay);
+      if (segLen < spacing * 1.18) continue;
+
+      const angleDeg = (Math.atan2(by - ay, bx - ax) * 180) / Math.PI;
+      const subdivisions = Math.max(1, Math.round(segLen / spacing));
+      if (subdivisions < 2) continue;
+
+      for (let k = 1; k < subdivisions; k += 1) {
+        const t = k / subdivisions;
         const px = ax + (bx - ax) * t;
         const py = ay + (by - ay) * t;
-        accumDist += Math.hypot(px - prevX, py - prevY);
-        prevX = px;
-        prevY = py;
-        if (accumDist >= spacing) {
-          accumDist = 0;
-          if (canPlaceTower(px, py, 28)) {
-            addedTowers.push({ x: px, y: py });
-            result.push(
-              createBuildingObject({
-                layerId: layerBldg,
-                shape: 'tower',
-                x: px,
-                y: py,
-                width: towerSize,
-                height: towerSize,
-                rotationDeg: angleDeg,
-                roofColor: towerColor,
-                wallColor: cityPalette.wallStone,
-                ...(customStyle ? { renderStyle: customStyle } : {}),
-                districtTag: 'wall-tower'
-              })
-            );
-          }
+        if (canPlaceTower(px, py, minGap)) {
+          addedTowers.push({ x: px, y: py });
+          towerObjects.push(
+            createBuildingObject({
+              layerId: layerBldg,
+              shape: cornerShape,
+              x: px,
+              y: py,
+              width: baseTowerSize,
+              height: baseTowerSize,
+              rotationDeg: angleDeg,
+              roofColor: towerColor,
+              wallColor,
+              ...(customStyle ? { renderStyle: customStyle } : {}),
+              districtTag: 'wall-tower'
+            })
+          );
         }
       }
     }
-
-    const lastX = worldPts[(vertexCount - 1) * 2];
-    const lastY = worldPts[(vertexCount - 1) * 2 + 1];
-    if (canPlaceTower(lastX, lastY, 26)) {
-      addedTowers.push({ x: lastX, y: lastY });
-      result.push(
-        createBuildingObject({
-          layerId: layerBldg,
-          shape: 'tower',
-          x: lastX,
-          y: lastY,
-          width: towerSize,
-          height: towerSize,
-          rotationDeg: 0,
-          roofColor: towerColor,
-          wallColor: cityPalette.wallStone,
-          ...(customStyle ? { renderStyle: customStyle } : {}),
-          districtTag: 'wall-tower'
-        })
-      );
-    }
   }
 
-  return result;
+  wallGates.sort((a, b) => a.distanceDoc - b.distanceDoc);
+
+  const wallPath = createPathObject({
+    layerId: layerVec,
+    kind: 'wall',
+    points: cleanPts,
+    strokeWidthDoc: strokeWidth,
+    color: wallColor,
+    theme: doc.theme,
+    smooth: false,
+    wallStyle,
+    wallSide: resolvedWallSide,
+    ...(wallClosed ? { wallClosed: true } : {}),
+    ...(wallGates.length > 0 ? { wallGates } : {})
+  });
+
+  return [wallPath, ...towerObjects];
 }

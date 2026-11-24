@@ -149,18 +149,66 @@ test.describe('Modalità Urbana / Città — Flusso completo end-to-end', () => 
 
       // Mura cittadine che attraversano la strada orizzontale
       await page.getByRole('button', { name: 'Mura cittadine (M)' }).click();
+      const modeGroup = page.getByRole('group', { name: 'Modalità tracciamento mura' });
+      const styleGroup = page.getByRole('group', { name: 'Stile fortificazione mura' });
+      await expect(modeGroup).toBeVisible();
+      await expect(styleGroup).toBeVisible();
+      await expect(modeGroup.getByRole('button', { name: 'Cortine' })).toHaveAttribute('aria-pressed', 'true');
+      await modeGroup.getByRole('button', { name: 'Arco' }).click();
+      await expect(page.getByText('Arco sfaccettato a cortine')).toBeVisible();
+      await modeGroup.getByRole('button', { name: 'Cortine' }).click();
+      await expect(styleGroup.getByRole('button', { name: 'Pietra' })).toBeVisible();
+      await expect(styleGroup.getByRole('button', { name: 'Palizzata' })).toBeVisible();
+      await expect(styleGroup.getByRole('button', { name: 'Bastioni' })).toBeVisible();
+      await expect(styleGroup.getByRole('button', { name: 'Muretto' })).toBeVisible();
+
       await dragOnMap(page, 0.52, 0.16, 0.52, 0.86, 12);
 
       const wallCheck = await page.evaluate(() => {
         const objs = window.__MAP_EDITOR_DEBUG__!.getDocument().manifest.objects;
+        const walls = objs.filter(
+          (o): o is Extract<typeof o, { type: 'path' }> => o.type === 'path' && o.kind === 'wall'
+        );
+        const firstWall = walls[0];
         return {
-          walls: objs.filter((o) => o.type === 'path' && o.kind === 'wall').length,
+          walls: walls.length,
+          wallStyle: firstWall?.wallStyle,
+          smooth: firstWall?.smooth,
+          gates: firstWall?.wallGates?.length ?? 0,
+          side: firstWall?.wallSide,
           gatehouses: objs.filter((o) => o.type === 'building' && o.districtTag === 'gatehouse')
             .length
         };
       });
       expect(wallCheck.walls).toBe(1);
+      expect(wallCheck.wallStyle).toBe('stone');
+      expect(wallCheck.smooth).toBe(false);
+      expect(wallCheck.gates).toBeGreaterThanOrEqual(1);
       expect(wallCheck.gatehouses).toBeGreaterThanOrEqual(2);
+
+      // Verifica controlli mura selezionate nell'ispettore (cambio fortificazione e inversione lato)
+      await page.getByRole('button', { name: 'Selezione (V)' }).click();
+      const propsToggle = page.getByRole('button', { name: 'Apri o chiudi pannello proprietà' });
+      if (
+        (await propsToggle.isVisible()) &&
+        (await propsToggle.getAttribute('aria-expanded')) !== 'true'
+      ) {
+        await propsToggle.click();
+      }
+      const inspectorStyleGroup = page.getByRole('group', { name: 'Stile fortificazione mura' });
+      await expect(inspectorStyleGroup).toBeVisible();
+      await inspectorStyleGroup.getByRole('button', { name: 'Bastioni' }).click();
+      await page.getByRole('button', { name: 'Inverti lato esterno' }).click();
+      const wallAfterEdit = await page.evaluate(() => {
+        const wall = window.__MAP_EDITOR_DEBUG__!
+          .getDocument()
+          .manifest.objects.find((o) => o.type === 'path' && o.kind === 'wall');
+        return wall && wall.type === 'path'
+          ? { wallStyle: wall.wallStyle, side: wall.wallSide }
+          : null;
+      });
+      expect(wallAfterEdit?.wallStyle).toBe('bastion');
+      expect(wallAfterEdit?.side).toBe(wallCheck.side === -1 ? 1 : -1);
 
       // 4. Cambia tema a Planimetria a inchiostro antico e verifica menu contestuale
       await page.getByRole('button', { name: /Stile urbano:/i }).click();

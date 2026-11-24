@@ -12,6 +12,7 @@ import {
   PlazaObject,
   PlazaShape,
   StampObject,
+  WallStyle,
   resolveObjectLayerId
 } from '../model/document';
 import {
@@ -22,6 +23,7 @@ import {
   commitObjectUpdate,
   getDefaultObjectLabel,
   getDeleteObjectLabel,
+  getPathKindDefaults,
   getPathKindLabel,
   getSameLayerAdjacentIndices,
   normalizeRotationDeg
@@ -45,6 +47,13 @@ const LABEL_COLOR_SWATCHES = [
   { hex: '#F3EEDF', name: 'Pergamena' },
   { hex: '#8B493D', name: 'Terracotta' }
 ] as const;
+
+const WALL_STYLE_OPTIONS: ReadonlyArray<{ id: WallStyle; label: string }> = [
+  { id: 'stone', label: 'Pietra' },
+  { id: 'palisade', label: 'Palizzata' },
+  { id: 'bastion', label: 'Bastioni' },
+  { id: 'low-wall', label: 'Muretto' }
+];
 
 function formatNum(value: number): string {
   const rounded = Math.round(value * 10) / 10;
@@ -1070,6 +1079,12 @@ function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsPr
   };
 
   const opacityPercent = Math.round(clampNumber(pathObj.opacity ?? 1, 0, 1) * 100);
+  const currentWallStyle: WallStyle = pathObj.wallStyle ?? 'stone';
+  const palette = getCityThemePalette(theme);
+  const defaultStoneColor = getPathKindDefaults('wall', theme).color.toUpperCase();
+  const defaultStonePaletteColor = palette.wallStone.toUpperCase();
+  const palisadeColor = palette.renderStyle === 'ink-plan' ? '#A37952' : '#B57B48';
+  const currentColorUpper = pathObj.color.toUpperCase();
 
   return (
     <>
@@ -1113,6 +1128,86 @@ function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsPr
           })}
         </div>
       </div>
+
+      {pathObj.kind === 'wall' ? (
+        <div className="form-field">
+          <div className="slider-header">
+            <span className="field-label">Stile fortificazione</span>
+            <span
+              style={{
+                fontSize: '13px',
+                lineHeight: '18px',
+                color: 'var(--ui-muted)'
+              }}
+            >
+              {WALL_STYLE_OPTIONS.find((s) => s.id === currentWallStyle)?.label ?? 'Pietra'}
+            </span>
+          </div>
+          <div className="city-shape-grid" role="group" aria-label="Stile fortificazione mura">
+            {WALL_STYLE_OPTIONS.map((opt) => {
+              const isActive = currentWallStyle === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  className="segmented-btn"
+                  disabled={disabled}
+                  aria-pressed={isActive}
+                  onClick={() => {
+                    const patch: Partial<PathObject> = { wallStyle: opt.id };
+                    if (
+                      opt.id === 'palisade' &&
+                      (currentColorUpper === defaultStoneColor ||
+                        currentColorUpper === defaultStonePaletteColor)
+                    ) {
+                      patch.color = palisadeColor;
+                    } else if (
+                      opt.id !== 'palisade' &&
+                      (currentColorUpper === '#B57B48' ||
+                        currentColorUpper === '#A37952' ||
+                        currentColorUpper === '#8A5C38' ||
+                        currentColorUpper === '#5D5246')
+                    ) {
+                      patch.color = getPathKindDefaults('wall', theme).color;
+                    }
+                    commitPathPatch(patch, `Cambia fortificazione in ${opt.label}`);
+                  }}
+                  style={{
+                    minHeight: '36px',
+                    padding: '4px 8px',
+                    fontSize: '13px',
+                    lineHeight: '18px',
+                    color: isActive ? 'var(--ui-accent)' : 'var(--ui-text)'
+                  }}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+          <button
+            type="button"
+            className="segmented-btn"
+            disabled={disabled}
+            onClick={() =>
+              commitPathPatch(
+                { wallSide: (pathObj.wallSide ?? 1) === 1 ? -1 : 1 },
+                'Inverti lato esterno mura'
+              )
+            }
+            style={{
+              marginTop: 'var(--ui-space-1)',
+              minHeight: '36px',
+              padding: '4px 10px',
+              fontSize: '13px',
+              lineHeight: '18px',
+              color: 'var(--ui-text)'
+            }}
+          >
+            Inverti lato esterno
+          </button>
+        </div>
+      ) : null}
 
       <SyncedRangeField
         label="Spessore"

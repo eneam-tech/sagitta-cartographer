@@ -34,6 +34,8 @@ import {
   PathKind,
   PlazaCenterpiece,
   PlazaShape,
+  WallStyle,
+  WallTowerShape,
   createEmptyDocument,
   defaultLayerIdForObject
 } from '../model/document';
@@ -46,6 +48,7 @@ import { MapTheme } from '../theme/theme';
 import { getCityThemePalette, pickDeterministicRoofColor } from '../city/geometry';
 import { DistrictPresetId } from '../city/smartDistrictBrush';
 import { StreetGridStyle } from '../city/streetGridTool';
+import { WallDrawMode } from '../city/wallGeometry';
 import { CityGeneratorOptions, generateProceduralCity } from '../city/cityGenerator';
 import {
   ArchiveImportResult,
@@ -939,6 +942,11 @@ export interface EditorSnapshot {
   wallTowerSpacingDoc: number;
   wallAutoTowers: boolean;
   wallAutoGates: boolean;
+  wallDrawMode: WallDrawMode;
+  wallStyle: WallStyle;
+  wallTowerShape: WallTowerShape;
+  wallArcFaceted: boolean;
+  wallInvertSide: boolean;
   camera: CameraState;
   viewportSize: { width: number; height: number };
   hasInitialFit: boolean;
@@ -1026,6 +1034,11 @@ export class EditorStore {
   private wallTowerSpacingDoc = 110;
   private wallAutoTowers = true;
   private wallAutoGates = true;
+  private wallDrawMode: WallDrawMode = 'polyline';
+  private wallStyle: WallStyle = 'stone';
+  private wallTowerShape: WallTowerShape = 'round';
+  private wallArcFaceted = false;
+  private wallInvertSide = false;
 
   private camera: CameraState = { offsetX: 0, offsetY: 0, scale: 1 };
   private viewportSize = { width: 0, height: 0 };
@@ -1578,7 +1591,7 @@ export class EditorStore {
 
   setWallStrokeWidthDoc(widthDoc: number): void {
     if (!Number.isFinite(widthDoc)) return;
-    const clamped = Math.round(clampNumber(widthDoc, 6, 30) * 10) / 10;
+    const clamped = Math.round(clampNumber(widthDoc, 4, 30) * 10) / 10;
     if (clamped === this.wallStrokeWidthDoc) return;
     this.wallStrokeWidthDoc = clamped;
     this.notify();
@@ -1603,6 +1616,52 @@ export class EditorStore {
     const next = Boolean(enabled);
     if (this.wallAutoGates === next) return;
     this.wallAutoGates = next;
+    this.notify();
+  }
+
+  setWallDrawMode(mode: WallDrawMode): void {
+    if (this.wallDrawMode === mode) return;
+    this.wallDrawMode = mode;
+    this.notify();
+  }
+
+  setWallStyle(style: WallStyle): void {
+    if (this.wallStyle === style) return;
+    this.wallStyle = style;
+    if (style === 'stone') {
+      this.wallStrokeWidthDoc = 13;
+      this.wallAutoTowers = true;
+    } else if (style === 'palisade') {
+      this.wallStrokeWidthDoc = 10;
+      this.wallTowerShape = 'square';
+      this.wallAutoTowers = true;
+    } else if (style === 'bastion') {
+      this.wallStrokeWidthDoc = 16;
+      this.wallAutoTowers = true;
+    } else {
+      this.wallStrokeWidthDoc = 6;
+      this.wallAutoTowers = false;
+    }
+    this.notify();
+  }
+
+  setWallTowerShape(shape: WallTowerShape): void {
+    if (this.wallTowerShape === shape) return;
+    this.wallTowerShape = shape;
+    this.notify();
+  }
+
+  setWallArcFaceted(faceted: boolean): void {
+    const next = Boolean(faceted);
+    if (this.wallArcFaceted === next) return;
+    this.wallArcFaceted = next;
+    this.notify();
+  }
+
+  setWallInvertSide(invert: boolean): void {
+    const next = Boolean(invert);
+    if (this.wallInvertSide === next) return;
+    this.wallInvertSide = next;
     this.notify();
   }
 
@@ -2644,6 +2703,11 @@ export class EditorStore {
       wallTowerSpacingDoc: this.wallTowerSpacingDoc,
       wallAutoTowers: this.wallAutoTowers,
       wallAutoGates: this.wallAutoGates,
+      wallDrawMode: this.wallDrawMode,
+      wallStyle: this.wallStyle,
+      wallTowerShape: this.wallTowerShape,
+      wallArcFaceted: this.wallArcFaceted,
+      wallInvertSide: this.wallInvertSide,
       camera: this.camera,
       viewportSize: this.viewportSize,
       hasInitialFit: this.hasInitialFit,

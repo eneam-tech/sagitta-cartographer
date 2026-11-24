@@ -16,6 +16,12 @@ import {
   buildSmartCityWallObjects,
   generateStreetGridInRect
 } from '../city/streetGridTool';
+import {
+  buildCircularArcPoints,
+  detectAutoWallSide,
+  rectifyFreehandWallPolyline,
+  snapWallSegmentAngle
+} from '../city/wallGeometry';
 import { Point2D, clampNumber } from '../model/coordinates';
 import {
   AssetManifestEntry,
@@ -99,6 +105,19 @@ interface ActivePathDraft {
   points: number[];
   layerId: string;
   buildingLayerId: string;
+  pointerId: number | null;
+}
+
+interface ActiveWallPolyDraft {
+  mode: 'polyline' | 'arc';
+  points: number[];
+  cursor: Point2D | null;
+  layerId: string;
+  buildingLayerId: string;
+  dragStartDoc: Point2D | null;
+  dragging: boolean;
+  shiftKey: boolean;
+  snapClosed: boolean;
   pointerId: number | null;
 }
 
@@ -190,7 +209,12 @@ function computePathSelfRect(pathObj: PathObject | undefined): {
     if (px > maxX) maxX = px;
     if (py > maxY) maxY = py;
   }
-  const meanderPad = pathObj.kind === 'river' ? 18 : 0;
+  const meanderPad =
+    pathObj.kind === 'river'
+      ? 18
+      : pathObj.kind === 'wall' && pathObj.wallStyle === 'bastion'
+        ? 18
+        : 0;
   const pad = Math.max(6, pathObj.strokeWidthDoc * 0.65) + meanderPad;
   return {
     x: minX - pad,
@@ -264,14 +288,16 @@ function isPointInsideObject(
     const count = Math.floor(pts.length / 2);
     if (count < 2) return false;
     const hitRadius = Math.max(12, obj.strokeWidthDoc * 0.75);
-    for (let i = 0; i < count - 1; i += 1) {
+    const segCount = obj.wallClosed && count >= 3 ? count : count - 1;
+    for (let i = 0; i < segCount; i += 1) {
+      const next = (i + 1) % count;
       const d = distToSegment(
         lx,
         ly,
         pts[i * 2],
         pts[i * 2 + 1],
-        pts[(i + 1) * 2],
-        pts[(i + 1) * 2 + 1]
+        pts[next * 2],
+        pts[next * 2 + 1]
       );
       if (d <= hitRadius) {
         return true;
@@ -347,6 +373,7 @@ export class ObjectsLayerController {
   private readonly districtStrokePreview: Konva.Line;
   private readonly cityGhostShape: Konva.Shape;
   private readonly streetGridPreviewShape: Konva.Shape;
+  private readonly wallPolyPreviewShape: Konva.Shape;
 
   private unsubscribeStore: (() => void) | null = null;
   private detachStageLeave: (() => void) | null = null;
@@ -377,6 +404,7 @@ export class ObjectsLayerController {
   private dragStartSnapshot: MapObject | null = null;
   private transformStartSnapshot: MapObject | null = null;
   private pathDraft: ActivePathDraft | null = null;
+  private wallPolyDraft: ActiveWallPolyDraft | null = null;
   private districtDraft: ActiveDistrictDraft | null = null;
   private streetGridDraft: ActiveStreetGridDraft | null = null;
 
@@ -499,8 +527,12 @@ export class ObjectsLayerController {
         } else if (draft.tool === 'cityWall') {
           kind = 'wall';
           strokeWidthDoc = snap.wallStrokeWidthDoc;
-          const defaults = getPathKindDefaults('wall', theme);
-          color = defaults.color;
+          color =
+            snap.wallStyle === 'palisade'
+              ? theme.city?.renderStyle === 'ink-plan'
+                ? '#A37952'
+                : '#B57B48'
+              : getPathKindDefaults('wall', theme).color;
           smooth = false;
           dashed = false;
           tapered = false;
@@ -522,6 +554,22 @@ export class ObjectsLayerController {
           rawCtx.restore();
           return;
         }
+
+        let previewPts = draft.points;
+        let previewWallClosed = false;
+        let previewWallSide: 1 | -1 | undefined;
+        if (draft.tool === 'cityWall') {
+          const rectified = rectifyFreehandWallPolyline(draft.points, {
+            strokeWidthDoc
+          });
+          if (rectified.points.length >= 4) {
+            previewPts = rectified.points;
+            previewWallClosed = rectified.closed;
+          }
+          const autoSide = detectAutoWallSide(previewPts, previewWallClosed, snap.doc);
+          previewWallSide = snap.wallInvertSide ? (autoSide === 1 ? -1 : 1) : autoSide;
+        }
+
         const previewObj: PathObject = {
           id: '__path-preview__',
           type: 'path',
@@ -529,13 +577,20 @@ export class ObjectsLayerController {
           x: 0,
           y: 0,
           rotationDeg: 0,
-          points: draft.points,
+          points: previewPts,
           strokeWidthDoc,
           color,
           opacity: 0.88,
           dashed,
           tapered,
-          smooth
+          smooth,
+          ...(kind === 'wall'
+            ? {
+                wallStyle: snap.wallStyle,
+                wallSide: previewWallSide,
+                ...(previewWallClosed ? { wallClosed: true } : {})
+              }
+            : {})
         };
         drawPathToContext(rawCtx, previewObj, 1, 1, theme, {
           pass: 'full',
@@ -697,12 +752,117 @@ export class ObjectsLayerController {
       }
     });
 
+    this.wallPolyPreviewShape = new KonvaCtor.Shape({
+      visible: false,
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx) => {
+        const draft = this.wallPolyDraft;
+        if (!draft || draft.points.length < 2) return;
+        const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+        if (!rawCtx) return;
+        const snap = this.store.getSnapshot();
+        const theme = snap.doc.theme;
+        const wallColor =
+          snap.wallStyle === 'palisade'
+            ? theme.city?.renderStyle === 'ink-plan'
+              ? '#A37952'
+              : '#B57B48'
+            : getPathKindDefaults('wall', theme).color;
+
+        let previewPts: number[] = [];
+        if (draft.mode === 'arc') {
+          if (draft.points.length >= 4 && draft.cursor) {
+            previewPts = buildCircularArcPoints(
+              draft.points[0],
+              draft.points[1],
+              draft.points[2],
+              draft.points[3],
+              draft.cursor.x,
+              draft.cursor.y,
+              { faceted: snap.wallArcFaceted }
+            );
+          } else if (draft.points.length >= 2 && draft.cursor) {
+            previewPts = [draft.points[0], draft.points[1], draft.cursor.x, draft.cursor.y];
+          } else {
+            previewPts = [...draft.points];
+          }
+        } else {
+          previewPts = [...draft.points];
+          if (draft.cursor && !draft.snapClosed) {
+            const lastX = previewPts[previewPts.length - 2];
+            const lastY = previewPts[previewPts.length - 1];
+            if (Math.hypot(draft.cursor.x - lastX, draft.cursor.y - lastY) >= 2) {
+              previewPts.push(draft.cursor.x, draft.cursor.y);
+            }
+          }
+        }
+
+        if (previewPts.length >= 4) {
+          const autoSide = detectAutoWallSide(previewPts, draft.snapClosed, snap.doc);
+          const resolvedSide: 1 | -1 = snap.wallInvertSide
+            ? autoSide === 1
+              ? -1
+              : 1
+            : autoSide;
+          const previewObj: PathObject = {
+            id: '__wall-poly-preview__',
+            type: 'path',
+            kind: 'wall',
+            x: 0,
+            y: 0,
+            rotationDeg: 0,
+            points: previewPts,
+            strokeWidthDoc: snap.wallStrokeWidthDoc,
+            color: wallColor,
+            opacity: 0.9,
+            dashed: false,
+            tapered: false,
+            smooth: false,
+            wallStyle: snap.wallStyle,
+            wallSide: resolvedSide,
+            ...(draft.snapClosed ? { wallClosed: true } : {})
+          };
+          drawPathToContext(rawCtx, previewObj, 1, 1, theme, {
+            pass: 'full',
+            doc: snap.doc
+          });
+        }
+
+        // Draw crisp corner vertex beacons & close-loop indicator
+        rawCtx.save();
+        const vertCount = Math.floor(draft.points.length / 2);
+        for (let i = 0; i < vertCount; i += 1) {
+          const vx = draft.points[i * 2];
+          const vy = draft.points[i * 2 + 1];
+          const isCloseTarget = i === 0 && draft.snapClosed;
+          rawCtx.beginPath();
+          rawCtx.arc(
+            vx,
+            vy,
+            isCloseTarget
+              ? Math.max(8, snap.wallStrokeWidthDoc * 0.65)
+              : Math.max(4.5, snap.wallStrokeWidthDoc * 0.36),
+            0,
+            Math.PI * 2
+          );
+          rawCtx.fillStyle = isCloseTarget ? 'rgba(168, 216, 188, 0.38)' : '#E0BB79';
+          rawCtx.fill();
+          rawCtx.strokeStyle = isCloseTarget ? '#A8D8BC' : '#17232D';
+          rawCtx.lineWidth = isCloseTarget ? 2.2 : 1.5;
+          rawCtx.stroke();
+        }
+        rawCtx.restore();
+      }
+    });
+
     this.layers.overlayLayer.add(
       this.ghostGroup,
       this.ghostLabelPill,
       this.pathCursorRing,
       this.streetSnapRing,
       this.pathPreviewShape,
+      this.wallPolyPreviewShape,
       this.districtStrokePreview,
       this.districtBrushCircle,
       this.cityGhostShape,
@@ -854,6 +1014,14 @@ export class ObjectsLayerController {
     if (this.pathDraft && effectiveTool !== this.pathDraft.tool) {
       this.cancelPathDraft();
     }
+    if (
+      this.wallPolyDraft &&
+      (effectiveTool !== 'cityWall' ||
+        snapshot.wallDrawMode === 'freehand' ||
+        this.wallPolyDraft.mode !== snapshot.wallDrawMode)
+    ) {
+      this.cancelWallPolyDraft();
+    }
     if (this.districtDraft && effectiveTool !== 'district') {
       this.cancelDistrictDraft();
     }
@@ -882,7 +1050,12 @@ export class ObjectsLayerController {
       snapshot.plazaShape,
       snapshot.plazaSizeDoc,
       snapshot.plazaCenterpiece,
-      snapshot.wallStrokeWidthDoc
+      snapshot.wallStrokeWidthDoc,
+      snapshot.wallDrawMode,
+      snapshot.wallStyle,
+      snapshot.wallTowerShape,
+      snapshot.wallArcFaceted,
+      snapshot.wallInvertSide
     ].join(':');
 
     const docChanged =
@@ -1333,7 +1506,12 @@ export class ObjectsLayerController {
       dirty = true;
     }
 
-    const showPathCursor = isLineDrawTool && this.cursorInside && !this.pathDraft && !inlineActive;
+    const showPathCursor =
+      isLineDrawTool &&
+      this.cursorInside &&
+      !this.pathDraft &&
+      !this.wallPolyDraft &&
+      !inlineActive;
     if (showPathCursor) {
       let radius = Math.max(3, snapshot.pathStrokeWidthDoc * 0.5);
       let stroke = snapshot.pathColor;
@@ -1660,6 +1838,9 @@ export class ObjectsLayerController {
           for (let i = 1; i < count; i += 1) {
             ctx.lineTo(pts[i * 2], pts[i * 2 + 1]);
           }
+          if (pathObj.wallClosed && count >= 3) {
+            ctx.closePath();
+          }
           ctx.strokeShape(konvaShape);
         }
       });
@@ -1915,7 +2096,15 @@ export class ObjectsLayerController {
           y: nextY,
           rotationDeg: nextRotation,
           points: nextPoints,
-          strokeWidthDoc: nextStrokeWidthDoc
+          strokeWidthDoc: nextStrokeWidthDoc,
+          ...(prev.wallGates && prev.wallGates.length > 0
+            ? {
+                wallGates: prev.wallGates.map((g) => ({
+                  distanceDoc: Number((g.distanceDoc * avgScale).toFixed(2)),
+                  halfWidthDoc: Number(clampNumber(g.halfWidthDoc * avgScale, 4, 48).toFixed(2))
+                }))
+              }
+            : {})
         };
         node.setAttr('pathObject', next);
         node.setAttrs({
@@ -2194,6 +2383,8 @@ export class ObjectsLayerController {
     const onWinPointerUp = () => {
       if (this.pathDraft) {
         this.commitPathDraft();
+      } else if (this.wallPolyDraft?.dragging) {
+        this.handleWallPolyPointerUp();
       } else if (this.districtDraft) {
         this.commitDistrictDraft();
       } else if (this.streetGridDraft) {
@@ -2287,24 +2478,16 @@ export class ObjectsLayerController {
 
     if (draft.points.length >= 4 && computePolylineLength(draft.points) >= 3) {
       if (draft.tool === 'cityWall') {
-        const toleranceDoc = clampNumber(snap.wallStrokeWidthDoc * 0.4, 3, 10);
-        const simplified = simplifyPolyline(draft.points, toleranceDoc);
-        if (simplified.length >= 4) {
-          const buildingsEditable = this.store.isLayerEditable(draft.buildingLayerId);
-          const wallObjects = buildSmartCityWallObjects(snap.doc, simplified, {
-            strokeWidthDoc: snap.wallStrokeWidthDoc,
-            towerSpacingDoc: snap.wallTowerSpacingDoc,
-            autoTowers: snap.wallAutoTowers && buildingsEditable,
-            autoGates: snap.wallAutoGates && buildingsEditable,
-            vectorLayerId: draft.layerId,
-            buildingsLayerId: draft.buildingLayerId
-          });
-          if (wallObjects.length > 0) {
-            this.store.executeCommand(
-              new AddObjectsBatchCommand(wallObjects, { label: 'Traccia mura cittadine' })
-            );
-            this.store.selectObject(wallObjects[0].id);
-          }
+        const rectified = rectifyFreehandWallPolyline(draft.points, {
+          strokeWidthDoc: snap.wallStrokeWidthDoc
+        });
+        if (rectified.points.length >= 4) {
+          this.commitCityWallFromGeometry(
+            rectified.points,
+            rectified.closed,
+            draft.layerId,
+            draft.buildingLayerId
+          );
         }
       } else if (draft.tool === 'street') {
         const toleranceDoc = clampNumber(snap.streetStrokeWidthDoc * 0.25, 1.5, 5);
@@ -2373,6 +2556,186 @@ export class ObjectsLayerController {
     this.pathPreviewShape.visible(false);
     this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
     this.layers.overlayLayer.batchDraw();
+  }
+
+  private snapWallCursorPoint(
+    snap: EditorSnapshot,
+    docX: number,
+    docY: number,
+    anchor?: Point2D,
+    shiftKey = false,
+    allowCloseLoop = false,
+    firstPoint?: Point2D
+  ): {
+    point: Point2D;
+    snapClosed: boolean;
+    endpointSnap: { x: number; y: number; snapped: boolean } | null;
+  } {
+    const { space } = snap.doc.manifest;
+    let x = clampNumber(docX, 0, space.width);
+    let y = clampNumber(docY, 0, space.height);
+
+    if (allowCloseLoop && firstPoint) {
+      const closeRadius = Math.max(18, snap.wallStrokeWidthDoc * 1.15);
+      if (Math.hypot(x - firstPoint.x, y - firstPoint.y) <= closeRadius) {
+        return {
+          point: { x: firstPoint.x, y: firstPoint.y },
+          snapClosed: true,
+          endpointSnap: null
+        };
+      }
+    }
+
+    let endpointSnap: { x: number; y: number; snapped: boolean } | null = null;
+    if (shiftKey && anchor) {
+      const snappedAngle = snapWallSegmentAngle(anchor.x, anchor.y, x, y, 15);
+      x = clampNumber(snappedAngle.x, 0, space.width);
+      y = clampNumber(snappedAngle.y, 0, space.height);
+    } else {
+      const resolvedSnap = this.resolveSnapForLineTool(snap, 'cityWall', x, y);
+      if (resolvedSnap && resolvedSnap.hit.snapped) {
+        x = resolvedSnap.hit.x;
+        y = resolvedSnap.hit.y;
+        endpointSnap = resolvedSnap.hit;
+      }
+    }
+
+    return {
+      point: {
+        x: Number(x.toFixed(2)),
+        y: Number(y.toFixed(2))
+      },
+      snapClosed: false,
+      endpointSnap
+    };
+  }
+
+  private commitCityWallFromGeometry(
+    wallPointsDoc: number[],
+    closed: boolean,
+    layerId: string,
+    buildingLayerId: string
+  ): void {
+    const snap = this.store.getSnapshot();
+    if (!this.store.isLayerEditable(layerId)) {
+      this.notifyLockedOrHiddenLayer(layerId, snap.doc.manifest.layers, 'Strade, Piazze e Mura');
+      return;
+    }
+    const buildingsEditable = this.store.isLayerEditable(buildingLayerId);
+    const wallObjects = buildSmartCityWallObjects(snap.doc, wallPointsDoc, {
+      strokeWidthDoc: snap.wallStrokeWidthDoc,
+      towerSpacingDoc: snap.wallTowerSpacingDoc,
+      autoTowers: snap.wallAutoTowers && buildingsEditable && snap.wallStyle !== 'low-wall',
+      autoGates: snap.wallAutoGates && buildingsEditable && snap.wallStyle !== 'low-wall',
+      wallStyle: snap.wallStyle,
+      towerShape: snap.wallTowerShape,
+      wallClosed: closed,
+      invertSide: snap.wallInvertSide,
+      vectorLayerId: layerId,
+      buildingsLayerId: buildingLayerId
+    });
+    if (wallObjects.length > 0) {
+      this.store.executeCommand(
+        new AddObjectsBatchCommand(wallObjects, { label: 'Traccia mura cittadine' })
+      );
+      this.store.selectObject(wallObjects[0].id);
+    }
+  }
+
+  private cancelWallPolyDraft(): void {
+    if (!this.wallPolyDraft) return;
+    this.wallPolyDraft = null;
+    this.detachPathWindowFallback();
+    this.wallPolyPreviewShape.visible(false);
+    this.streetSnapRing.visible(false);
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
+  private commitWallPolyDraft(closed: boolean): void {
+    const draft = this.wallPolyDraft;
+    if (!draft) return;
+    this.wallPolyDraft = null;
+    this.detachPathWindowFallback();
+    this.wallPolyPreviewShape.visible(false);
+    this.streetSnapRing.visible(false);
+
+    const cleaned: number[] = [];
+    const vertCount = Math.floor(draft.points.length / 2);
+    for (let i = 0; i < vertCount; i += 1) {
+      const vx = draft.points[i * 2];
+      const vy = draft.points[i * 2 + 1];
+      if (cleaned.length === 0) {
+        cleaned.push(vx, vy);
+      } else {
+        const lx = cleaned[cleaned.length - 2];
+        const ly = cleaned[cleaned.length - 1];
+        if (Math.hypot(vx - lx, vy - ly) >= 3) {
+          cleaned.push(vx, vy);
+        }
+      }
+    }
+
+    if (cleaned.length >= (closed ? 6 : 4)) {
+      this.commitCityWallFromGeometry(
+        cleaned,
+        closed,
+        draft.layerId,
+        draft.buildingLayerId
+      );
+    }
+
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
+  private handleWallPolyPointerUp(finalPoint?: Point2D): void {
+    const draft = this.wallPolyDraft;
+    if (!draft) return;
+    const wasDragging = draft.dragging;
+    const dragStart = draft.dragStartDoc;
+    draft.dragging = false;
+    draft.dragStartDoc = null;
+    if (!wasDragging || !dragStart) return;
+
+    const snap = this.store.getSnapshot();
+    const anchor =
+      draft.points.length >= 2
+        ? {
+            x: draft.points[draft.points.length - 2],
+            y: draft.points[draft.points.length - 1]
+          }
+        : undefined;
+    const endRes = finalPoint
+      ? this.snapWallCursorPoint(
+          snap,
+          finalPoint.x,
+          finalPoint.y,
+          anchor,
+          draft.shiftKey,
+          false
+        )
+      : {
+          point: draft.cursor ?? dragStart,
+          snapClosed: false,
+          endpointSnap: null
+        };
+    const endPt = endRes.point;
+    const dragDist = Math.hypot(endPt.x - dragStart.x, endPt.y - dragStart.y);
+
+    if (draft.points.length === 2 && dragDist >= 18) {
+      if (draft.mode === 'polyline') {
+        draft.points.push(endPt.x, endPt.y);
+        this.commitWallPolyDraft(false);
+        return;
+      }
+      if (draft.mode === 'arc') {
+        draft.points.push(endPt.x, endPt.y);
+        draft.cursor = endPt;
+        this.wallPolyPreviewShape.moveToTop();
+        this.layers.overlayLayer.batchDraw();
+      }
+    }
   }
 
   private commitDistrictDraft(finalPoint?: Point2D): void {
@@ -2547,6 +2910,10 @@ export class ObjectsLayerController {
       this.cancelPathDraft();
       cancelled = true;
     }
+    if (this.wallPolyDraft) {
+      this.cancelWallPolyDraft();
+      cancelled = true;
+    }
     if (this.districtDraft) {
       this.cancelDistrictDraft();
       cancelled = true;
@@ -2603,6 +2970,134 @@ export class ObjectsLayerController {
         return true;
       }
       const buildingLayerId = this.store.resolveTargetLayerIdForNewObject('building');
+      const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
+
+      if (tool === 'cityWall' && snap.wallDrawMode !== 'freehand') {
+        const shiftKey = Boolean(ctx.event.shiftKey);
+        const desiredMode: 'polyline' | 'arc' =
+          snap.wallDrawMode === 'arc' ? 'arc' : 'polyline';
+
+        if (this.wallPolyDraft && this.wallPolyDraft.mode === desiredMode) {
+          const draft = this.wallPolyDraft;
+          if (draft.mode === 'arc') {
+            if (draft.points.length === 2) {
+              const res = this.snapWallCursorPoint(
+                snap,
+                ctx.docX,
+                ctx.docY,
+                { x: draft.points[0], y: draft.points[1] },
+                shiftKey,
+                false
+              );
+              if (Math.hypot(res.point.x - draft.points[0], res.point.y - draft.points[1]) >= 8) {
+                draft.points.push(res.point.x, res.point.y);
+              }
+              draft.cursor = res.point;
+              draft.dragging = false;
+              draft.dragStartDoc = null;
+              draft.shiftKey = shiftKey;
+              draft.pointerId = pointerId;
+              this.streetSnapRing.setAttrs({
+                visible: Boolean(res.endpointSnap?.snapped),
+                x: res.endpointSnap?.x ?? 0,
+                y: res.endpointSnap?.y ?? 0,
+                radius: Math.max(8, snap.wallStrokeWidthDoc * 0.65),
+                stroke: '#E0BB79',
+                fill: 'rgba(224, 187, 121, 0.18)'
+              });
+              this.wallPolyPreviewShape.moveToTop();
+              this.layers.overlayLayer.batchDraw();
+              return true;
+            }
+
+            const res = this.snapWallCursorPoint(
+              snap,
+              ctx.docX,
+              ctx.docY,
+              undefined,
+              false,
+              false
+            );
+            const arcPts = buildCircularArcPoints(
+              draft.points[0],
+              draft.points[1],
+              draft.points[2],
+              draft.points[3],
+              res.point.x,
+              res.point.y,
+              { faceted: snap.wallArcFaceted }
+            );
+            this.wallPolyDraft = null;
+            this.detachPathWindowFallback();
+            this.wallPolyPreviewShape.visible(false);
+            this.streetSnapRing.visible(false);
+            if (arcPts.length >= 4) {
+              this.commitCityWallFromGeometry(
+                arcPts,
+                false,
+                draft.layerId,
+                draft.buildingLayerId
+              );
+            }
+            this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+            this.layers.overlayLayer.batchDraw();
+            return true;
+          }
+
+          // Polyline mode: close loop or append vertex
+          const lastX = draft.points[draft.points.length - 2];
+          const lastY = draft.points[draft.points.length - 1];
+          const res = this.snapWallCursorPoint(
+            snap,
+            ctx.docX,
+            ctx.docY,
+            { x: lastX, y: lastY },
+            shiftKey,
+            draft.points.length >= 6,
+            { x: draft.points[0], y: draft.points[1] }
+          );
+          if (res.snapClosed) {
+            this.commitWallPolyDraft(true);
+            return true;
+          }
+          if (Math.hypot(res.point.x - lastX, res.point.y - lastY) >= 4) {
+            draft.points.push(res.point.x, res.point.y);
+          }
+          draft.cursor = res.point;
+          draft.dragStartDoc = res.point;
+          draft.dragging = true;
+          draft.shiftKey = shiftKey;
+          draft.snapClosed = false;
+          draft.pointerId = pointerId;
+          this.wallPolyPreviewShape.moveToTop();
+          this.layers.overlayLayer.batchDraw();
+          return true;
+        }
+
+        if (this.wallPolyDraft) {
+          this.cancelWallPolyDraft();
+        }
+        const res = this.snapWallCursorPoint(snap, ctx.docX, ctx.docY, undefined, false, false);
+        this.wallPolyDraft = {
+          mode: desiredMode,
+          points: [res.point.x, res.point.y],
+          cursor: res.point,
+          layerId: targetLayerId,
+          buildingLayerId,
+          dragStartDoc: res.point,
+          dragging: true,
+          shiftKey,
+          snapClosed: false,
+          pointerId
+        };
+        this.pathCursorRing.visible(false);
+        this.streetSnapRing.visible(false);
+        this.wallPolyPreviewShape.visible(true);
+        this.wallPolyPreviewShape.moveToTop();
+        this.attachPathWindowFallback();
+        this.layers.overlayLayer.batchDraw();
+        return true;
+      }
 
       let startX = ctx.docX;
       let startY = ctx.docY;
@@ -2612,7 +3107,6 @@ export class ObjectsLayerController {
         startY = resolvedSnap.hit.y;
       }
 
-      const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
       this.pathDraft = {
         tool,
         points: [Number(startX.toFixed(2)), Number(startY.toFixed(2))],
@@ -2895,6 +3389,49 @@ export class ObjectsLayerController {
     const snap = this.store.getSnapshot();
     const tool = snap.spacePanActive ? 'hand' : snap.activeTool;
 
+    if (this.wallPolyDraft && tool === 'cityWall') {
+      const draft = this.wallPolyDraft;
+      draft.shiftKey = Boolean(ctx.event.shiftKey);
+      const isPickingArcApex = draft.mode === 'arc' && draft.points.length >= 4;
+      const anchor =
+        !isPickingArcApex && draft.points.length >= 2
+          ? {
+              x: draft.points[draft.points.length - 2],
+              y: draft.points[draft.points.length - 1]
+            }
+          : undefined;
+      const firstPoint =
+        draft.points.length >= 2
+          ? { x: draft.points[0], y: draft.points[1] }
+          : undefined;
+      const res = this.snapWallCursorPoint(
+        snap,
+        ctx.docX,
+        ctx.docY,
+        anchor,
+        draft.shiftKey,
+        draft.mode === 'polyline' && draft.points.length >= 6,
+        firstPoint
+      );
+      draft.cursor = res.point;
+      draft.snapClosed = res.snapClosed;
+      const showEndpointSnap = Boolean(res.endpointSnap?.snapped && !res.snapClosed);
+      this.streetSnapRing.setAttrs({
+        visible: showEndpointSnap,
+        x: res.endpointSnap?.x ?? 0,
+        y: res.endpointSnap?.y ?? 0,
+        radius: Math.max(8, snap.wallStrokeWidthDoc * 0.65),
+        stroke: '#E0BB79',
+        fill: 'rgba(224, 187, 121, 0.18)'
+      });
+      if (showEndpointSnap) {
+        this.streetSnapRing.moveToTop();
+      }
+      this.wallPolyPreviewShape.moveToTop();
+      this.layers.overlayLayer.batchDraw();
+      return;
+    }
+
     if (this.pathDraft && tool === this.pathDraft.tool) {
       const { space } = snap.doc.manifest;
       const samples =
@@ -2985,6 +3522,8 @@ export class ObjectsLayerController {
     const clampedY = clampNumber(ctx.docY, 0, space.height);
     if (this.pathDraft) {
       this.commitPathDraft({ x: clampedX, y: clampedY });
+    } else if (this.wallPolyDraft) {
+      this.handleWallPolyPointerUp({ x: clampedX, y: clampedY });
     } else if (this.districtDraft) {
       this.commitDistrictDraft({ x: clampedX, y: clampedY });
     } else if (this.streetGridDraft) {
@@ -3006,6 +3545,14 @@ export class ObjectsLayerController {
     if (this.disposed) return;
     const snap = this.store.getSnapshot();
     const tool = snap.spacePanActive ? 'hand' : snap.activeTool;
+    if (tool === 'cityWall' && this.wallPolyDraft && this.wallPolyDraft.mode === 'polyline') {
+      if (this.wallPolyDraft.points.length >= 4) {
+        this.commitWallPolyDraft(false);
+      } else {
+        this.cancelWallPolyDraft();
+      }
+      return;
+    }
     if (tool !== 'select' && tool !== 'label') return;
 
     const hitObj = this.findTopmostObjectAt(snap.doc, ctx.docX, ctx.docY, ctx.cssX, ctx.cssY);
@@ -3026,7 +3573,35 @@ export class ObjectsLayerController {
     if (shouldIgnoreShortcut(e.target)) {
       return false;
     }
-    if (e.key === 'Escape' && (this.pathDraft || this.districtDraft || this.streetGridDraft)) {
+    if (this.wallPolyDraft) {
+      if (e.key === 'Escape') {
+        e.preventDefault?.();
+        this.cancelActiveInteraction();
+        return true;
+      }
+      if (e.key === 'Enter') {
+        e.preventDefault?.();
+        if (this.wallPolyDraft.points.length >= 4) {
+          this.commitWallPolyDraft(false);
+        } else {
+          this.cancelWallPolyDraft();
+        }
+        return true;
+      }
+      if (e.key === 'Backspace' && !e.ctrlKey && !e.metaKey && !e.altKey) {
+        e.preventDefault?.();
+        this.wallPolyDraft.points.splice(-2, 2);
+        if (this.wallPolyDraft.points.length < 2) {
+          this.cancelWallPolyDraft();
+        } else {
+          this.wallPolyDraft.snapClosed = false;
+          this.wallPolyPreviewShape.moveToTop();
+          this.layers.overlayLayer.batchDraw();
+        }
+        return true;
+      }
+    }
+    if (e.key === 'Escape' && (this.pathDraft || this.wallPolyDraft || this.districtDraft || this.streetGridDraft)) {
       e.preventDefault?.();
       this.cancelActiveInteraction();
       return true;
@@ -3069,6 +3644,7 @@ export class ObjectsLayerController {
     this.detachStageLeave = null;
     this.detachPathWindowFallback();
     this.pathDraft = null;
+    this.wallPolyDraft = null;
     this.districtDraft = null;
     this.streetGridDraft = null;
 
@@ -3079,6 +3655,7 @@ export class ObjectsLayerController {
     this.pathCursorRing.destroy();
     this.streetSnapRing.destroy();
     this.pathPreviewShape.destroy();
+    this.wallPolyPreviewShape.destroy();
     this.districtStrokePreview.destroy();
     this.districtBrushCircle.destroy();
     this.cityGhostShape.destroy();

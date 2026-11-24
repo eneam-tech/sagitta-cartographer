@@ -7,6 +7,7 @@ import {
   PlazaObject
 } from '../model/document';
 import { MapTheme } from '../theme/theme';
+import { drawArchitecturalWallToContext } from './wallRenderer';
 
 function parseHexRgb(hex: string): [number, number, number] {
   const clean = hex.startsWith('#') ? hex.slice(1) : hex;
@@ -681,62 +682,16 @@ export function drawUrbanPathSegmentsToContext(
     return true;
   }
 
-  // City Wall ('wall'): SE shadow + ink perimeter + stone masonry core + battlements
-  if (pass === 'casing' || pass === 'full') {
-    if (wallCasingPhase !== 'ink') {
-      ctx.save();
-      ctx.translate(Math.max(1.5, baseWidthPx * 0.18), Math.max(1.5, baseWidthPx * 0.18));
-      traceLine();
-      ctx.strokeStyle = palette?.roofShadow ?? 'rgba(20, 15, 12, 0.34)';
-      ctx.lineWidth = baseWidthPx + Math.max(1.2, avgScale * 1.2);
-      ctx.stroke();
-      ctx.restore();
-    }
-    if (wallCasingPhase !== 'shadow') {
-      traceLine();
-      ctx.strokeStyle = inkColor;
-      ctx.lineWidth = baseWidthPx + Math.max(1.8, avgScale * 2.0);
-      ctx.stroke();
-    }
-  }
-
-  if (pass === 'fill' || pass === 'full') {
-    traceLine();
-    ctx.strokeStyle = path.color || palette?.wallStone || '#6E665C';
-    ctx.lineWidth = baseWidthPx;
-    ctx.stroke();
-
-    // Battlement / merlon ticks perpendicular to wall center
-    const tickStepPx = Math.max(5, baseWidthPx * 0.72);
-    const tickHalfLen = baseWidthPx * 0.48;
-    ctx.beginPath();
-    let carry = 0;
-    for (let i = 0; i < vertexCount - 1; i += 1) {
-      const ax = pts[i * 2] * scaleX;
-      const ay = pts[i * 2 + 1] * scaleY;
-      const bx = pts[(i + 1) * 2] * scaleX;
-      const by = pts[(i + 1) * 2 + 1] * scaleY;
-      const dx = bx - ax;
-      const dy = by - ay;
-      const segLen = Math.hypot(dx, dy);
-      if (segLen < 1e-3) continue;
-      const nx = -dy / segLen;
-      const ny = dx / segLen;
-      let dist = tickStepPx - carry;
-      while (dist <= segLen) {
-        const t = dist / segLen;
-        const px = ax + dx * t;
-        const py = ay + dy * t;
-        ctx.moveTo(px + nx * tickHalfLen * 0.45, py + ny * tickHalfLen * 0.45);
-        ctx.lineTo(px + nx * tickHalfLen, py + ny * tickHalfLen);
-        dist += tickStepPx;
-      }
-      carry = (carry + segLen) % tickStepPx;
-    }
-    ctx.strokeStyle = inkColor;
-    ctx.lineWidth = Math.max(0.8, baseWidthPx * 0.14);
-    ctx.stroke();
-  }
-
+  // City Wall ('wall'): architectural masonry/palisade/bastion/low-wall with gate cutouts
+  drawArchitecturalWallToContext(
+    ctx,
+    path,
+    pts,
+    theme,
+    scaleX,
+    scaleY,
+    pass,
+    wallCasingPhase
+  );
   return true;
 }
