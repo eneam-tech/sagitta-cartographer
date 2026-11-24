@@ -264,7 +264,11 @@ function normalizeOptionalV3Fields(raw: unknown): unknown {
       }
       const obj = rawObj as Record<string, unknown>;
       if (
-        (obj.type === 'stamp' || obj.type === 'label' || obj.type === 'path') &&
+        (obj.type === 'stamp' ||
+          obj.type === 'label' ||
+          obj.type === 'path' ||
+          obj.type === 'building' ||
+          obj.type === 'plaza') &&
         obj.rotationDeg === undefined
       ) {
         obj.rotationDeg = 0;

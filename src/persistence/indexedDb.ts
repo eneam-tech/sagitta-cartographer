@@ -821,6 +821,7 @@ export class CartografoIndexedDb {
         const summaries: SavedProjectSummary[] = records
           .map((r) => ({
             id: r.id,
+            kind: r.manifest?.kind ?? 'world',
             title: r.manifest?.title ?? r.title,
             revision: r.manifest?.revision ?? r.revision,
             updatedAt: r.updatedAt,

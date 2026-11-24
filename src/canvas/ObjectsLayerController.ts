@@ -1,31 +1,55 @@
 import type Konva from 'konva';
 import KonvaRuntime from 'konva/lib/index.js';
 import { getCatalogItemById, svgToDataUrl } from '../assets/catalog';
+import {
+  findNearestUrbanStreet,
+  findOverlappingBuildingIdsForPlaza,
+  findSnapPointOnUrbanPaths,
+  getCityThemePalette,
+  sampleLandMaskAtDoc
+} from '../city/geometry';
+import {
+  findBuildingsInBrushStroke,
+  generateDistrictBuildingsAlongStroke
+} from '../city/smartDistrictBrush';
+import {
+  buildSmartCityWallObjects,
+  generateStreetGridInRect
+} from '../city/streetGridTool';
 import { Point2D, clampNumber } from '../model/coordinates';
 import {
   AssetManifestEntry,
+  BuildingObject,
   LabelObject,
   MapDocument,
   MapLayer,
   MapObject,
+  PathKind,
   PathObject,
+  PlazaObject,
   StampObject,
   cloneMapObject,
   resolveObjectLayerId
 } from '../model/document';
 import {
+  AddAndDeleteObjectsCommand,
   AddObjectCommand,
   AddObjectsBatchCommand,
   DeleteObjectCommand,
+  DeleteObjectsBatchCommand,
   areMapObjectsEqual,
   commitObjectUpdate,
+  createBuildingObject,
   createPathObject,
+  createPlazaObject,
   createPoiStampObject,
   getDefaultObjectLabel,
   getDeleteObjectLabel,
+  getPathKindDefaults,
   normalizeRotationDeg,
   simplifyPolyline
 } from '../objects/objectCommands';
+import { drawBuildingToContext, drawPlazaToContext } from '../render/cityRenderer';
 import {
   drawPathToContext,
   resolveLabelHaloWidth,
@@ -66,8 +90,24 @@ interface CachedAssetEntry {
 }
 
 interface ActivePathDraft {
+  tool: 'path' | 'street' | 'cityWall';
   points: number[];
   layerId: string;
+  buildingLayerId: string;
+  pointerId: number | null;
+}
+
+interface ActiveDistrictDraft {
+  points: Array<{ x: number; y: number }>;
+  layerId: string;
+  pointerId: number | null;
+}
+
+interface ActiveStreetGridDraft {
+  startDoc: Point2D;
+  endDoc: Point2D;
+  streetLayerId: string;
+  buildingLayerId: string;
   pointerId: number | null;
 }
 
@@ -137,6 +177,26 @@ function computePathSelfRect(pathObj: PathObject | undefined): {
   };
 }
 
+function computeCenteredBoxSelfRect(
+  width: number,
+  height: number,
+  pad = 2
+): {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+} {
+  const w = Math.max(8, width);
+  const h = Math.max(8, height);
+  return {
+    x: -w * 0.5 - pad,
+    y: -h * 0.5 - pad,
+    width: w + pad * 2,
+    height: h + pad * 2
+  };
+}
+
 function isPointInsideObject(
   obj: MapObject,
   docX: number,
@@ -157,6 +217,23 @@ function isPointInsideObject(
     const left = -obj.width * anchorX;
     const top = -obj.height * anchorY;
     return lx >= left && lx <= left + obj.width && ly >= top && ly <= top + obj.height;
+  }
+
+  if (obj.type === 'building') {
+    const hw = obj.width * 0.5 + 3;
+    const hh = obj.height * 0.5 + 3;
+    return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
+  }
+
+  if (obj.type === 'plaza') {
+    const hw = obj.width * 0.5 + 3;
+    const hh = obj.height * 0.5 + 3;
+    if (obj.shape === 'circle') {
+      const rx = Math.max(4, hw);
+      const ry = Math.max(4, hh);
+      return (lx * lx) / (rx * rx) + (ly * ly) / (ry * ry) <= 1;
+    }
+    return Math.abs(lx) <= hw && Math.abs(ly) <= hh;
   }
 
   if (obj.type === 'path') {
@@ -188,6 +265,23 @@ function isPointInsideObject(
   return lx >= -4 && lx <= width + 4 && ly >= -4 && ly <= height + 4;
 }
 
+function resolveBuildingPlacementRotation(
+  doc: MapDocument,
+  docX: number,
+  docY: number,
+  fallbackDeg: number,
+  autoAlign: boolean
+): number {
+  if (!autoAlign) {
+    return normalizeRotationDeg(fallbackDeg);
+  }
+  const nearest = findNearestUrbanStreet(doc, docX, docY, 140);
+  if (!nearest) {
+    return normalizeRotationDeg(fallbackDeg);
+  }
+  return normalizeRotationDeg(nearest.angleDeg + fallbackDeg);
+}
+
 function computePolylineLength(points: readonly number[]): number {
   const count = Math.floor(points.length / 2);
   let len = 0;
@@ -199,9 +293,9 @@ function computePolylineLength(points: readonly number[]): number {
 
 /**
  * Imperative Konva controller managing `objectsLayer` (grouped by non-terrain
- * `MapLayer`s with visibility/opacity/lock enforcement for stamps, labels, and
- * vector paths) and `overlayLayer` (two-tone Transformer, cursor ghosts, and
- * live vector path stroke previews).
+ * `MapLayer`s with visibility/opacity/lock enforcement for stamps, labels, vector
+ * paths, buildings, and plazas) and `overlayLayer` (two-tone Transformer, cursor
+ * ghosts, smart city brush/grid/snap previews, and live vector stroke previews).
  */
 export class ObjectsLayerController {
   private readonly layers: ViewportLayersHandle;
@@ -222,7 +316,12 @@ export class ObjectsLayerController {
   private readonly ghostLabelRect: Konva.Rect;
   private readonly ghostLabelText: Konva.Text;
   private readonly pathCursorRing: Konva.Circle;
+  private readonly streetSnapRing: Konva.Circle;
   private readonly pathPreviewShape: Konva.Shape;
+  private readonly districtBrushCircle: Konva.Circle;
+  private readonly districtStrokePreview: Konva.Line;
+  private readonly cityGhostShape: Konva.Shape;
+  private readonly streetGridPreviewShape: Konva.Shape;
 
   private unsubscribeStore: (() => void) | null = null;
   private detachStageLeave: (() => void) | null = null;
@@ -239,6 +338,7 @@ export class ObjectsLayerController {
   private lastPoiBrushMode = '';
   private lastPoiScatterRadius = -1;
   private lastPathStyleSignature = '';
+  private lastCityToolSignature = '';
   private lastInlineEditingObjectId: string | null = null;
   private lastCameraScale = -1;
   private lastCameraOffsetX = 0;
@@ -252,6 +352,8 @@ export class ObjectsLayerController {
   private dragStartSnapshot: MapObject | null = null;
   private transformStartSnapshot: MapObject | null = null;
   private pathDraft: ActivePathDraft | null = null;
+  private districtDraft: ActiveDistrictDraft | null = null;
+  private streetGridDraft: ActiveStreetGridDraft | null = null;
 
   private cursorInside = false;
   private cursorDocPoint: Point2D = { x: 0, y: 0 };
@@ -330,6 +432,18 @@ export class ObjectsLayerController {
       listening: false
     });
 
+    this.streetSnapRing = new KonvaCtor.Circle({
+      visible: false,
+      x: 0,
+      y: 0,
+      radius: 10,
+      stroke: '#9CDEEF',
+      strokeWidth: 2,
+      strokeScaleEnabled: false,
+      fill: 'rgba(156, 222, 239, 0.18)',
+      listening: false
+    });
+
     this.pathPreviewShape = new KonvaCtor.Shape({
       visible: false,
       listening: false,
@@ -340,15 +454,42 @@ export class ObjectsLayerController {
         const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
         if (!rawCtx) return;
         const snap = this.store.getSnapshot();
+        const theme = snap.doc.theme;
+
+        let kind: PathKind = snap.pathKind;
+        let strokeWidthDoc = snap.pathStrokeWidthDoc;
+        let color = snap.pathColor;
+        let smooth = snap.pathSmooth;
+        let dashed = snap.pathDashed;
+        let tapered = snap.pathTapered;
+
+        if (draft.tool === 'street') {
+          kind = snap.streetPathKind;
+          strokeWidthDoc = snap.streetStrokeWidthDoc;
+          const defaults = getPathKindDefaults(kind, theme);
+          color = defaults.color;
+          smooth = kind === 'canal';
+          dashed = false;
+          tapered = false;
+        } else if (draft.tool === 'cityWall') {
+          kind = 'wall';
+          strokeWidthDoc = snap.wallStrokeWidthDoc;
+          const defaults = getPathKindDefaults('wall', theme);
+          color = defaults.color;
+          smooth = false;
+          dashed = false;
+          tapered = false;
+        }
+
         if (draft.points.length < 4) {
           rawCtx.save();
-          rawCtx.fillStyle = snap.pathColor;
+          rawCtx.fillStyle = color;
           rawCtx.globalAlpha *= 0.85;
           rawCtx.beginPath();
           rawCtx.arc(
             draft.points[0],
             draft.points[1],
-            Math.max(1.5, snap.pathStrokeWidthDoc * 0.5),
+            Math.max(1.5, strokeWidthDoc * 0.5),
             0,
             Math.PI * 2
           );
@@ -359,19 +500,134 @@ export class ObjectsLayerController {
         const previewObj: PathObject = {
           id: '__path-preview__',
           type: 'path',
-          kind: snap.pathKind,
+          kind,
           x: 0,
           y: 0,
           rotationDeg: 0,
           points: draft.points,
-          strokeWidthDoc: snap.pathStrokeWidthDoc,
-          color: snap.pathColor,
+          strokeWidthDoc,
+          color,
           opacity: 0.88,
-          dashed: snap.pathDashed,
-          tapered: snap.pathTapered,
-          smooth: snap.pathSmooth
+          dashed,
+          tapered,
+          smooth
         };
-        drawPathToContext(rawCtx, previewObj, 1, 1);
+        drawPathToContext(rawCtx, previewObj, 1, 1, theme);
+      }
+    });
+
+    this.districtBrushCircle = new KonvaCtor.Circle({
+      visible: false,
+      x: 0,
+      y: 0,
+      radius: 55,
+      stroke: '#E0BB79',
+      strokeWidth: 1.75,
+      strokeScaleEnabled: false,
+      dash: [7, 5],
+      fill: 'rgba(224, 187, 121, 0.08)',
+      listening: false
+    });
+
+    this.districtStrokePreview = new KonvaCtor.Line({
+      visible: false,
+      points: [],
+      stroke: 'rgba(224, 187, 121, 0.28)',
+      strokeWidth: 110,
+      lineCap: 'round',
+      lineJoin: 'round',
+      listening: false
+    });
+
+    this.cityGhostShape = new KonvaCtor.Shape({
+      visible: false,
+      opacity: 0.72,
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx, konvaShape) => {
+        const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+        if (!rawCtx) return;
+        const theme = this.store.getDocument().theme;
+        const ghostBldg = konvaShape.getAttr('ghostBuilding') as BuildingObject | undefined;
+        if (ghostBldg) {
+          drawBuildingToContext(rawCtx, ghostBldg, theme, 1, 1, { applyTransform: false });
+          return;
+        }
+        const ghostPlaza = konvaShape.getAttr('ghostPlaza') as PlazaObject | undefined;
+        if (ghostPlaza) {
+          drawPlazaToContext(rawCtx, ghostPlaza, theme, 1, 1, { applyTransform: false });
+        }
+      }
+    });
+
+    this.streetGridPreviewShape = new KonvaCtor.Shape({
+      visible: false,
+      listening: false,
+      perfectDrawEnabled: false,
+      sceneFunc: (ctx) => {
+        const draft = this.streetGridDraft;
+        if (!draft) return;
+        const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+        if (!rawCtx) return;
+        const snap = this.store.getSnapshot();
+        const x0 = Math.min(draft.startDoc.x, draft.endDoc.x);
+        const y0 = Math.min(draft.startDoc.y, draft.endDoc.y);
+        const w = Math.abs(draft.endDoc.x - draft.startDoc.x);
+        const h = Math.abs(draft.endDoc.y - draft.startDoc.y);
+        if (w < 4 || h < 4) return;
+
+        rawCtx.save();
+        rawCtx.fillStyle = 'rgba(156, 222, 239, 0.08)';
+        rawCtx.strokeStyle = '#9CDEEF';
+        rawCtx.lineWidth = 1.5;
+        rawCtx.setLineDash([6, 4]);
+        rawCtx.fillRect(x0, y0, w, h);
+        rawCtx.strokeRect(x0, y0, w, h);
+
+        const spacing = clampNumber(snap.streetGridSpacingDoc, 48, 220);
+        const cx = x0 + w * 0.5;
+        const cy = y0 + h * 0.5;
+        rawCtx.strokeStyle = 'rgba(224, 187, 121, 0.78)';
+        rawCtx.lineWidth = 2;
+        rawCtx.setLineDash([4, 4]);
+        rawCtx.beginPath();
+
+        if (snap.streetGridStyle === 'radial') {
+          const maxR = Math.min(w, h) * 0.48;
+          for (let r = spacing * 0.75; r <= maxR; r += spacing) {
+            rawCtx.moveTo(cx + r, cy);
+            rawCtx.arc(cx, cy, r, 0, Math.PI * 2);
+          }
+          const spokes = 6;
+          for (let i = 0; i < spokes; i += 1) {
+            const a = ((snap.streetGridAngleDeg * Math.PI) / 180) + (i * Math.PI) / (spokes * 0.5);
+            rawCtx.moveTo(cx, cy);
+            rawCtx.lineTo(cx + Math.cos(a) * maxR, cy + Math.sin(a) * maxR);
+          }
+        } else {
+          const rad = (snap.streetGridAngleDeg * Math.PI) / 180;
+          const diag = Math.hypot(w, h) * 0.52;
+          const cos = Math.cos(rad);
+          const sin = Math.sin(rad);
+          rawCtx.save();
+          rawCtx.beginPath();
+          rawCtx.rect(x0, y0, w, h);
+          rawCtx.clip();
+          rawCtx.beginPath();
+          for (let d = -diag; d <= diag; d += spacing) {
+            rawCtx.moveTo(cx + cos * -diag - sin * d, cy + sin * -diag + cos * d);
+            rawCtx.lineTo(cx + cos * diag - sin * d, cy + sin * diag + cos * d);
+            rawCtx.moveTo(cx + cos * d - sin * -diag, cy + sin * d + cos * -diag);
+            rawCtx.lineTo(cx + cos * d - sin * diag, cy + sin * d + cos * diag);
+          }
+          rawCtx.stroke();
+          rawCtx.restore();
+          rawCtx.restore();
+          return;
+        }
+
+        rawCtx.stroke();
+        rawCtx.restore();
       }
     });
 
@@ -379,7 +635,12 @@ export class ObjectsLayerController {
       this.ghostGroup,
       this.ghostLabelPill,
       this.pathCursorRing,
-      this.pathPreviewShape
+      this.streetSnapRing,
+      this.pathPreviewShape,
+      this.districtStrokePreview,
+      this.districtBrushCircle,
+      this.cityGhostShape,
+      this.streetGridPreviewShape
     );
 
     const content = this.layers.stage.content;
@@ -524,12 +785,40 @@ export class ObjectsLayerController {
       this.lastExtraBlobsRef = extraBlobs;
     }
 
-    if (effectiveTool !== 'path' && this.pathDraft) {
+    if (this.pathDraft && effectiveTool !== this.pathDraft.tool) {
       this.cancelPathDraft();
     }
+    if (this.districtDraft && effectiveTool !== 'district') {
+      this.cancelDistrictDraft();
+    }
+    if (this.streetGridDraft && effectiveTool !== 'streetGrid') {
+      this.cancelStreetGridDraft();
+    }
 
-    const themeSignature = `${doc.theme.id}:${doc.theme.version}:${doc.theme.colors.labelHalo}:${JSON.stringify(doc.theme.fonts)}`;
+    const themeSignature = `${doc.theme.id}:${doc.theme.version}:${doc.theme.colors.labelHalo}:${JSON.stringify(doc.theme.fonts)}:${JSON.stringify(doc.theme.city ?? null)}`;
     const pathStyleSignature = `${snapshot.pathKind}:${snapshot.pathStrokeWidthDoc}:${snapshot.pathColor}:${snapshot.pathSmooth}:${snapshot.pathDashed}:${snapshot.pathTapered}`;
+    const cityToolSignature = [
+      snapshot.districtMode,
+      snapshot.districtDiameterDoc,
+      snapshot.buildingShape,
+      snapshot.buildingWidthDoc,
+      snapshot.buildingHeightDoc,
+      snapshot.buildingRotationDeg,
+      snapshot.buildingRoofColor,
+      snapshot.buildingAutoAlign,
+      snapshot.buildingRenderStyle,
+      snapshot.streetPathKind,
+      snapshot.streetStrokeWidthDoc,
+      snapshot.streetSnapEnabled,
+      snapshot.streetGridStyle,
+      snapshot.streetGridSpacingDoc,
+      snapshot.streetGridAngleDeg,
+      snapshot.plazaShape,
+      snapshot.plazaSizeDoc,
+      snapshot.plazaCenterpiece,
+      snapshot.wallStrokeWidthDoc
+    ].join(':');
+
     const docChanged =
       doc !== this.lastDoc ||
       snapshot.documentVersionTick !== this.lastDocVersionTick ||
@@ -542,6 +831,7 @@ export class ObjectsLayerController {
       snapshot.poiBrushMode !== this.lastPoiBrushMode ||
       snapshot.poiScatterRadiusDoc !== this.lastPoiScatterRadius;
     const pathStyleChanged = pathStyleSignature !== this.lastPathStyleSignature;
+    const cityToolChanged = cityToolSignature !== this.lastCityToolSignature;
     const inlineChanged = this.inlineEditingObjectId !== this.lastInlineEditingObjectId;
     const cameraChanged =
       snapshot.camera.scale !== this.lastCameraScale ||
@@ -554,6 +844,7 @@ export class ObjectsLayerController {
       !selectionChanged &&
       !poiChanged &&
       !pathStyleChanged &&
+      !cityToolChanged &&
       !inlineChanged &&
       !cameraChanged
     ) {
@@ -625,7 +916,7 @@ export class ObjectsLayerController {
         if (node) {
           const expectedType =
             obj.type === 'stamp' ? 'Image' : obj.type === 'label' ? 'Text' : 'Shape';
-          if (node.getClassName() !== expectedType) {
+          if (node.getClassName() !== expectedType || node.getAttr('objectKind') !== obj.type) {
             node.destroy();
             this.nodeMap.delete(obj.id);
             this.syncedObjectMap.delete(obj.id);
@@ -719,7 +1010,7 @@ export class ObjectsLayerController {
       }
       const targetAnchors = selectedObj.type === 'label' ? LABEL_ANCHORS : STAMP_ANCHORS;
       this.transformer.enabledAnchors(targetAnchors);
-      this.transformer.keepRatio(true);
+      this.transformer.keepRatio(selectedObj.type === 'stamp' || selectedObj.type === 'label');
       if (!this.transformer.visible()) {
         this.transformer.visible(true);
         overlayLayerDirty = true;
@@ -756,6 +1047,7 @@ export class ObjectsLayerController {
     this.lastPoiBrushMode = snapshot.poiBrushMode;
     this.lastPoiScatterRadius = snapshot.poiScatterRadiusDoc;
     this.lastPathStyleSignature = pathStyleSignature;
+    this.lastCityToolSignature = cityToolSignature;
     this.lastInlineEditingObjectId = this.inlineEditingObjectId;
     this.lastCameraScale = snapshot.camera.scale;
     this.lastCameraOffsetX = snapshot.camera.offsetX;
@@ -845,20 +1137,150 @@ export class ObjectsLayerController {
       dirty = true;
     }
 
-    const showPathCursor =
-      effectiveTool === 'path' && this.cursorInside && !this.pathDraft && !inlineActive;
+    const isLineDrawTool =
+      effectiveTool === 'path' || effectiveTool === 'street' || effectiveTool === 'cityWall';
+    let snapPoint: { x: number; y: number; snapped: boolean } | null = null;
+    if (
+      (effectiveTool === 'street' || effectiveTool === 'cityWall') &&
+      this.cursorInside &&
+      !inlineActive &&
+      (effectiveTool === 'cityWall' || snapshot.streetSnapEnabled)
+    ) {
+      snapPoint = findSnapPointOnUrbanPaths(
+        snapshot.doc,
+        this.cursorDocPoint.x,
+        this.cursorDocPoint.y,
+        20
+      );
+    }
+
+    if (snapPoint && snapPoint.snapped) {
+      const w =
+        effectiveTool === 'cityWall' ? snapshot.wallStrokeWidthDoc : snapshot.streetStrokeWidthDoc;
+      this.streetSnapRing.setAttrs({
+        visible: true,
+        x: snapPoint.x,
+        y: snapPoint.y,
+        radius: Math.max(8, w * 0.65)
+      });
+      this.streetSnapRing.moveToTop();
+      dirty = true;
+    } else if (this.streetSnapRing.visible()) {
+      this.streetSnapRing.visible(false);
+      dirty = true;
+    }
+
+    const showPathCursor = isLineDrawTool && this.cursorInside && !this.pathDraft && !inlineActive;
     if (showPathCursor) {
+      let radius = Math.max(3, snapshot.pathStrokeWidthDoc * 0.5);
+      let stroke = snapshot.pathColor;
+      if (effectiveTool === 'street') {
+        radius = Math.max(3, snapshot.streetStrokeWidthDoc * 0.5);
+        stroke = getPathKindDefaults(snapshot.streetPathKind, snapshot.doc.theme).color;
+      } else if (effectiveTool === 'cityWall') {
+        radius = Math.max(3, snapshot.wallStrokeWidthDoc * 0.5);
+        stroke = getPathKindDefaults('wall', snapshot.doc.theme).color;
+      }
       this.pathCursorRing.setAttrs({
         visible: true,
-        x: this.cursorDocPoint.x,
-        y: this.cursorDocPoint.y,
-        radius: Math.max(3, snapshot.pathStrokeWidthDoc * 0.5),
-        stroke: snapshot.pathColor
+        x: snapPoint?.snapped ? snapPoint.x : this.cursorDocPoint.x,
+        y: snapPoint?.snapped ? snapPoint.y : this.cursorDocPoint.y,
+        radius,
+        stroke
       });
       this.pathCursorRing.moveToTop();
       dirty = true;
     } else if (this.pathCursorRing.visible()) {
       this.pathCursorRing.visible(false);
+      dirty = true;
+    }
+
+    const showDistrictCursor = effectiveTool === 'district' && this.cursorInside && !inlineActive;
+    if (showDistrictCursor) {
+      const isErase = snapshot.districtMode === 'erase';
+      this.districtBrushCircle.setAttrs({
+        visible: true,
+        x: this.cursorDocPoint.x,
+        y: this.cursorDocPoint.y,
+        radius: Math.max(12, snapshot.districtDiameterDoc * 0.5),
+        stroke: isErase ? '#FFB3A6' : '#E0BB79',
+        fill: isErase ? 'rgba(255, 179, 166, 0.1)' : 'rgba(224, 187, 121, 0.08)'
+      });
+      this.districtBrushCircle.moveToTop();
+      dirty = true;
+    } else if (this.districtBrushCircle.visible()) {
+      this.districtBrushCircle.visible(false);
+      dirty = true;
+    }
+
+    const showCityGhost =
+      (effectiveTool === 'building' || effectiveTool === 'plaza') &&
+      this.cursorInside &&
+      !inlineActive;
+    if (showCityGhost) {
+      if (effectiveTool === 'building') {
+        const rotationDeg = resolveBuildingPlacementRotation(
+          snapshot.doc,
+          this.cursorDocPoint.x,
+          this.cursorDocPoint.y,
+          snapshot.buildingRotationDeg,
+          snapshot.buildingAutoAlign
+        );
+        const ghostBldg: BuildingObject = {
+          id: '__ghost-building__',
+          type: 'building',
+          shape: snapshot.buildingShape,
+          x: this.cursorDocPoint.x,
+          y: this.cursorDocPoint.y,
+          width: snapshot.buildingWidthDoc,
+          height: snapshot.buildingHeightDoc,
+          rotationDeg,
+          roofColor: snapshot.buildingRoofColor,
+          ...(snapshot.buildingRenderStyle !== 'auto'
+            ? { renderStyle: snapshot.buildingRenderStyle }
+            : {})
+        };
+        this.cityGhostShape.setAttr('ghostBuilding', ghostBldg);
+        this.cityGhostShape.setAttr('ghostPlaza', undefined);
+        this.cityGhostShape.setAttrs({
+          visible: true,
+          x: ghostBldg.x,
+          y: ghostBldg.y,
+          rotation: ghostBldg.rotationDeg
+        });
+      } else {
+        const palette = getCityThemePalette(snapshot.doc.theme);
+        const w = snapshot.plazaSizeDoc;
+        const h =
+          snapshot.plazaShape === 'rect'
+            ? Math.max(24, Math.round(snapshot.plazaSizeDoc * 0.76))
+            : snapshot.plazaSizeDoc;
+        const ghostPlaza: PlazaObject = {
+          id: '__ghost-plaza__',
+          type: 'plaza',
+          shape: snapshot.plazaShape,
+          x: this.cursorDocPoint.x,
+          y: this.cursorDocPoint.y,
+          width: w,
+          height: h,
+          rotationDeg: 0,
+          fillColor: palette.plazaFill,
+          borderColor: palette.streetBorder,
+          centerpiece: snapshot.plazaCenterpiece
+        };
+        this.cityGhostShape.setAttr('ghostBuilding', undefined);
+        this.cityGhostShape.setAttr('ghostPlaza', ghostPlaza);
+        this.cityGhostShape.setAttrs({
+          visible: true,
+          x: ghostPlaza.x,
+          y: ghostPlaza.y,
+          rotation: 0
+        });
+      }
+      this.cityGhostShape.moveToTop();
+      dirty = true;
+    } else if (this.cityGhostShape.visible()) {
+      this.cityGhostShape.visible(false);
       dirty = true;
     }
 
@@ -888,6 +1310,76 @@ export class ObjectsLayerController {
         fillAfterStrokeEnabled: true,
         shadowForStrokeEnabled: false
       });
+    } else if (obj.type === 'building') {
+      const shape = new KonvaCtor.Shape({
+        id: obj.id,
+        draggable,
+        perfectDrawEnabled: false,
+        sceneFunc: (ctx, konvaShape) => {
+          const bObj = konvaShape.getAttr('buildingObject') as BuildingObject | undefined;
+          if (!bObj) return;
+          const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+          if (!rawCtx) return;
+          drawBuildingToContext(
+            rawCtx,
+            { ...bObj, rotationDeg: konvaShape.rotation() },
+            this.store.getDocument().theme,
+            1,
+            1,
+            { applyTransform: false }
+          );
+        },
+        hitFunc: (ctx, konvaShape) => {
+          const bObj = konvaShape.getAttr('buildingObject') as BuildingObject | undefined;
+          if (!bObj) return;
+          ctx.beginPath();
+          ctx.rect(-bObj.width * 0.5, -bObj.height * 0.5, bObj.width, bObj.height);
+          ctx.closePath();
+          ctx.fillStrokeShape(konvaShape);
+        }
+      });
+      shape.getSelfRect = () => {
+        const bObj = shape.getAttr('buildingObject') as BuildingObject | undefined;
+        return computeCenteredBoxSelfRect(bObj?.width ?? 24, bObj?.height ?? 24, 2);
+      };
+      node = shape;
+    } else if (obj.type === 'plaza') {
+      const shape = new KonvaCtor.Shape({
+        id: obj.id,
+        draggable,
+        perfectDrawEnabled: false,
+        sceneFunc: (ctx, konvaShape) => {
+          const pObj = konvaShape.getAttr('plazaObject') as PlazaObject | undefined;
+          if (!pObj) return;
+          const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
+          if (!rawCtx) return;
+          drawPlazaToContext(
+            rawCtx,
+            { ...pObj, rotationDeg: konvaShape.rotation() },
+            this.store.getDocument().theme,
+            1,
+            1,
+            { applyTransform: false }
+          );
+        },
+        hitFunc: (ctx, konvaShape) => {
+          const pObj = konvaShape.getAttr('plazaObject') as PlazaObject | undefined;
+          if (!pObj) return;
+          ctx.beginPath();
+          if (pObj.shape === 'circle') {
+            ctx.ellipse(0, 0, pObj.width * 0.5, pObj.height * 0.5, 0, 0, Math.PI * 2);
+          } else {
+            ctx.rect(-pObj.width * 0.5, -pObj.height * 0.5, pObj.width, pObj.height);
+          }
+          ctx.closePath();
+          ctx.fillStrokeShape(konvaShape);
+        }
+      });
+      shape.getSelfRect = () => {
+        const pObj = shape.getAttr('plazaObject') as PlazaObject | undefined;
+        return computeCenteredBoxSelfRect(pObj?.width ?? 60, pObj?.height ?? 60, 2);
+      };
+      node = shape;
     } else {
       const shape = new KonvaCtor.Shape({
         id: obj.id,
@@ -900,7 +1392,13 @@ export class ObjectsLayerController {
           if (!pathObj) return;
           const rawCtx = (ctx as unknown as { _context?: CanvasRenderingContext2D })._context;
           if (!rawCtx) return;
-          drawPathToContext(rawCtx, { ...pathObj, x: 0, y: 0, rotationDeg: 0 }, 1, 1);
+          drawPathToContext(
+            rawCtx,
+            { ...pathObj, x: 0, y: 0, rotationDeg: 0 },
+            1,
+            1,
+            this.store.getDocument().theme
+          );
         },
         hitFunc: (ctx, konvaShape) => {
           const pathObj = konvaShape.getAttr('pathObject') as PathObject | undefined;
@@ -924,6 +1422,7 @@ export class ObjectsLayerController {
       node = shape;
     }
 
+    node.setAttr('objectKind', obj.type);
     this.applyObjectAttrsToNode(node, obj, doc);
     this.bindNodeInteractionEvents(node, obj.id);
     return node;
@@ -934,6 +1433,7 @@ export class ObjectsLayerController {
     obj: MapObject,
     doc: MapDocument
   ): void {
+    node.setAttr('objectKind', obj.type);
     if (obj.type === 'stamp') {
       const cached = this.ensureAssetResource(obj.assetId, doc);
       const anchorX = cached?.entry.anchorX ?? 0.5;
@@ -964,6 +1464,24 @@ export class ObjectsLayerController {
         strokeWidth: resolveLabelHaloWidth(obj.fontSize, 1),
         fillAfterStrokeEnabled: true,
         lineJoin: 'round',
+        scaleX: 1,
+        scaleY: 1,
+        rotation: obj.rotationDeg
+      });
+    } else if (obj.type === 'building') {
+      node.setAttr('buildingObject', obj);
+      node.setAttrs({
+        x: obj.x,
+        y: obj.y,
+        scaleX: 1,
+        scaleY: 1,
+        rotation: obj.rotationDeg
+      });
+    } else if (obj.type === 'plaza') {
+      node.setAttr('plazaObject', obj);
+      node.setAttrs({
+        x: obj.x,
+        y: obj.y,
         scaleX: 1,
         scaleY: 1,
         rotation: obj.rotationDeg
@@ -1018,7 +1536,11 @@ export class ObjectsLayerController {
           ? 'Sposta simbolo'
           : prev.type === 'label'
             ? 'Sposta etichetta'
-            : 'Sposta tracciato';
+            : prev.type === 'building'
+              ? 'Sposta edificio'
+              : prev.type === 'plaza'
+                ? 'Sposta piazza'
+                : 'Sposta tracciato';
       commitObjectUpdate(this.store, prev, next, actionLabel);
     });
 
@@ -1090,6 +1612,44 @@ export class ObjectsLayerController {
           fontSize: nextFontSize,
           rotationDeg: nextRotation
         };
+      } else if (prev.type === 'building') {
+        const nextWidth = Math.max(8, Number((prev.width * scaleX).toFixed(2)));
+        const nextHeight = Math.max(8, Number((prev.height * scaleY).toFixed(2)));
+        next = {
+          ...prev,
+          x: nextX,
+          y: nextY,
+          width: nextWidth,
+          height: nextHeight,
+          rotationDeg: nextRotation
+        };
+        node.setAttr('buildingObject', next);
+        node.setAttrs({
+          scaleX: 1,
+          scaleY: 1,
+          x: nextX,
+          y: nextY,
+          rotation: nextRotation
+        });
+      } else if (prev.type === 'plaza') {
+        const nextWidth = Math.max(20, Number((prev.width * scaleX).toFixed(2)));
+        const nextHeight = Math.max(20, Number((prev.height * scaleY).toFixed(2)));
+        next = {
+          ...prev,
+          x: nextX,
+          y: nextY,
+          width: nextWidth,
+          height: nextHeight,
+          rotationDeg: nextRotation
+        };
+        node.setAttr('plazaObject', next);
+        node.setAttrs({
+          scaleX: 1,
+          scaleY: 1,
+          x: nextX,
+          y: nextY,
+          rotation: nextRotation
+        });
       } else {
         const nextPoints: number[] = [];
         for (let i = 0; i < prev.points.length; i += 2) {
@@ -1131,7 +1691,11 @@ export class ObjectsLayerController {
           ? 'Trasforma simbolo'
           : prev.type === 'label'
             ? 'Trasforma etichetta'
-            : 'Trasforma tracciato';
+            : prev.type === 'building'
+              ? 'Trasforma edificio'
+              : prev.type === 'plaza'
+                ? 'Trasforma piazza'
+                : 'Trasforma tracciato';
       if (!areMapObjectsEqual(prev, next)) {
         commitObjectUpdate(this.store, prev, next, actionLabel);
       }
@@ -1382,15 +1946,21 @@ export class ObjectsLayerController {
     this.detachPathWindowFallback();
     if (typeof window === 'undefined') return;
     const onWinPointerUp = () => {
-      this.commitPathDraft();
+      if (this.pathDraft) {
+        this.commitPathDraft();
+      } else if (this.districtDraft) {
+        this.commitDistrictDraft();
+      } else if (this.streetGridDraft) {
+        this.commitStreetGridDraft();
+      }
     };
     const onWinPointerCancel = () => {
-      this.cancelPathDraft();
+      this.cancelActiveInteraction();
     };
     const onWinKeyDown = (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
         e.preventDefault();
-        this.cancelPathDraft();
+        this.cancelActiveInteraction();
       }
     };
     window.addEventListener('pointerup', onWinPointerUp);
@@ -1414,16 +1984,34 @@ export class ObjectsLayerController {
     this.pathDraft = null;
     this.detachPathWindowFallback();
 
+    const snap = this.store.getSnapshot();
+
     if (finalPoint) {
+      let fx = finalPoint.x;
+      let fy = finalPoint.y;
+      if (
+        (draft.tool === 'street' && snap.streetSnapEnabled) ||
+        draft.tool === 'cityWall'
+      ) {
+        const hit = findSnapPointOnUrbanPaths(
+          snap.doc,
+          fx,
+          fy,
+          draft.tool === 'cityWall' ? 18 : 20
+        );
+        if (hit.snapped) {
+          fx = hit.x;
+          fy = hit.y;
+        }
+      }
       const lastX = draft.points[draft.points.length - 2];
       const lastY = draft.points[draft.points.length - 1];
-      if (Math.hypot(finalPoint.x - lastX, finalPoint.y - lastY) >= 0.5) {
-        draft.points.push(Number(finalPoint.x.toFixed(2)), Number(finalPoint.y.toFixed(2)));
+      if (Math.hypot(fx - lastX, fy - lastY) >= 0.5) {
+        draft.points.push(Number(fx.toFixed(2)), Number(fy.toFixed(2)));
       }
     }
 
     this.pathPreviewShape.visible(false);
-    const snap = this.store.getSnapshot();
 
     if (!this.store.isLayerEditable(draft.layerId)) {
       this.notifyLockedOrHiddenLayer(draft.layerId, snap.doc.manifest.layers, 'Fiumi e Strade');
@@ -1433,25 +2021,79 @@ export class ObjectsLayerController {
     }
 
     if (draft.points.length >= 4 && computePolylineLength(draft.points) >= 3) {
-      const toleranceDoc = clampNumber(snap.pathStrokeWidthDoc * 0.25, 1.5, 6);
-      const simplified = simplifyPolyline(draft.points, toleranceDoc);
-      if (simplified.length >= 4) {
-        const pathObj = createPathObject({
-          layerId: draft.layerId,
-          kind: snap.pathKind,
-          points: simplified,
-          strokeWidthDoc: snap.pathStrokeWidthDoc,
-          color: snap.pathColor,
-          smooth: snap.pathSmooth,
-          dashed: snap.pathDashed,
-          tapered: snap.pathTapered,
-          opacity: 1,
-          theme: snap.doc.theme
-        });
-        this.store.executeCommand(
-          new AddObjectCommand(pathObj, undefined, undefined, `Aggiungi ${getDefaultObjectLabel(pathObj)}`)
-        );
-        this.store.selectObject(pathObj.id);
+      if (draft.tool === 'cityWall') {
+        const toleranceDoc = clampNumber(snap.wallStrokeWidthDoc * 0.4, 3, 10);
+        const simplified = simplifyPolyline(draft.points, toleranceDoc);
+        if (simplified.length >= 4) {
+          const buildingsEditable = this.store.isLayerEditable(draft.buildingLayerId);
+          const wallObjects = buildSmartCityWallObjects(snap.doc, simplified, {
+            strokeWidthDoc: snap.wallStrokeWidthDoc,
+            towerSpacingDoc: snap.wallTowerSpacingDoc,
+            autoTowers: snap.wallAutoTowers && buildingsEditable,
+            autoGates: snap.wallAutoGates && buildingsEditable,
+            vectorLayerId: draft.layerId,
+            buildingsLayerId: draft.buildingLayerId
+          });
+          if (wallObjects.length > 0) {
+            this.store.executeCommand(
+              new AddObjectsBatchCommand(wallObjects, { label: 'Traccia mura cittadine' })
+            );
+            this.store.selectObject(wallObjects[0].id);
+          }
+        }
+      } else if (draft.tool === 'street') {
+        const toleranceDoc = clampNumber(snap.streetStrokeWidthDoc * 0.25, 1.5, 5);
+        const simplified = simplifyPolyline(draft.points, toleranceDoc);
+        if (simplified.length >= 4) {
+          const defaults = getPathKindDefaults(snap.streetPathKind, snap.doc.theme);
+          const streetObj = createPathObject({
+            layerId: draft.layerId,
+            kind: snap.streetPathKind,
+            points: simplified,
+            strokeWidthDoc: snap.streetStrokeWidthDoc,
+            color: defaults.color,
+            smooth: snap.streetPathKind === 'canal',
+            dashed: false,
+            tapered: false,
+            opacity: 1,
+            theme: snap.doc.theme
+          });
+          this.store.executeCommand(
+            new AddObjectCommand(
+              streetObj,
+              undefined,
+              undefined,
+              `Aggiungi ${getDefaultObjectLabel(streetObj)}`
+            )
+          );
+          this.store.selectObject(streetObj.id);
+        }
+      } else {
+        const toleranceDoc = clampNumber(snap.pathStrokeWidthDoc * 0.25, 1.5, 6);
+        const simplified = simplifyPolyline(draft.points, toleranceDoc);
+        if (simplified.length >= 4) {
+          const pathObj = createPathObject({
+            layerId: draft.layerId,
+            kind: snap.pathKind,
+            points: simplified,
+            strokeWidthDoc: snap.pathStrokeWidthDoc,
+            color: snap.pathColor,
+            smooth: snap.pathSmooth,
+            dashed: snap.pathDashed,
+            tapered: snap.pathTapered,
+            opacity: 1,
+            theme: snap.doc.theme
+          });
+          this.store.executeCommand(
+            new AddObjectCommand(
+              pathObj,
+              undefined,
+              undefined,
+              `Aggiungi ${getDefaultObjectLabel(pathObj)}`
+            )
+          );
+          this.store.selectObject(pathObj.id);
+        }
       }
     }
 
@@ -1468,10 +2110,187 @@ export class ObjectsLayerController {
     this.layers.overlayLayer.batchDraw();
   }
 
+  private commitDistrictDraft(finalPoint?: Point2D): void {
+    const draft = this.districtDraft;
+    if (!draft) return;
+    this.districtDraft = null;
+    this.detachPathWindowFallback();
+    this.districtStrokePreview.visible(false);
+    this.districtStrokePreview.points([]);
+
+    if (finalPoint) {
+      const last = draft.points[draft.points.length - 1];
+      if (!last || Math.hypot(finalPoint.x - last.x, finalPoint.y - last.y) >= 2) {
+        draft.points.push({
+          x: Number(finalPoint.x.toFixed(2)),
+          y: Number(finalPoint.y.toFixed(2))
+        });
+      }
+    }
+
+    const snap = this.store.getSnapshot();
+    if (!this.store.isLayerEditable(draft.layerId)) {
+      this.notifyLockedOrHiddenLayer(draft.layerId, snap.doc.manifest.layers, 'Quartieri ed Edifici');
+      this.updateGhost(snap, this.store.getEffectiveTool());
+      this.layers.overlayLayer.batchDraw();
+      return;
+    }
+
+    if (draft.points.length > 0) {
+      if (snap.districtMode === 'erase') {
+        const hitIds = findBuildingsInBrushStroke(
+          snap.doc,
+          draft.points,
+          snap.districtDiameterDoc
+        ).filter((id) => {
+          const obj = snap.doc.manifest.objects.find((o) => o.id === id);
+          return obj ? this.isObjectLayerEditable(obj, snap.doc.manifest.layers) : false;
+        });
+        if (hitIds.length > 0) {
+          this.store.executeCommand(
+            new DeleteObjectsBatchCommand(hitIds, 'Cancella edifici')
+          );
+        }
+      } else {
+        const first = draft.points[0];
+        const strokeSeed =
+          (snap.doc.manifest.terrain.seed ^
+            Math.round(first.x * 37 + first.y * 91) ^
+            (snap.doc.manifest.revision * 131 + snap.doc.manifest.objects.length * 17)) >>>
+          0;
+        const created = generateDistrictBuildingsAlongStroke(snap.doc, draft.points, {
+          diameterDoc: snap.districtDiameterDoc,
+          density: snap.districtDensity,
+          buildingScale: snap.districtBuildingScale,
+          irregularity: snap.districtIrregularity,
+          preset: snap.districtPreset,
+          renderStyle: snap.districtRenderStyle,
+          layerId: draft.layerId,
+          seed: strokeSeed
+        });
+        if (created.length > 0) {
+          this.store.executeCommand(
+            new AddObjectsBatchCommand(created, { label: 'Dipingi quartiere' })
+          );
+        } else {
+          const anyOnLand = draft.points.some((pt) => sampleLandMaskAtDoc(snap.doc, pt.x, pt.y));
+          if (!anyOnLand) {
+            this.store.setStatusNotice({
+              tone: 'info',
+              text: 'Dipingi il quartiere sulla terraferma.'
+            });
+          }
+        }
+      }
+    }
+
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
+  private cancelDistrictDraft(): void {
+    if (!this.districtDraft) return;
+    this.districtDraft = null;
+    this.detachPathWindowFallback();
+    this.districtStrokePreview.visible(false);
+    this.districtStrokePreview.points([]);
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
+  private commitStreetGridDraft(finalPoint?: Point2D): void {
+    const draft = this.streetGridDraft;
+    if (!draft) return;
+    this.streetGridDraft = null;
+    this.detachPathWindowFallback();
+    this.streetGridPreviewShape.visible(false);
+
+    if (finalPoint) {
+      draft.endDoc = { x: finalPoint.x, y: finalPoint.y };
+    }
+
+    const x = Math.min(draft.startDoc.x, draft.endDoc.x);
+    const y = Math.min(draft.startDoc.y, draft.endDoc.y);
+    const width = Math.abs(draft.endDoc.x - draft.startDoc.x);
+    const height = Math.abs(draft.endDoc.y - draft.startDoc.y);
+
+    const snap = this.store.getSnapshot();
+    if (!this.store.isLayerEditable(draft.streetLayerId)) {
+      this.notifyLockedOrHiddenLayer(
+        draft.streetLayerId,
+        snap.doc.manifest.layers,
+        'Strade, Piazze e Mura'
+      );
+      this.updateGhost(snap, this.store.getEffectiveTool());
+      this.layers.overlayLayer.batchDraw();
+      return;
+    }
+
+    if (Math.min(width, height) >= 40) {
+      const buildingsEditable = this.store.isLayerEditable(draft.buildingLayerId);
+      const gridSeed =
+        (snap.doc.manifest.terrain.seed ^
+          Math.round(x * 23 + y * 53) ^
+          (snap.doc.manifest.revision * 73)) >>>
+        0;
+      const created = generateStreetGridInRect(
+        snap.doc,
+        { x, y, width, height },
+        {
+          style: snap.streetGridStyle,
+          spacingDoc: snap.streetGridSpacingDoc,
+          angleDeg: snap.streetGridAngleDeg,
+          autoFillBuildings: snap.streetGridAutoFill && buildingsEditable,
+          districtPreset: snap.districtPreset,
+          density: snap.districtDensity,
+          buildingScale: snap.districtBuildingScale,
+          irregularity: snap.districtIrregularity,
+          renderStyle: snap.districtRenderStyle,
+          vectorLayerId: draft.streetLayerId,
+          buildingsLayerId: draft.buildingLayerId,
+          seed: gridSeed
+        }
+      );
+      if (created.length > 0) {
+        this.store.executeCommand(
+          new AddObjectsBatchCommand(created, { label: 'Genera griglia stradale' })
+        );
+      }
+    } else {
+      this.store.setStatusNotice({
+        tone: 'info',
+        text: 'Trascina un rettangolo più ampio sulla carta per creare una griglia stradale.'
+      });
+    }
+
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
+  private cancelStreetGridDraft(): void {
+    if (!this.streetGridDraft) return;
+    this.streetGridDraft = null;
+    this.detachPathWindowFallback();
+    this.streetGridPreviewShape.visible(false);
+    this.updateGhost(this.store.getSnapshot(), this.store.getEffectiveTool());
+    this.layers.overlayLayer.batchDraw();
+  }
+
   cancelActiveInteraction(): boolean {
-    if (!this.pathDraft) return false;
-    this.cancelPathDraft();
-    return true;
+    let cancelled = false;
+    if (this.pathDraft) {
+      this.cancelPathDraft();
+      cancelled = true;
+    }
+    if (this.districtDraft) {
+      this.cancelDistrictDraft();
+      cancelled = true;
+    }
+    if (this.streetGridDraft) {
+      this.cancelStreetGridDraft();
+      cancelled = true;
+    }
+    return cancelled;
   }
 
   handlePointerDown(ctx: ViewportPointerContext): boolean {
@@ -1505,20 +2324,42 @@ export class ObjectsLayerController {
       return true;
     }
 
-    if (tool === 'path') {
+    if (tool === 'path' || tool === 'street' || tool === 'cityWall') {
       if (ctx.docX < 0 || ctx.docY < 0 || ctx.docX > space.width || ctx.docY > space.height) {
         return false;
       }
       const targetLayerId = this.store.resolveTargetLayerIdForNewObject('path');
       if (!this.store.isLayerEditable(targetLayerId)) {
-        this.notifyLockedOrHiddenLayer(targetLayerId, snap.doc.manifest.layers, 'Fiumi e Strade');
+        this.notifyLockedOrHiddenLayer(
+          targetLayerId,
+          snap.doc.manifest.layers,
+          tool === 'path' ? 'Fiumi e Strade' : 'Strade, Piazze e Mura'
+        );
         return true;
+      }
+      const buildingLayerId = this.store.resolveTargetLayerIdForNewObject('building');
+
+      let startX = ctx.docX;
+      let startY = ctx.docY;
+      if ((tool === 'street' && snap.streetSnapEnabled) || tool === 'cityWall') {
+        const snapHit = findSnapPointOnUrbanPaths(
+          snap.doc,
+          startX,
+          startY,
+          tool === 'cityWall' ? 18 : 20
+        );
+        if (snapHit.snapped) {
+          startX = snapHit.x;
+          startY = snapHit.y;
+        }
       }
 
       const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
       this.pathDraft = {
-        points: [Number(ctx.docX.toFixed(2)), Number(ctx.docY.toFixed(2))],
+        tool,
+        points: [Number(startX.toFixed(2)), Number(startY.toFixed(2))],
         layerId: targetLayerId,
+        buildingLayerId,
         pointerId
       };
       this.pathCursorRing.visible(false);
@@ -1526,6 +2367,170 @@ export class ObjectsLayerController {
       this.pathPreviewShape.moveToTop();
       this.attachPathWindowFallback();
       this.layers.overlayLayer.batchDraw();
+      return true;
+    }
+
+    if (tool === 'district') {
+      if (ctx.docX < 0 || ctx.docY < 0 || ctx.docX > space.width || ctx.docY > space.height) {
+        return false;
+      }
+      const targetLayerId = this.store.resolveTargetLayerIdForNewObject('building');
+      if (!this.store.isLayerEditable(targetLayerId)) {
+        this.notifyLockedOrHiddenLayer(
+          targetLayerId,
+          snap.doc.manifest.layers,
+          'Quartieri ed Edifici'
+        );
+        return true;
+      }
+      const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
+      const sx = Number(ctx.docX.toFixed(2));
+      const sy = Number(ctx.docY.toFixed(2));
+      this.districtDraft = {
+        points: [{ x: sx, y: sy }],
+        layerId: targetLayerId,
+        pointerId
+      };
+      this.districtStrokePreview.setAttrs({
+        visible: true,
+        points: [sx, sy, sx + 0.1, sy + 0.1],
+        strokeWidth: snap.districtDiameterDoc,
+        stroke:
+          snap.districtMode === 'erase'
+            ? 'rgba(255, 179, 166, 0.34)'
+            : 'rgba(224, 187, 121, 0.28)'
+      });
+      this.districtStrokePreview.moveToTop();
+      this.districtBrushCircle.moveToTop();
+      this.attachPathWindowFallback();
+      this.layers.overlayLayer.batchDraw();
+      return true;
+    }
+
+    if (tool === 'streetGrid') {
+      if (ctx.docX < 0 || ctx.docY < 0 || ctx.docX > space.width || ctx.docY > space.height) {
+        return false;
+      }
+      const streetLayerId = this.store.resolveTargetLayerIdForNewObject('path');
+      if (!this.store.isLayerEditable(streetLayerId)) {
+        this.notifyLockedOrHiddenLayer(
+          streetLayerId,
+          snap.doc.manifest.layers,
+          'Strade, Piazze e Mura'
+        );
+        return true;
+      }
+      const buildingLayerId = this.store.resolveTargetLayerIdForNewObject('building');
+      const pointerId = 'pointerId' in ctx.event ? ctx.event.pointerId : null;
+      const sx = Number(ctx.docX.toFixed(2));
+      const sy = Number(ctx.docY.toFixed(2));
+      this.streetGridDraft = {
+        startDoc: { x: sx, y: sy },
+        endDoc: { x: sx, y: sy },
+        streetLayerId,
+        buildingLayerId,
+        pointerId
+      };
+      this.streetGridPreviewShape.visible(true);
+      this.streetGridPreviewShape.moveToTop();
+      this.attachPathWindowFallback();
+      this.layers.overlayLayer.batchDraw();
+      return true;
+    }
+
+    if (tool === 'building') {
+      if (ctx.docX < 0 || ctx.docY < 0 || ctx.docX > space.width || ctx.docY > space.height) {
+        return false;
+      }
+      const targetLayerId = this.store.resolveTargetLayerIdForNewObject('building');
+      if (!this.store.isLayerEditable(targetLayerId)) {
+        this.notifyLockedOrHiddenLayer(
+          targetLayerId,
+          snap.doc.manifest.layers,
+          'Quartieri ed Edifici'
+        );
+        return true;
+      }
+      const rotationDeg = resolveBuildingPlacementRotation(
+        snap.doc,
+        ctx.docX,
+        ctx.docY,
+        snap.buildingRotationDeg,
+        snap.buildingAutoAlign
+      );
+      const bldg = createBuildingObject({
+        layerId: targetLayerId,
+        shape: snap.buildingShape,
+        x: ctx.docX,
+        y: ctx.docY,
+        width: snap.buildingWidthDoc,
+        height: snap.buildingHeightDoc,
+        rotationDeg,
+        roofColor: snap.buildingRoofColor,
+        ...(snap.buildingRenderStyle !== 'auto'
+          ? { renderStyle: snap.buildingRenderStyle }
+          : {})
+      });
+      this.store.executeCommand(
+        new AddObjectCommand(bldg, undefined, undefined, 'Aggiungi edificio')
+      );
+      this.store.selectObject(bldg.id);
+      return true;
+    }
+
+    if (tool === 'plaza') {
+      if (ctx.docX < 0 || ctx.docY < 0 || ctx.docX > space.width || ctx.docY > space.height) {
+        return false;
+      }
+      const targetLayerId = this.store.resolveTargetLayerIdForNewObject('plaza');
+      if (!this.store.isLayerEditable(targetLayerId)) {
+        this.notifyLockedOrHiddenLayer(
+          targetLayerId,
+          snap.doc.manifest.layers,
+          'Strade, Piazze e Mura'
+        );
+        return true;
+      }
+      const palette = getCityThemePalette(snap.doc.theme);
+      const width = snap.plazaSizeDoc;
+      const height =
+        snap.plazaShape === 'rect'
+          ? Math.max(24, Math.round(snap.plazaSizeDoc * 0.76))
+          : snap.plazaSizeDoc;
+      const plaza = createPlazaObject({
+        layerId: targetLayerId,
+        shape: snap.plazaShape,
+        x: ctx.docX,
+        y: ctx.docY,
+        width,
+        height,
+        rotationDeg: 0,
+        fillColor: palette.plazaFill,
+        borderColor: palette.streetBorder,
+        centerpiece: snap.plazaCenterpiece
+      });
+      if (snap.plazaClearBuildings) {
+        const overlappingIds = findOverlappingBuildingIdsForPlaza(snap.doc, plaza).filter(
+          (id) => {
+            const b = snap.doc.manifest.objects.find((o) => o.id === id);
+            return b ? this.isObjectLayerEditable(b, snap.doc.manifest.layers) : false;
+          }
+        );
+        if (overlappingIds.length > 0) {
+          this.store.executeCommand(
+            new AddAndDeleteObjectsCommand([plaza], overlappingIds, 'Aggiungi piazza')
+          );
+        } else {
+          this.store.executeCommand(
+            new AddObjectCommand(plaza, undefined, undefined, 'Aggiungi piazza')
+          );
+        }
+      } else {
+        this.store.executeCommand(
+          new AddObjectCommand(plaza, undefined, undefined, 'Aggiungi piazza')
+        );
+      }
+      this.store.selectObject(plaza.id);
       return true;
     }
 
@@ -1632,7 +2637,7 @@ export class ObjectsLayerController {
     const snap = this.store.getSnapshot();
     const tool = snap.spacePanActive ? 'hand' : snap.activeTool;
 
-    if (this.pathDraft && tool === 'path') {
+    if (this.pathDraft && tool === this.pathDraft.tool) {
       const { space } = snap.doc.manifest;
       const samples =
         ctx.coalescedPoints && ctx.coalescedPoints.length > 0
@@ -1650,10 +2655,64 @@ export class ObjectsLayerController {
           appended = true;
         }
       }
+      if (
+        (this.pathDraft.tool === 'street' && snap.streetSnapEnabled) ||
+        this.pathDraft.tool === 'cityWall'
+      ) {
+        const snapHit = findSnapPointOnUrbanPaths(
+          snap.doc,
+          ctx.docX,
+          ctx.docY,
+          this.pathDraft.tool === 'cityWall' ? 18 : 20
+        );
+        const strokeW =
+          this.pathDraft.tool === 'cityWall' ? snap.wallStrokeWidthDoc : snap.streetStrokeWidthDoc;
+        this.streetSnapRing.setAttrs({
+          visible: snapHit.snapped,
+          x: snapHit.x,
+          y: snapHit.y,
+          radius: Math.max(8, strokeW * 0.65)
+        });
+        if (snapHit.snapped) {
+          this.streetSnapRing.moveToTop();
+        }
+        appended = true;
+      }
       if (appended) {
         this.pathPreviewShape.moveToTop();
         this.layers.overlayLayer.batchDraw();
       }
+      return;
+    }
+
+    if (this.districtDraft && tool === 'district') {
+      const { space } = snap.doc.manifest;
+      const clampedX = Number(clampNumber(ctx.docX, 0, space.width).toFixed(2));
+      const clampedY = Number(clampNumber(ctx.docY, 0, space.height).toFixed(2));
+      const pts = this.districtDraft.points;
+      const last = pts[pts.length - 1];
+      if (!last || Math.hypot(clampedX - last.x, clampedY - last.y) >= 4) {
+        pts.push({ x: clampedX, y: clampedY });
+        const flat: number[] = [];
+        for (const p of pts) {
+          flat.push(p.x, p.y);
+        }
+        this.districtStrokePreview.points(flat);
+        this.districtStrokePreview.moveToTop();
+      }
+      this.updateGhost(snap, tool);
+      this.layers.overlayLayer.batchDraw();
+      return;
+    }
+
+    if (this.streetGridDraft && tool === 'streetGrid') {
+      const { space } = snap.doc.manifest;
+      this.streetGridDraft.endDoc = {
+        x: Number(clampNumber(ctx.docX, 0, space.width).toFixed(2)),
+        y: Number(clampNumber(ctx.docY, 0, space.height).toFixed(2))
+      };
+      this.streetGridPreviewShape.moveToTop();
+      this.layers.overlayLayer.batchDraw();
       return;
     }
 
@@ -1664,11 +2723,15 @@ export class ObjectsLayerController {
 
   handlePointerUp(ctx: ViewportPointerContext): void {
     if (this.disposed) return;
+    const { space } = this.store.getDocument().manifest;
+    const clampedX = clampNumber(ctx.docX, 0, space.width);
+    const clampedY = clampNumber(ctx.docY, 0, space.height);
     if (this.pathDraft) {
-      const { space } = this.store.getDocument().manifest;
-      const clampedX = clampNumber(ctx.docX, 0, space.width);
-      const clampedY = clampNumber(ctx.docY, 0, space.height);
       this.commitPathDraft({ x: clampedX, y: clampedY });
+    } else if (this.districtDraft) {
+      this.commitDistrictDraft({ x: clampedX, y: clampedY });
+    } else if (this.streetGridDraft) {
+      this.commitStreetGridDraft({ x: clampedX, y: clampedY });
     }
   }
 
@@ -1706,9 +2769,9 @@ export class ObjectsLayerController {
     if (shouldIgnoreShortcut(e.target)) {
       return false;
     }
-    if (e.key === 'Escape' && this.pathDraft) {
+    if (e.key === 'Escape' && (this.pathDraft || this.districtDraft || this.streetGridDraft)) {
       e.preventDefault?.();
-      this.cancelPathDraft();
+      this.cancelActiveInteraction();
       return true;
     }
 
@@ -1749,13 +2812,20 @@ export class ObjectsLayerController {
     this.detachStageLeave = null;
     this.detachPathWindowFallback();
     this.pathDraft = null;
+    this.districtDraft = null;
+    this.streetGridDraft = null;
 
     this.transformer.nodes([]);
     this.transformer.destroy();
     this.ghostGroup.destroy();
     this.ghostLabelPill.destroy();
     this.pathCursorRing.destroy();
+    this.streetSnapRing.destroy();
     this.pathPreviewShape.destroy();
+    this.districtStrokePreview.destroy();
+    this.districtBrushCircle.destroy();
+    this.cityGhostShape.destroy();
+    this.streetGridPreviewShape.destroy();
 
     for (const node of this.nodeMap.values()) {
       node.destroy();

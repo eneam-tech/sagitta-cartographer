@@ -160,9 +160,22 @@ export function validateMapTheme(raw: unknown): MapTheme {
     }
   }
 
+  if (t.environment !== undefined && t.environment !== 'world' && t.environment !== 'city') {
+    throw new Error(`Ambiente tema non supportato: ${String(t.environment)}.`);
+  }
+
+  let validatedCity: MapTheme['city'] | undefined;
+  if (t.city !== undefined) {
+    if (!t.city || typeof t.city !== 'object' || Array.isArray(t.city)) {
+      throw new Error('Configurazione palette urbana del tema non valida.');
+    }
+    validatedCity = t.city as MapTheme['city'];
+  }
+
   return normalizeTheme({
     ...t,
-    colors: sanitizedColors
+    colors: sanitizedColors,
+    ...(validatedCity ? { city: validatedCity } : {})
   });
 }
 

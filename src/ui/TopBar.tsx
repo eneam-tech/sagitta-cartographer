@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState, useSyncExternalStore } from 'react';
 import type { ChangeEvent, FormEvent, KeyboardEvent } from 'react';
 import { EditorStore, useEditorStore } from '../state/editorStore';
-import { MAP_THEMES, MapTheme } from '../theme/theme';
+import { MapTheme, getThemesForEnvironment } from '../theme/theme';
 import { PeerTransferManager, PeerTransferSnapshot } from '../transfer/peerTransfer';
 import {
   ApplePencilIcon,
   CheckSavedIcon,
   ChevronDownIcon,
+  CityEnvIcon,
   ExportPdfIcon,
   GenerateWorldIcon,
   ProjectIcon,
@@ -27,6 +28,16 @@ const NOOP_SUBSCRIBE = () => () => {};
 const getNullPeerSnapshot = (): PeerTransferSnapshot | null => null;
 
 function getThemePreviewDots(theme: MapTheme): [string, string, string] {
+  if (theme.environment === 'city' && theme.city) {
+    if (theme.city.renderStyle === 'ink-plan') {
+      return [theme.colors.land, theme.colors.ink, theme.city.plazaFill];
+    }
+    return [
+      theme.colors.land,
+      theme.city.roofPalette[0] ?? theme.colors.settlement,
+      theme.city.streetFill
+    ];
+  }
   const accent =
     theme.id === 'vulcanica'
       ? theme.colors.lava
@@ -191,15 +202,18 @@ export function TopBar({ store, peerManager }: TopBarProps) {
     }
   }, [menuOpen]);
 
+  const isCity = doc.manifest.kind === 'city';
+  const availableThemes = getThemesForEnvironment(doc.manifest.kind);
+
   // Sposta il focus sul tema corrente quando si apre il menu Tema
   useEffect(() => {
     if (themeMenuOpen) {
       requestAnimationFrame(() => {
-        const activeIdx = MAP_THEMES.findIndex((t) => t.id === doc.theme.id);
+        const activeIdx = availableThemes.findIndex((t) => t.id === doc.theme.id);
         themeItemRefs.current[activeIdx >= 0 ? activeIdx : 0]?.focus();
       });
     }
-  }, [themeMenuOpen, doc.theme.id]);
+  }, [themeMenuOpen, doc.theme.id, availableThemes]);
 
   const handleDropdownKeyDown = (
     e: KeyboardEvent<HTMLDivElement>,
@@ -362,10 +376,10 @@ export function TopBar({ store, peerManager }: TopBarProps) {
                 onClick={() => {
                   projectBtnRef.current?.focus();
                   setMenuOpen(false);
-                  store.openDialog('generateWorld');
+                  store.openDialog(isCity ? 'generateCity' : 'generateWorld');
                 }}
               >
-                <span>Genera continente…</span>
+                <span>{isCity ? 'Genera città…' : 'Genera continente…'}</span>
               </button>
               <div className="dropdown-divider" role="separator" />
               <button
@@ -525,11 +539,11 @@ export function TopBar({ store, peerManager }: TopBarProps) {
         <button
           type="button"
           className="btn btn-secondary topbar-generate-btn has-tooltip-bottom"
-          aria-label="Genera continente procedurale"
-          data-tooltip="Genera continente"
-          onClick={() => store.openDialog('generateWorld')}
+          aria-label={isCity ? 'Genera città procedurale' : 'Genera continente procedurale'}
+          data-tooltip={isCity ? 'Genera città' : 'Genera continente'}
+          onClick={() => store.openDialog(isCity ? 'generateCity' : 'generateWorld')}
         >
-          <GenerateWorldIcon size={18} />
+          {isCity ? <CityEnvIcon size={18} /> : <GenerateWorldIcon size={18} />}
           <span className="topbar-generate-label">Genera…</span>
         </button>
 
@@ -589,7 +603,7 @@ export function TopBar({ store, peerManager }: TopBarProps) {
           <span className="topbar-pencil-label">Solo penna</span>
         </button>
 
-        {/* Selettore dei 5 temi cartografici con 3 pallini cromatici */}
+        {/* Selettore dei temi cartografici / stili urbani con 3 pallini cromatici */}
         <div className="topbar-theme-wrap" ref={themeMenuWrapRef}>
           <button
             ref={themeBtnRef}
@@ -598,8 +612,8 @@ export function TopBar({ store, peerManager }: TopBarProps) {
             aria-haspopup="menu"
             aria-expanded={themeMenuOpen}
             aria-controls="theme-menu-dropdown"
-            aria-label={`Tema della carta: ${activeTheme.name}`}
-            data-tooltip={`Tema: ${activeTheme.name}`}
+            aria-label={`${isCity ? 'Stile urbano' : 'Tema della carta'}: ${activeTheme.name}`}
+            data-tooltip={`${isCity ? 'Stile' : 'Tema'}: ${activeTheme.name}`}
             onClick={() => {
               setMenuOpen(false);
               setThemeMenuOpen((prev) => !prev);
@@ -619,10 +633,10 @@ export function TopBar({ store, peerManager }: TopBarProps) {
               id="theme-menu-dropdown"
               className="dropdown-menu dropdown-menu--right"
               role="menu"
-              aria-label="Seleziona tema della carta"
+              aria-label={isCity ? 'Seleziona stile urbano' : 'Seleziona tema della carta'}
               onKeyDown={(e) => handleDropdownKeyDown(e, themeItemRefs.current)}
             >
-              {MAP_THEMES.map((theme, idx) => {
+              {availableThemes.map((theme, idx) => {
                 const isSelected = doc.theme.id === theme.id;
                 const dots = getThemePreviewDots(theme);
                 return (

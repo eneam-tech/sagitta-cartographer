@@ -181,6 +181,72 @@ function ObjectThumb({ obj }: { obj: MapObject }) {
     );
   }
 
+  if (obj.type === 'building') {
+    return (
+      <span
+        aria-hidden="true"
+        style={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '3px',
+          backgroundColor: 'var(--ui-bench)',
+          border: '1px solid var(--ui-line-subtle)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}
+      >
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+          <rect
+            x="4"
+            y="6"
+            width="16"
+            height="12"
+            rx="1"
+            fill={obj.roofColor}
+            stroke="currentColor"
+            strokeWidth={1.6}
+          />
+          <path d="M4 6l4.5 6L4 18M20 6l-4.5 6L20 18M8.5 12h7" stroke="#17232D" strokeWidth={1.4} />
+        </svg>
+      </span>
+    );
+  }
+
+  if (obj.type === 'plaza') {
+    return (
+      <span
+        aria-hidden="true"
+        style={{
+          width: '22px',
+          height: '22px',
+          borderRadius: '3px',
+          backgroundColor: 'var(--ui-bench)',
+          border: '1px solid var(--ui-line-subtle)',
+          display: 'inline-flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          flexShrink: 0
+        }}
+      >
+        <svg width={16} height={16} viewBox="0 0 24 24" fill="none">
+          <rect
+            x="4"
+            y="4"
+            width="16"
+            height="16"
+            rx={obj.shape === 'circle' ? '8' : '2'}
+            fill={obj.fillColor}
+            stroke={obj.borderColor || 'currentColor'}
+            strokeWidth={1.75}
+          />
+          <circle cx="12" cy="12" r="2.8" fill="currentColor" opacity="0.65" />
+        </svg>
+      </span>
+    );
+  }
+
   const catalogItem = getCatalogItemById(obj.assetId);
   return (
     <span
@@ -249,7 +315,15 @@ function ObjectRow({
 }: ObjectRowProps) {
   const displayName = getDefaultObjectLabel(obj);
   const kindLabel =
-    obj.type === 'stamp' ? 'POI' : obj.type === 'label' ? 'Etichetta' : 'Tracciato';
+    obj.type === 'stamp'
+      ? 'POI'
+      : obj.type === 'label'
+        ? 'Etichetta'
+        : obj.type === 'building'
+          ? 'Edificio'
+          : obj.type === 'plaza'
+            ? 'Piazza'
+            : 'Tracciato';
   const canMoveForward = layerEditable && canMoveForwardInLayer;
   const canMoveBackward = layerEditable && canMoveBackwardInLayer;
 

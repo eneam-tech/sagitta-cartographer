@@ -18,22 +18,35 @@ import {
   TerrainTilePatch
 } from '../model/commands';
 import {
+  BuildingRenderStyle,
+  BuildingShape,
   COVER_FIELDS,
   COVER_FOREST,
   COVER_NATURAL,
   CoverToolId,
   CreateEmptyDocumentOptions,
+  DEFAULT_LAYER_BUILDINGS_ID,
   DEFAULT_LAYER_LABELS_ID,
   DEFAULT_LAYER_POI_ID,
   DEFAULT_LAYER_TERRAIN_ID,
   DEFAULT_LAYER_VECTORS_ID,
   MapDocument,
   PathKind,
+  PlazaCenterpiece,
+  PlazaShape,
   createEmptyDocument,
   defaultLayerIdForObject
 } from '../model/document';
 import { HistoryManager } from '../model/history';
+import {
+  ReplaceDocumentContentCommand,
+  SetCityThemeCommand
+} from '../objects/objectCommands';
 import { MapTheme } from '../theme/theme';
+import { getCityThemePalette, pickDeterministicRoofColor } from '../city/geometry';
+import { DistrictPresetId } from '../city/smartDistrictBrush';
+import { StreetGridStyle } from '../city/streetGridTool';
+import { CityGeneratorOptions, generateProceduralCity } from '../city/cityGenerator';
 import {
   ArchiveImportResult,
   IPersistenceService,
@@ -62,10 +75,18 @@ export type EditorTool =
   | TerrainBrushTool
   | 'path'
   | 'poi'
-  | 'label';
+  | 'label'
+  | 'district'
+  | 'building'
+  | 'street'
+  | 'streetGrid'
+  | 'plaza'
+  | 'cityWall';
 
 export type ElevationSubTool = 'raise' | 'plateau' | 'lower' | 'flatten' | 'smooth';
 export type CoverSubTool = CoverToolId;
+export type DistrictBrushMode = 'paint' | 'erase';
+export type UrbanStreetKind = 'avenue' | 'road' | 'alley' | 'canal';
 
 export type EditorDialogKind =
   | 'newProject'
@@ -73,11 +94,23 @@ export type EditorDialogKind =
   | 'exportPdf'
   | 'resizeCanvas'
   | 'generateWorld'
+  | 'generateCity'
   | 'deviceTransfer'
   | 'shortcuts'
   | 'conflict'
   | 'storageError'
   | null;
+
+export function isCityObjectTool(tool: EditorTool): boolean {
+  return (
+    tool === 'district' ||
+    tool === 'building' ||
+    tool === 'street' ||
+    tool === 'streetGrid' ||
+    tool === 'plaza' ||
+    tool === 'cityWall'
+  );
+}
 
 export interface EditorStatusNotice {
   tone: 'info' | 'error' | 'success';
@@ -799,6 +832,7 @@ export class FallbackPersistenceService implements IPersistenceService {
 
   async saveAsCopy(doc: MapDocument, extraAssets?: Map<string, Blob>): Promise<MapDocument> {
     const copy = createEmptyDocument({
+      kind: doc.manifest.kind,
       title: `${doc.manifest.title} (copia)`,
       page: { ...doc.manifest.page },
       widthPx: doc.terrain.widthPx,
@@ -876,6 +910,35 @@ export interface EditorSnapshot {
   pathSmooth: boolean;
   pathDashed: boolean;
   pathTapered: boolean;
+  districtMode: DistrictBrushMode;
+  districtPreset: DistrictPresetId;
+  districtDiameterDoc: number;
+  districtDensity: number;
+  districtBuildingScale: number;
+  districtIrregularity: number;
+  districtRenderStyle: 'auto' | BuildingRenderStyle;
+  buildingShape: BuildingShape;
+  buildingWidthDoc: number;
+  buildingHeightDoc: number;
+  buildingRotationDeg: number;
+  buildingRoofColor: string;
+  buildingAutoAlign: boolean;
+  buildingRenderStyle: 'auto' | BuildingRenderStyle;
+  streetPathKind: UrbanStreetKind;
+  streetStrokeWidthDoc: number;
+  streetSnapEnabled: boolean;
+  streetGridStyle: StreetGridStyle;
+  streetGridSpacingDoc: number;
+  streetGridAngleDeg: number;
+  streetGridAutoFill: boolean;
+  plazaShape: PlazaShape;
+  plazaSizeDoc: number;
+  plazaCenterpiece: PlazaCenterpiece;
+  plazaClearBuildings: boolean;
+  wallStrokeWidthDoc: number;
+  wallTowerSpacingDoc: number;
+  wallAutoTowers: boolean;
+  wallAutoGates: boolean;
   camera: CameraState;
   viewportSize: { width: number; height: number };
   hasInitialFit: boolean;
@@ -930,6 +993,40 @@ export class EditorStore {
   private pathDashed = false;
   private pathTapered = true;
 
+  private districtMode: DistrictBrushMode = 'paint';
+  private districtPreset: DistrictPresetId = 'residential';
+  private districtDiameterDoc = 110;
+  private districtDensity = 0.72;
+  private districtBuildingScale = 1.0;
+  private districtIrregularity = 0.35;
+  private districtRenderStyle: 'auto' | BuildingRenderStyle = 'auto';
+
+  private buildingShape: BuildingShape = 'rect';
+  private buildingWidthDoc = 42;
+  private buildingHeightDoc = 28;
+  private buildingRotationDeg = 0;
+  private buildingRoofColor: string;
+  private buildingAutoAlign = true;
+  private buildingRenderStyle: 'auto' | BuildingRenderStyle = 'auto';
+
+  private streetPathKind: UrbanStreetKind = 'road';
+  private streetStrokeWidthDoc = 10;
+  private streetSnapEnabled = true;
+  private streetGridStyle: StreetGridStyle = 'orthogonal';
+  private streetGridSpacingDoc = 96;
+  private streetGridAngleDeg = 0;
+  private streetGridAutoFill = true;
+
+  private plazaShape: PlazaShape = 'rect';
+  private plazaSizeDoc = 86;
+  private plazaCenterpiece: PlazaCenterpiece = 'fountain';
+  private plazaClearBuildings = true;
+
+  private wallStrokeWidthDoc = 13;
+  private wallTowerSpacingDoc = 110;
+  private wallAutoTowers = true;
+  private wallAutoGates = true;
+
   private camera: CameraState = { offsetX: 0, offsetY: 0, scale: 1 };
   private viewportSize = { width: 0, height: 0 };
   private hasInitialFit = false;
@@ -960,6 +1057,11 @@ export class EditorStore {
     this.doc = options.initialDocument ?? createEmptyDocument();
     this.extraAssetBlobs = options.initialExtraAssets ? new Map(options.initialExtraAssets) : new Map();
     this.pathColor = this.doc.theme.colors.pathRiver;
+    this.buildingRoofColor = pickDeterministicRoofColor(this.doc.theme, 0);
+    if (this.doc.manifest.kind === 'city') {
+      this.activeTool = 'district';
+      this.activeLayerId = DEFAULT_LAYER_BUILDINGS_ID;
+    }
     this.ensureValidActiveLayer();
     this.history = new HistoryManager(options.maxHistoryBytes);
     this.strokeSession = options.strokeSession ?? new FallbackTerrainStrokeSession();
@@ -1111,7 +1213,15 @@ export class EditorStore {
       let semanticId: string | null = null;
       if (isTerrainBrushTool(tool)) {
         semanticId = DEFAULT_LAYER_TERRAIN_ID;
-      } else if (tool === 'path') {
+      } else if (tool === 'district' || tool === 'building') {
+        semanticId = DEFAULT_LAYER_BUILDINGS_ID;
+      } else if (
+        tool === 'path' ||
+        tool === 'street' ||
+        tool === 'streetGrid' ||
+        tool === 'plaza' ||
+        tool === 'cityWall'
+      ) {
         semanticId = DEFAULT_LAYER_VECTORS_ID;
       } else if (tool === 'poi') {
         semanticId = DEFAULT_LAYER_POI_ID;
@@ -1148,7 +1258,9 @@ export class EditorStore {
     }
   }
 
-  resolveTargetLayerIdForNewObject(type: 'stamp' | 'label' | 'path'): string {
+  resolveTargetLayerIdForNewObject(
+    type: 'stamp' | 'label' | 'path' | 'building' | 'plaza'
+  ): string {
     const layers = this.doc.manifest.layers;
     const active = layers.find((l) => l.id === this.activeLayerId);
     if (active && active.kind === 'custom') {
@@ -1157,6 +1269,10 @@ export class EditorStore {
     const preferredId = defaultLayerIdForObject({ type });
     const preferred = layers.find((l) => l.id === preferredId && l.kind !== 'terrain');
     if (preferred) return preferred.id;
+    if (type === 'building') {
+      const byKind = layers.find((l) => l.kind === 'buildings');
+      if (byKind) return byKind.id;
+    }
     const firstNonTerrain = layers.find((l) => l.kind !== 'terrain');
     return firstNonTerrain ? firstNonTerrain.id : DEFAULT_LAYER_POI_ID;
   }
@@ -1207,6 +1323,7 @@ export class EditorStore {
   setPathKind(kind: PathKind): void {
     this.pathKind = kind;
     const c = this.doc.theme.colors;
+    const city = getCityThemePalette(this.doc.theme);
     if (kind === 'river') {
       this.pathStrokeWidthDoc = 14;
       this.pathColor = c.pathRiver;
@@ -1215,8 +1332,32 @@ export class EditorStore {
       this.pathTapered = true;
     } else if (kind === 'road') {
       this.pathStrokeWidthDoc = 9;
-      this.pathColor = c.pathRoad;
+      this.pathColor = this.doc.manifest.kind === 'city' ? city.streetFill : c.pathRoad;
       this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    } else if (kind === 'avenue') {
+      this.pathStrokeWidthDoc = 15;
+      this.pathColor = city.streetFill;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    } else if (kind === 'alley') {
+      this.pathStrokeWidthDoc = 5.5;
+      this.pathColor = city.streetFill;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    } else if (kind === 'canal') {
+      this.pathStrokeWidthDoc = 18;
+      this.pathColor = city.canalWater;
+      this.pathSmooth = true;
+      this.pathDashed = false;
+      this.pathTapered = false;
+    } else if (kind === 'wall') {
+      this.pathStrokeWidthDoc = 14;
+      this.pathColor = city.wallStone;
+      this.pathSmooth = false;
       this.pathDashed = false;
       this.pathTapered = false;
     } else if (kind === 'border') {
@@ -1232,6 +1373,236 @@ export class EditorStore {
       this.pathDashed = false;
       this.pathTapered = false;
     }
+    this.notify();
+  }
+
+  setDistrictMode(mode: DistrictBrushMode): void {
+    if (this.districtMode === mode) return;
+    this.districtMode = mode;
+    this.notify();
+  }
+
+  setDistrictPreset(preset: DistrictPresetId): void {
+    if (this.districtPreset === preset) return;
+    this.districtPreset = preset;
+    this.notify();
+  }
+
+  setDistrictDiameterDoc(diameterDoc: number): void {
+    if (!Number.isFinite(diameterDoc)) return;
+    const clamped = Math.round(clampNumber(diameterDoc, 28, 320));
+    if (clamped === this.districtDiameterDoc) return;
+    this.districtDiameterDoc = clamped;
+    this.notify();
+  }
+
+  setDistrictDensityPercent(percent: number): void {
+    if (!Number.isFinite(percent)) return;
+    const clamped = Math.round(clampNumber(percent, 20, 100)) / 100;
+    if (clamped === this.districtDensity) return;
+    this.districtDensity = clamped;
+    this.notify();
+  }
+
+  setDistrictBuildingScale(scale: number): void {
+    if (!Number.isFinite(scale)) return;
+    const clamped = Math.round(clampNumber(scale, 0.6, 1.6) * 20) / 20;
+    if (clamped === this.districtBuildingScale) return;
+    this.districtBuildingScale = clamped;
+    this.notify();
+  }
+
+  setDistrictIrregularityPercent(percent: number): void {
+    if (!Number.isFinite(percent)) return;
+    const clamped = Math.round(clampNumber(percent, 0, 100)) / 100;
+    if (clamped === this.districtIrregularity) return;
+    this.districtIrregularity = clamped;
+    this.notify();
+  }
+
+  setDistrictRenderStyle(style: 'auto' | BuildingRenderStyle): void {
+    if (this.districtRenderStyle === style) return;
+    this.districtRenderStyle = style;
+    this.notify();
+  }
+
+  setBuildingShape(shape: BuildingShape): void {
+    if (this.buildingShape === shape) return;
+    this.buildingShape = shape;
+    if (shape === 'tower') {
+      this.buildingWidthDoc = 26;
+      this.buildingHeightDoc = 26;
+    } else if (shape === 'cathedral') {
+      this.buildingWidthDoc = 64;
+      this.buildingHeightDoc = 42;
+    } else if (shape === 'courtyard') {
+      this.buildingWidthDoc = 56;
+      this.buildingHeightDoc = 46;
+    } else if (shape === 'market') {
+      this.buildingWidthDoc = 52;
+      this.buildingHeightDoc = 30;
+    } else {
+      this.buildingWidthDoc = 42;
+      this.buildingHeightDoc = 28;
+    }
+    this.notify();
+  }
+
+  setBuildingWidthDoc(widthDoc: number): void {
+    if (!Number.isFinite(widthDoc)) return;
+    const clamped = Math.round(clampNumber(widthDoc, 12, 160));
+    if (clamped === this.buildingWidthDoc) return;
+    this.buildingWidthDoc = clamped;
+    this.notify();
+  }
+
+  setBuildingHeightDoc(heightDoc: number): void {
+    if (!Number.isFinite(heightDoc)) return;
+    const clamped = Math.round(clampNumber(heightDoc, 12, 160));
+    if (clamped === this.buildingHeightDoc) return;
+    this.buildingHeightDoc = clamped;
+    this.notify();
+  }
+
+  setBuildingRotationDeg(deg: number): void {
+    if (!Number.isFinite(deg)) return;
+    const mod = ((Math.round(deg) % 360) + 360) % 360;
+    if (mod === this.buildingRotationDeg) return;
+    this.buildingRotationDeg = mod;
+    this.notify();
+  }
+
+  setBuildingRoofColor(hex: string): void {
+    if (!hex || hex === this.buildingRoofColor) return;
+    this.buildingRoofColor = hex;
+    this.notify();
+  }
+
+  setBuildingAutoAlign(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.buildingAutoAlign === next) return;
+    this.buildingAutoAlign = next;
+    this.notify();
+  }
+
+  setBuildingRenderStyle(style: 'auto' | BuildingRenderStyle): void {
+    if (this.buildingRenderStyle === style) return;
+    this.buildingRenderStyle = style;
+    this.notify();
+  }
+
+  setStreetPathKind(kind: UrbanStreetKind): void {
+    this.streetPathKind = kind;
+    if (kind === 'avenue') {
+      this.streetStrokeWidthDoc = 15;
+    } else if (kind === 'road') {
+      this.streetStrokeWidthDoc = 10;
+    } else if (kind === 'alley') {
+      this.streetStrokeWidthDoc = 5.5;
+    } else {
+      this.streetStrokeWidthDoc = 18;
+    }
+    this.notify();
+  }
+
+  setStreetStrokeWidthDoc(widthDoc: number): void {
+    if (!Number.isFinite(widthDoc)) return;
+    const clamped = Math.round(clampNumber(widthDoc, 3, 44) * 10) / 10;
+    if (clamped === this.streetStrokeWidthDoc) return;
+    this.streetStrokeWidthDoc = clamped;
+    this.notify();
+  }
+
+  setStreetSnapEnabled(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.streetSnapEnabled === next) return;
+    this.streetSnapEnabled = next;
+    this.notify();
+  }
+
+  setStreetGridStyle(style: StreetGridStyle): void {
+    if (this.streetGridStyle === style) return;
+    this.streetGridStyle = style;
+    this.notify();
+  }
+
+  setStreetGridSpacingDoc(spacingDoc: number): void {
+    if (!Number.isFinite(spacingDoc)) return;
+    const clamped = Math.round(clampNumber(spacingDoc, 48, 220));
+    if (clamped === this.streetGridSpacingDoc) return;
+    this.streetGridSpacingDoc = clamped;
+    this.notify();
+  }
+
+  setStreetGridAngleDeg(angleDeg: number): void {
+    if (!Number.isFinite(angleDeg)) return;
+    const clamped = Math.round(clampNumber(angleDeg, -45, 45));
+    if (clamped === this.streetGridAngleDeg) return;
+    this.streetGridAngleDeg = clamped;
+    this.notify();
+  }
+
+  setStreetGridAutoFill(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.streetGridAutoFill === next) return;
+    this.streetGridAutoFill = next;
+    this.notify();
+  }
+
+  setPlazaShape(shape: PlazaShape): void {
+    if (this.plazaShape === shape) return;
+    this.plazaShape = shape;
+    this.notify();
+  }
+
+  setPlazaSizeDoc(sizeDoc: number): void {
+    if (!Number.isFinite(sizeDoc)) return;
+    const clamped = Math.round(clampNumber(sizeDoc, 36, 220));
+    if (clamped === this.plazaSizeDoc) return;
+    this.plazaSizeDoc = clamped;
+    this.notify();
+  }
+
+  setPlazaCenterpiece(centerpiece: PlazaCenterpiece): void {
+    if (this.plazaCenterpiece === centerpiece) return;
+    this.plazaCenterpiece = centerpiece;
+    this.notify();
+  }
+
+  setPlazaClearBuildings(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.plazaClearBuildings === next) return;
+    this.plazaClearBuildings = next;
+    this.notify();
+  }
+
+  setWallStrokeWidthDoc(widthDoc: number): void {
+    if (!Number.isFinite(widthDoc)) return;
+    const clamped = Math.round(clampNumber(widthDoc, 6, 30) * 10) / 10;
+    if (clamped === this.wallStrokeWidthDoc) return;
+    this.wallStrokeWidthDoc = clamped;
+    this.notify();
+  }
+
+  setWallTowerSpacingDoc(spacingDoc: number): void {
+    if (!Number.isFinite(spacingDoc)) return;
+    const clamped = Math.round(clampNumber(spacingDoc, 45, 240));
+    if (clamped === this.wallTowerSpacingDoc) return;
+    this.wallTowerSpacingDoc = clamped;
+    this.notify();
+  }
+
+  setWallAutoTowers(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.wallAutoTowers === next) return;
+    this.wallAutoTowers = next;
+    this.notify();
+  }
+
+  setWallAutoGates(enabled: boolean): void {
+    const next = Boolean(enabled);
+    if (this.wallAutoGates === next) return;
+    this.wallAutoGates = next;
     this.notify();
   }
 
@@ -1268,7 +1639,11 @@ export class EditorStore {
   }
 
   setTheme(theme: MapTheme): void {
-    if (this.doc.theme.id === theme.id && JSON.stringify(this.doc.theme.colors) === JSON.stringify(theme.colors)) {
+    if (
+      this.doc.theme.id === theme.id &&
+      JSON.stringify(this.doc.theme.colors) === JSON.stringify(theme.colors) &&
+      JSON.stringify(this.doc.theme.city ?? null) === JSON.stringify(theme.city ?? null)
+    ) {
       return;
     }
     const prevColors = this.doc.theme.colors;
@@ -1283,7 +1658,13 @@ export class EditorStore {
     } else if (prevNorm === prevColors.ink.toLowerCase()) {
       this.pathColor = nextColors.ink;
     }
-    this.executeCommand(new SetThemeCommand(this.doc.theme, theme, this.doc));
+    this.buildingRoofColor = pickDeterministicRoofColor(theme, 0);
+
+    if (this.doc.manifest.kind === 'city') {
+      this.executeCommand(new SetCityThemeCommand(this.doc, theme));
+    } else {
+      this.executeCommand(new SetThemeCommand(this.doc.theme, theme, this.doc));
+    }
   }
 
   selectElevationGroup(): void {
@@ -1360,6 +1741,32 @@ export class EditorStore {
     this.statusNotice = {
       tone: 'success',
       text: 'Continente generato. Usa Annulla per tornare al terreno precedente.'
+    };
+    this.notify();
+  }
+
+  generateCity(options: CityGeneratorOptions, themeOverride?: MapTheme): void {
+    this.clearPendingTerrainRender();
+    if (this.strokeSession.isActive()) {
+      this.cancelTerrainStroke();
+    }
+    const generated = generateProceduralCity(this.doc, options, themeOverride);
+    const cmd = new ReplaceDocumentContentCommand(
+      this.doc,
+      generated,
+      'Genera città'
+    );
+    this.executeCommand(cmd);
+    this.buildingRoofColor = pickDeterministicRoofColor(this.doc.theme, 0);
+    this.renderer.renderFull(this.doc);
+    this.terrainRenderTick += 1;
+    this.notifyTerrainRedraw();
+    this.fitCamera();
+    this.activeDialog = null;
+    this.seaOnlyHintVisible = false;
+    this.statusNotice = {
+      tone: 'success',
+      text: 'Città generata. Usa Annulla per tornare allo stato precedente.'
     };
     this.notify();
   }
@@ -1615,6 +2022,13 @@ export class EditorStore {
       this.notifyTerrainRedraw();
     }
     this.ensureValidActiveLayer();
+    if (
+      result.command.kind === 'replace-document-content' ||
+      result.command.kind === 'set-city-theme' ||
+      result.command.kind === 'set-theme'
+    ) {
+      this.buildingRoofColor = pickDeterministicRoofColor(this.doc.theme, 0);
+    }
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
     }
@@ -1649,6 +2063,13 @@ export class EditorStore {
       this.notifyTerrainRedraw();
     }
     this.ensureValidActiveLayer();
+    if (
+      result.command.kind === 'replace-document-content' ||
+      result.command.kind === 'set-city-theme' ||
+      result.command.kind === 'set-theme'
+    ) {
+      this.buildingRoofColor = pickDeterministicRoofColor(this.doc.theme, 0);
+    }
     if (this.selectedObjectId && !this.doc.manifest.objects.some((o) => o.id === this.selectedObjectId)) {
       this.selectedObjectId = null;
     }
@@ -1825,8 +2246,9 @@ export class EditorStore {
   newProject(options: CreateEmptyDocumentOptions): void {
     const nextDoc = createEmptyDocument(options);
     this.loadDocument(nextDoc);
-    this.activeTool = 'land';
-    this.activeLayerId = DEFAULT_LAYER_TERRAIN_ID;
+    this.activeTool = nextDoc.manifest.kind === 'city' ? 'district' : 'land';
+    this.activeLayerId =
+      nextDoc.manifest.kind === 'city' ? DEFAULT_LAYER_BUILDINGS_ID : DEFAULT_LAYER_TERRAIN_ID;
     this.ensureValidActiveLayer();
     this.brushDiameterDoc = DEFAULT_BRUSH_DIAMETER_DOC;
     this.brushIntensity = DEFAULT_BRUSH_INTENSITY;
@@ -1848,7 +2270,16 @@ export class EditorStore {
     this.statusNotice = null;
     this.setCursorDoc(null);
     this.hasLand = computeHasLand(this.doc);
+    if (
+      this.doc.manifest.kind === 'world' &&
+      isCityObjectTool(this.activeTool)
+    ) {
+      this.activeTool = 'land';
+    } else if (this.doc.manifest.kind === 'city' && this.activeTool === 'land') {
+      this.activeTool = 'district';
+    }
     this.ensureValidActiveLayer();
+    this.buildingRoofColor = pickDeterministicRoofColor(this.doc.theme, 0);
     if (this.pathKind === 'river') this.pathColor = this.doc.theme.colors.pathRiver;
     else if (this.pathKind === 'road') this.pathColor = this.doc.theme.colors.pathRoad;
     else if (this.pathKind === 'border') this.pathColor = this.doc.theme.colors.pathBorder;
@@ -2058,6 +2489,7 @@ export class EditorStore {
       return true;
     }
 
+    const isCity = this.doc.manifest.kind === 'city';
     switch (lower) {
       case 'h':
         this.setTool('hand');
@@ -2065,6 +2497,36 @@ export class EditorStore {
       case 'v':
         this.setTool('select');
         return true;
+      case 'q':
+        if (isCity) {
+          this.setTool('district');
+          return true;
+        }
+        return false;
+      case 'u':
+        if (isCity) {
+          this.setTool('building');
+          return true;
+        }
+        return false;
+      case 'g':
+        if (isCity) {
+          this.setTool('streetGrid');
+          return true;
+        }
+        return false;
+      case 'k':
+        if (isCity) {
+          this.setTool('plaza');
+          return true;
+        }
+        return false;
+      case 'm':
+        if (isCity) {
+          this.setTool('cityWall');
+          return true;
+        }
+        return false;
       case 'b':
       case 'l':
         this.setTool('land');
@@ -2079,7 +2541,7 @@ export class EditorStore {
         this.selectCoverGroup();
         return true;
       case 'r':
-        this.setTool('path');
+        this.setTool(isCity ? 'street' : 'path');
         return true;
       case 'p':
         this.setTool('poi');
@@ -2089,11 +2551,19 @@ export class EditorStore {
         return true;
       case '[':
         e.preventDefault?.();
-        this.setBrushDiameter(Math.round(this.brushDiameterDoc * 0.85));
+        if (this.activeTool === 'district') {
+          this.setDistrictDiameterDoc(Math.round(this.districtDiameterDoc * 0.85));
+        } else {
+          this.setBrushDiameter(Math.round(this.brushDiameterDoc * 0.85));
+        }
         return true;
       case ']':
         e.preventDefault?.();
-        this.setBrushDiameter(Math.round(this.brushDiameterDoc * 1.15));
+        if (this.activeTool === 'district') {
+          this.setDistrictDiameterDoc(Math.round(this.districtDiameterDoc * 1.15));
+        } else {
+          this.setBrushDiameter(Math.round(this.brushDiameterDoc * 1.15));
+        }
         return true;
       case '?':
         e.preventDefault?.();
@@ -2145,6 +2615,35 @@ export class EditorStore {
       pathSmooth: this.pathSmooth,
       pathDashed: this.pathDashed,
       pathTapered: this.pathTapered,
+      districtMode: this.districtMode,
+      districtPreset: this.districtPreset,
+      districtDiameterDoc: this.districtDiameterDoc,
+      districtDensity: this.districtDensity,
+      districtBuildingScale: this.districtBuildingScale,
+      districtIrregularity: this.districtIrregularity,
+      districtRenderStyle: this.districtRenderStyle,
+      buildingShape: this.buildingShape,
+      buildingWidthDoc: this.buildingWidthDoc,
+      buildingHeightDoc: this.buildingHeightDoc,
+      buildingRotationDeg: this.buildingRotationDeg,
+      buildingRoofColor: this.buildingRoofColor,
+      buildingAutoAlign: this.buildingAutoAlign,
+      buildingRenderStyle: this.buildingRenderStyle,
+      streetPathKind: this.streetPathKind,
+      streetStrokeWidthDoc: this.streetStrokeWidthDoc,
+      streetSnapEnabled: this.streetSnapEnabled,
+      streetGridStyle: this.streetGridStyle,
+      streetGridSpacingDoc: this.streetGridSpacingDoc,
+      streetGridAngleDeg: this.streetGridAngleDeg,
+      streetGridAutoFill: this.streetGridAutoFill,
+      plazaShape: this.plazaShape,
+      plazaSizeDoc: this.plazaSizeDoc,
+      plazaCenterpiece: this.plazaCenterpiece,
+      plazaClearBuildings: this.plazaClearBuildings,
+      wallStrokeWidthDoc: this.wallStrokeWidthDoc,
+      wallTowerSpacingDoc: this.wallTowerSpacingDoc,
+      wallAutoTowers: this.wallAutoTowers,
+      wallAutoGates: this.wallAutoGates,
       camera: this.camera,
       viewportSize: this.viewportSize,
       hasInitialFit: this.hasInitialFit,

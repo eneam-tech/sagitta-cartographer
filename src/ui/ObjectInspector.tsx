@@ -1,13 +1,21 @@
 import { useEffect, useId, useRef, useState } from 'react';
+import { getCityThemePalette } from '../city/geometry';
 import { clampNumber } from '../model/coordinates';
 import {
+  BuildingObject,
+  BuildingRenderStyle,
+  BuildingShape,
   LabelObject,
   MapObject,
   PathObject,
+  PlazaCenterpiece,
+  PlazaObject,
+  PlazaShape,
   StampObject,
   resolveObjectLayerId
 } from '../model/document';
 import {
+  CITY_PATH_KIND_OPTIONS,
   DeleteObjectCommand,
   PATH_KIND_OPTIONS,
   commitObjectReorderInLayer,
@@ -18,7 +26,11 @@ import {
   getSameLayerAdjacentIndices,
   normalizeRotationDeg
 } from '../objects/objectCommands';
-import { PathColorControls, SyncedRangeField } from '../objects/uiControls';
+import {
+  PathColorControls,
+  SyncedRangeField,
+  normalizeColorHex
+} from '../objects/uiControls';
 import { EditorStore, useEditorStore } from '../state/editorStore';
 import { LABEL_ROLE_PRESETS } from '../theme/theme';
 
@@ -628,6 +640,412 @@ function LabelInspectorFields({ store, labelObj, disabled }: LabelInspectorField
   );
 }
 
+const BUILDING_SHAPE_INSPECTOR_OPTIONS: ReadonlyArray<{ id: BuildingShape; label: string }> = [
+  { id: 'rect', label: 'Casa' },
+  { id: 'l-shape', label: 'Palazzo a L' },
+  { id: 'courtyard', label: 'Cortile' },
+  { id: 'tower', label: 'Torre' },
+  { id: 'cathedral', label: 'Cattedrale' },
+  { id: 'market', label: 'Mercato' }
+];
+
+const BUILDING_RENDER_OPTIONS: ReadonlyArray<{
+  id: 'auto' | BuildingRenderStyle;
+  label: string;
+}> = [
+  { id: 'auto', label: 'Stile carta' },
+  { id: 'roof-25d', label: 'Tetti 2.5D' },
+  { id: 'ink-plan', label: 'Planimetria' }
+];
+
+const PLAZA_SHAPE_INSPECTOR_OPTIONS: ReadonlyArray<{ id: PlazaShape; label: string }> = [
+  { id: 'rect', label: 'Rettangolare' },
+  { id: 'circle', label: 'Circolare' },
+  { id: 'octagon', label: 'Ottagonale' }
+];
+
+const PLAZA_CENTERPIECE_INSPECTOR_OPTIONS: ReadonlyArray<{
+  id: PlazaCenterpiece;
+  label: string;
+}> = [
+  { id: 'none', label: 'Libera' },
+  { id: 'fountain', label: 'Fontana' },
+  { id: 'obelisk', label: 'Obelisco' },
+  { id: 'market-stalls', label: 'Bancarelle' },
+  { id: 'tree', label: 'Albero' }
+];
+
+interface BuildingInspectorFieldsProps {
+  store: EditorStore;
+  building: BuildingObject;
+  disabled: boolean;
+}
+
+function BuildingInspectorFields({
+  store,
+  building,
+  disabled
+}: BuildingInspectorFieldsProps) {
+  const doc = store.getDocument();
+  const palette = getCityThemePalette(doc.theme);
+  const maxDim = Math.max(4000, doc.manifest.space.width * 2);
+  const colorInputId = useId();
+  const normalizedRoof = normalizeColorHex(
+    building.roofColor,
+    palette.roofPalette[0] ?? '#9E4638'
+  );
+
+  const commitBuildingPatch = (patch: Partial<BuildingObject>, actionLabel: string) => {
+    if (disabled) return;
+    const next: BuildingObject = { ...building, ...patch };
+    commitObjectUpdate(store, building, next, actionLabel);
+  };
+
+  return (
+    <>
+      <div className="form-field">
+        <span className="field-label">Pianta edificio</span>
+        <div className="city-shape-grid" role="group" aria-label="Pianta edificio">
+          {BUILDING_SHAPE_INSPECTOR_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="segmented-btn"
+              disabled={disabled}
+              aria-pressed={building.shape === opt.id}
+              onClick={() =>
+                commitBuildingPatch({ shape: opt.id }, `Cambia pianta in ${opt.label}`)
+              }
+              style={{ fontSize: '13px', lineHeight: '18px' }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: 'var(--ui-space-2)'
+        }}
+      >
+        <CommittedNumberField
+          label="X"
+          value={building.x}
+          min={-maxDim}
+          max={maxDim}
+          step={10}
+          unit="u"
+          stacked
+          disabled={disabled}
+          onCommit={(x) => commitBuildingPatch({ x }, 'Sposta edificio')}
+        />
+        <CommittedNumberField
+          label="Y"
+          value={building.y}
+          min={-maxDim}
+          max={maxDim}
+          step={10}
+          unit="u"
+          stacked
+          disabled={disabled}
+          onCommit={(y) => commitBuildingPatch({ y }, 'Sposta edificio')}
+        />
+      </div>
+
+      <CommittedNumberField
+        label="Larghezza"
+        value={building.width}
+        min={8}
+        max={maxDim}
+        step={2}
+        unit="u"
+        disabled={disabled}
+        onCommit={(width) => commitBuildingPatch({ width }, 'Ridimensiona edificio')}
+      />
+
+      <CommittedNumberField
+        label="Profondità"
+        value={building.height}
+        min={8}
+        max={maxDim}
+        step={2}
+        unit="u"
+        disabled={disabled}
+        onCommit={(height) => commitBuildingPatch({ height }, 'Ridimensiona edificio')}
+      />
+
+      <CommittedNumberField
+        label="Rotazione"
+        value={building.rotationDeg}
+        min={-360}
+        max={360}
+        step={5}
+        unit="°"
+        disabled={disabled}
+        onCommit={(deg) =>
+          commitBuildingPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota edificio')
+        }
+      />
+
+      <div className="form-field">
+        <div className="slider-header">
+          <label htmlFor={colorInputId} className="field-label">
+            Colore tetto
+          </label>
+          <input
+            id={colorInputId}
+            type="color"
+            disabled={disabled}
+            value={normalizedRoof}
+            onChange={(e) =>
+              commitBuildingPatch(
+                { roofColor: normalizeColorHex(e.target.value) },
+                'Cambia colore tetto'
+              )
+            }
+            style={{
+              width: '36px',
+              height: '32px',
+              padding: '2px',
+              backgroundColor: 'var(--ui-raised)',
+              border: '1px solid var(--ui-line)',
+              borderRadius: 'var(--ui-radius-control)',
+              cursor: disabled ? 'not-allowed' : 'pointer'
+            }}
+          />
+        </div>
+        <div style={{ display: 'flex', flexWrap: 'wrap', gap: '6px' }}>
+          {palette.roofPalette.map((hex) => {
+            const isSel = normalizedRoof === normalizeColorHex(hex);
+            return (
+              <button
+                key={hex}
+                type="button"
+                disabled={disabled}
+                aria-label={`Colore ${hex}`}
+                aria-pressed={isSel}
+                onClick={() =>
+                  commitBuildingPatch({ roofColor: hex }, 'Cambia colore tetto')
+                }
+                style={{
+                  width: '32px',
+                  height: '32px',
+                  minWidth: '32px',
+                  minHeight: '32px',
+                  padding: 0,
+                  backgroundColor: hex,
+                  border: isSel ? '2px solid var(--ui-accent)' : '1px solid var(--ui-line)',
+                  borderRadius: 'var(--ui-radius-control)',
+                  cursor: disabled ? 'not-allowed' : 'pointer'
+                }}
+              />
+            );
+          })}
+        </div>
+      </div>
+
+      <div className="form-field">
+        <span className="field-label">Resa grafica</span>
+        <div
+          className="segmented-group"
+          style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+          role="group"
+          aria-label="Resa grafica edificio"
+        >
+          {BUILDING_RENDER_OPTIONS.map((opt) => {
+            const activeStyle = building.renderStyle ?? 'auto';
+            return (
+              <button
+                key={opt.id}
+                type="button"
+                className="segmented-btn"
+                disabled={disabled}
+                aria-pressed={activeStyle === opt.id}
+                onClick={() =>
+                  commitBuildingPatch(
+                    { renderStyle: opt.id === 'auto' ? undefined : opt.id },
+                    `Cambia resa in ${opt.label}`
+                  )
+                }
+                style={{ fontSize: '13px', lineHeight: '18px', padding: '0 4px' }}
+              >
+                {opt.label}
+              </button>
+            );
+          })}
+        </div>
+      </div>
+    </>
+  );
+}
+
+interface PlazaInspectorFieldsProps {
+  store: EditorStore;
+  plaza: PlazaObject;
+  disabled: boolean;
+}
+
+function PlazaInspectorFields({ store, plaza, disabled }: PlazaInspectorFieldsProps) {
+  const doc = store.getDocument();
+  const maxDim = Math.max(4000, doc.manifest.space.width * 2);
+  const fillInputId = useId();
+  const normalizedFill = normalizeColorHex(plaza.fillColor, '#DDD1B8');
+
+  const commitPlazaPatch = (patch: Partial<PlazaObject>, actionLabel: string) => {
+    if (disabled) return;
+    const next: PlazaObject = { ...plaza, ...patch };
+    commitObjectUpdate(store, plaza, next, actionLabel);
+  };
+
+  return (
+    <>
+      <div className="form-field">
+        <span className="field-label">Forma piazza</span>
+        <div
+          className="segmented-group"
+          style={{ gridTemplateColumns: 'repeat(3, minmax(0, 1fr))' }}
+          role="group"
+          aria-label="Forma della piazza"
+        >
+          {PLAZA_SHAPE_INSPECTOR_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="segmented-btn"
+              disabled={disabled}
+              aria-pressed={plaza.shape === opt.id}
+              onClick={() =>
+                commitPlazaPatch({ shape: opt.id }, `Cambia forma in ${opt.label}`)
+              }
+              style={{ fontSize: '13px', lineHeight: '18px', padding: '0 4px' }}
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div
+        style={{
+          display: 'grid',
+          gridTemplateColumns: 'repeat(2, minmax(0, 1fr))',
+          gap: 'var(--ui-space-2)'
+        }}
+      >
+        <CommittedNumberField
+          label="X"
+          value={plaza.x}
+          min={-maxDim}
+          max={maxDim}
+          step={10}
+          unit="u"
+          stacked
+          disabled={disabled}
+          onCommit={(x) => commitPlazaPatch({ x }, 'Sposta piazza')}
+        />
+        <CommittedNumberField
+          label="Y"
+          value={plaza.y}
+          min={-maxDim}
+          max={maxDim}
+          step={10}
+          unit="u"
+          stacked
+          disabled={disabled}
+          onCommit={(y) => commitPlazaPatch({ y }, 'Sposta piazza')}
+        />
+      </div>
+
+      <CommittedNumberField
+        label="Larghezza"
+        value={plaza.width}
+        min={20}
+        max={maxDim}
+        step={4}
+        unit="u"
+        disabled={disabled}
+        onCommit={(width) => commitPlazaPatch({ width }, 'Ridimensiona piazza')}
+      />
+
+      <CommittedNumberField
+        label="Altezza"
+        value={plaza.height}
+        min={20}
+        max={maxDim}
+        step={4}
+        unit="u"
+        disabled={disabled}
+        onCommit={(height) => commitPlazaPatch({ height }, 'Ridimensiona piazza')}
+      />
+
+      <CommittedNumberField
+        label="Rotazione"
+        value={plaza.rotationDeg}
+        min={-360}
+        max={360}
+        step={5}
+        unit="°"
+        disabled={disabled}
+        onCommit={(deg) =>
+          commitPlazaPatch({ rotationDeg: normalizeRotationDeg(deg) }, 'Ruota piazza')
+        }
+      />
+
+      <div className="form-field">
+        <span className="field-label">Elemento centrale</span>
+        <div className="city-preset-list" role="group" aria-label="Elemento centrale piazza">
+          {PLAZA_CENTERPIECE_INSPECTOR_OPTIONS.map((opt) => (
+            <button
+              key={opt.id}
+              type="button"
+              className="segmented-btn city-preset-btn"
+              disabled={disabled}
+              aria-pressed={plaza.centerpiece === opt.id}
+              onClick={() =>
+                commitPlazaPatch({ centerpiece: opt.id }, `Imposta ${opt.label}`)
+              }
+            >
+              {opt.label}
+            </button>
+          ))}
+        </div>
+      </div>
+
+      <div className="form-field">
+        <div className="slider-header">
+          <label htmlFor={fillInputId} className="field-label">
+            Pavimentazione
+          </label>
+          <input
+            id={fillInputId}
+            type="color"
+            disabled={disabled}
+            value={normalizedFill}
+            onChange={(e) =>
+              commitPlazaPatch(
+                { fillColor: normalizeColorHex(e.target.value) },
+                'Cambia colore piazza'
+              )
+            }
+            style={{
+              width: '36px',
+              height: '32px',
+              padding: '2px',
+              backgroundColor: 'var(--ui-raised)',
+              border: '1px solid var(--ui-line)',
+              borderRadius: 'var(--ui-radius-control)',
+              cursor: disabled ? 'not-allowed' : 'pointer'
+            }}
+          />
+        </div>
+      </div>
+    </>
+  );
+}
+
 interface PathInspectorFieldsProps {
   store: EditorStore;
   pathObj: PathObject;
@@ -635,7 +1053,15 @@ interface PathInspectorFieldsProps {
 }
 
 function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsProps) {
-  const theme = store.getDocument().theme;
+  const doc = store.getDocument();
+  const theme = doc.theme;
+  const isUrbanPath =
+    doc.manifest.kind === 'city' ||
+    pathObj.kind === 'avenue' ||
+    pathObj.kind === 'alley' ||
+    pathObj.kind === 'canal' ||
+    pathObj.kind === 'wall';
+  const kindOptions = isUrbanPath ? CITY_PATH_KIND_OPTIONS : PATH_KIND_OPTIONS;
 
   const commitPathPatch = (patch: Partial<PathObject>, actionLabel: string) => {
     if (disabled) return;
@@ -660,8 +1086,8 @@ function PathInspectorFields({ store, pathObj, disabled }: PathInspectorFieldsPr
             {getPathKindLabel(pathObj.kind)}
           </span>
         </div>
-        <div className="segmented-group" role="group" aria-label="Stile tracciato">
-          {PATH_KIND_OPTIONS.map((opt) => {
+        <div className="city-shape-grid" role="group" aria-label="Stile tracciato">
+          {kindOptions.map((opt) => {
             const isActive = pathObj.kind === opt.kind;
             return (
               <button
@@ -876,17 +1302,17 @@ export function ObjectInspector({ store, onAddLabelForStamp }: ObjectInspectorPr
   const canMoveBackward = layerEditable && adjacent?.prevSameLayerIndex !== null;
 
   const headingText =
-    selectedObject.type === 'stamp'
-      ? displayName
-      : selectedObject.type === 'label'
-        ? 'Etichetta'
-        : displayName;
+    selectedObject.type === 'label' ? 'Etichetta' : displayName;
   const subheadingText =
     selectedObject.type === 'stamp'
       ? 'Simbolo POI'
       : selectedObject.type === 'label'
         ? displayName
-        : 'Tracciato vettoriale';
+        : selectedObject.type === 'building'
+          ? 'Edificio architettonico'
+          : selectedObject.type === 'plaza'
+            ? 'Piazza cittadina'
+            : 'Tracciato vettoriale';
 
   return (
     <div className="panel-group">
@@ -981,6 +1407,14 @@ export function ObjectInspector({ store, onAddLabelForStamp }: ObjectInspectorPr
         />
       ) : selectedObject.type === 'label' ? (
         <LabelInspectorFields store={store} labelObj={selectedObject} disabled={!layerEditable} />
+      ) : selectedObject.type === 'building' ? (
+        <BuildingInspectorFields
+          store={store}
+          building={selectedObject}
+          disabled={!layerEditable}
+        />
+      ) : selectedObject.type === 'plaza' ? (
+        <PlazaInspectorFields store={store} plaza={selectedObject} disabled={!layerEditable} />
       ) : (
         <PathInspectorFields store={store} pathObj={selectedObject} disabled={!layerEditable} />
       )}

@@ -1,6 +1,19 @@
 import { ptToDocUnits } from '../model/coordinates';
 
 export type ThemeMode = 'reactive' | 'flat';
+export type CityRenderStyle = 'roof-25d' | 'ink-plan';
+
+export interface CityThemePalette {
+  renderStyle: CityRenderStyle;
+  roofPalette: readonly string[];
+  roofShadow: string;
+  wallStone: string;
+  streetFill: string;
+  streetBorder: string;
+  plazaFill: string;
+  canalWater: string;
+  parkGreen: string;
+}
 
 export interface ThemeColors {
   sea: string;
@@ -61,6 +74,7 @@ export interface MapTheme {
   version: number;
   name: string;
   mode: ThemeMode;
+  environment?: 'world' | 'city';
   colors: ThemeColors;
   coast: {
     strokeWidthDoc: number;
@@ -71,6 +85,7 @@ export interface MapTheme {
     defaultFontId: string;
     presets: Record<string, FontStyleSpec>;
   };
+  city?: CityThemePalette;
 }
 
 export const DEFAULT_ELEVATION_THRESHOLDS: ElevationThresholds = {
@@ -366,6 +381,259 @@ export const MAP_THEMES: readonly MapTheme[] = [
   VULCANICA_THEME
 ] as const;
 
+export const CITY_MEDIEVAL_THEME: MapTheme = {
+  id: 'city-medieval',
+  version: 2,
+  name: 'Borgo medievale organico',
+  mode: 'reactive',
+  environment: 'city',
+  colors: {
+    sea: '#6D9699',
+    seaShallow: '#8FB5B4',
+    seaBathymetry: '#496E73',
+    beach: '#E2D4B0',
+    land: '#DCD1AE',
+    hill: '#C9BA90',
+    mountain: '#9B8F7B',
+    mountainCrest: '#EDE5D0',
+    ink: '#271C14',
+    forest: '#5A7348',
+    forestShadow: '#3A4E2E',
+    fields: '#D2C27E',
+    fieldsFurrow: '#9B894D',
+    stone: '#736D66',
+    settlement: '#9E4638',
+    labelHalo: '#EFE7D2',
+    sand: '#DFC78B',
+    sandShadow: '#B3985B',
+    brick: '#A65442',
+    brickMortar: '#6E362A',
+    snow: '#F2F3EE',
+    snowShadow: '#C2CBCB',
+    swamp: '#637352',
+    swampWater: '#48635E',
+    rock: '#827B72',
+    rockShadow: '#544E47',
+    meadow: '#B6C080',
+    meadowAccent: '#869755',
+    lava: '#C84824',
+    lavaGlow: '#F2A238',
+    pathRiver: '#5F939C',
+    pathRoad: '#E5DAC0',
+    pathBorder: '#75392C'
+  },
+  coast: {
+    strokeWidthDoc: 3.0,
+    bathymetryOffsetDoc: 14
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS,
+  city: {
+    renderStyle: 'roof-25d',
+    roofPalette: ['#9E4638', '#B35A43', '#824236', '#6A737C', '#B87D4B', '#7A5440'],
+    roofShadow: 'rgba(31, 20, 13, 0.34)',
+    wallStone: '#6E665C',
+    streetFill: '#EAE0C8',
+    streetBorder: '#694F37',
+    plazaFill: '#DED2B4',
+    canalWater: '#5F939C',
+    parkGreen: '#829A63'
+  }
+};
+
+export const CITY_IMPERIAL_THEME: MapTheme = {
+  id: 'city-imperial',
+  version: 2,
+  name: 'Città imperiale',
+  mode: 'reactive',
+  environment: 'city',
+  colors: {
+    sea: '#6C8E9E',
+    seaShallow: '#8BAAB8',
+    seaBathymetry: '#4A6979',
+    beach: '#EAE0C6',
+    land: '#E5DEC9',
+    hill: '#D1C7AE',
+    mountain: '#9F978D',
+    mountainCrest: '#F5F0E3',
+    ink: '#1F242B',
+    forest: '#4D6A51',
+    forestShadow: '#334837',
+    fields: '#D8CB92',
+    fieldsFurrow: '#A6985F',
+    stone: '#838388',
+    settlement: '#A83E31',
+    labelHalo: '#F4EFE1',
+    sand: '#E4D098',
+    sandShadow: '#B8A26A',
+    brick: '#B04A3B',
+    brickMortar: '#753026',
+    snow: '#F6F7F8',
+    snowShadow: '#C8D0D6',
+    swamp: '#667560',
+    swampWater: '#4B6364',
+    rock: '#8D8B89',
+    rockShadow: '#5E5C5A',
+    meadow: '#BAC48E',
+    meadowAccent: '#8E9C62',
+    lava: '#CC4B28',
+    lavaGlow: '#F5A63B',
+    pathRiver: '#5A8CA1',
+    pathRoad: '#F1ECE0',
+    pathBorder: '#9A2E26'
+  },
+  coast: {
+    strokeWidthDoc: 3.0,
+    bathymetryOffsetDoc: 14
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS,
+  city: {
+    renderStyle: 'roof-25d',
+    roofPalette: ['#A83E31', '#C05B3D', '#8E342B', '#B88649', '#7D6E64', '#944D3A'],
+    roofShadow: 'rgba(26, 28, 34, 0.30)',
+    wallStone: '#7C7A76',
+    streetFill: '#F3EEE2',
+    streetBorder: '#57524A',
+    plazaFill: '#EAE1CA',
+    canalWater: '#5A8CA1',
+    parkGreen: '#7E9C6E'
+  }
+};
+
+export const CITY_HARBOR_THEME: MapTheme = {
+  id: 'city-harbor',
+  version: 2,
+  name: 'Città portuale e canali',
+  mode: 'reactive',
+  environment: 'city',
+  colors: {
+    sea: '#6D9DA4',
+    seaShallow: '#8DB9BF',
+    seaBathymetry: '#4A757D',
+    beach: '#E8DEC3',
+    land: '#E1D9C3',
+    hill: '#CCC2A6',
+    mountain: '#938E85',
+    mountainCrest: '#F2EFE6',
+    ink: '#1E2D36',
+    forest: '#456B58',
+    forestShadow: '#2E493C',
+    fields: '#CFCA8C',
+    fieldsFurrow: '#9B965C',
+    stone: '#737D83',
+    settlement: '#8C4B3E',
+    labelHalo: '#F1ECDC',
+    sand: '#E4D29E',
+    sandShadow: '#B8A46D',
+    brick: '#9E584A',
+    brickMortar: '#6B3A30',
+    snow: '#F4F8F9',
+    snowShadow: '#C2D1D8',
+    swamp: '#5F7768',
+    swampWater: '#44676A',
+    rock: '#80878C',
+    rockShadow: '#555B5F',
+    meadow: '#A8BC88',
+    meadowAccent: '#7C945F',
+    lava: '#C74B29',
+    lavaGlow: '#F2A33A',
+    pathRiver: '#5C929C',
+    pathRoad: '#ECE5D5',
+    pathBorder: '#824038'
+  },
+  coast: {
+    strokeWidthDoc: 3.2,
+    bathymetryOffsetDoc: 16
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS,
+  city: {
+    renderStyle: 'roof-25d',
+    roofPalette: ['#8C4B3E', '#5B7382', '#B36B46', '#4E6873', '#9C7A4E', '#755046'],
+    roofShadow: 'rgba(22, 34, 42, 0.32)',
+    wallStone: '#6F777C',
+    streetFill: '#EDE6D6',
+    streetBorder: '#505B62',
+    plazaFill: '#E2DAC6',
+    canalWater: '#5C929C',
+    parkGreen: '#75966D'
+  }
+};
+
+export const CITY_INKPLAN_THEME: MapTheme = {
+  id: 'city-inkplan',
+  version: 2,
+  name: 'Planimetria a inchiostro antico',
+  mode: 'reactive',
+  environment: 'city',
+  colors: {
+    sea: '#C4D0C8',
+    seaShallow: '#D4DFD8',
+    seaBathymetry: '#9BB0A5',
+    beach: '#F4EEDB',
+    land: '#EFE7D2',
+    hill: '#E3D8BC',
+    mountain: '#C7BA9E',
+    mountainCrest: '#F7F1E2',
+    ink: '#231B15',
+    forest: '#6C7A5E',
+    forestShadow: '#4D5942',
+    fields: '#E6DCB8',
+    fieldsFurrow: '#B3A47B',
+    stone: '#6B6259',
+    settlement: '#352A22',
+    labelHalo: '#F5EEDB',
+    sand: '#ECE0BF',
+    sandShadow: '#C4B58D',
+    brick: '#4D3E33',
+    brickMortar: '#2B221B',
+    snow: '#F7F3E9',
+    snowShadow: '#D7CEBC',
+    swamp: '#939B83',
+    swampWater: '#79887C',
+    rock: '#8C8276',
+    rockShadow: '#5E554B',
+    meadow: '#D6D9B8',
+    meadowAccent: '#A6AD82',
+    lava: '#7A3E2A',
+    lavaGlow: '#B86A3B',
+    pathRiver: '#8CA39A',
+    pathRoad: '#F8F3E6',
+    pathBorder: '#3B2F26'
+  },
+  coast: {
+    strokeWidthDoc: 2.8,
+    bathymetryOffsetDoc: 12
+  },
+  elevation: DEFAULT_ELEVATION_THRESHOLDS,
+  fonts: DEFAULT_THEME_FONTS,
+  city: {
+    renderStyle: 'ink-plan',
+    roofPalette: ['#352A22', '#47392E', '#57483C', '#2B221B', '#665649'],
+    roofShadow: 'rgba(35, 27, 21, 0.14)',
+    wallStone: '#3B2F26',
+    streetFill: '#F7F2E4',
+    streetBorder: '#3B2F26',
+    plazaFill: '#F3ECD9',
+    canalWater: '#B4C6BC',
+    parkGreen: '#B7BF9A'
+  }
+};
+
+export const CITY_THEMES: readonly MapTheme[] = [
+  CITY_MEDIEVAL_THEME,
+  CITY_IMPERIAL_THEME,
+  CITY_HARBOR_THEME,
+  CITY_INKPLAN_THEME
+] as const;
+
+export const DEFAULT_CITY_THEME = CITY_MEDIEVAL_THEME;
+
+export function getThemesForEnvironment(kind: 'world' | 'city'): readonly MapTheme[] {
+  return kind === 'city' ? CITY_THEMES : MAP_THEMES;
+}
+
 export const V1_FLAT_THEME: MapTheme = {
   ...DEFAULT_THEME,
   id: 'v1-flat',
@@ -380,7 +648,7 @@ export function cloneTheme(theme: MapTheme): MapTheme {
 
 export function getBuiltinThemeById(id: string): MapTheme | undefined {
   if (id === V1_FLAT_THEME.id) return V1_FLAT_THEME;
-  return MAP_THEMES.find((t) => t.id === id);
+  return MAP_THEMES.find((t) => t.id === id) ?? CITY_THEMES.find((t) => t.id === id);
 }
 
 /**
@@ -393,11 +661,17 @@ export function normalizeTheme(raw: unknown): MapTheme {
   }
   const t = raw as Partial<MapTheme>;
   const fallback = getBuiltinThemeById(typeof t.id === 'string' ? t.id : '') ?? DEFAULT_THEME;
+  const environment =
+    t.environment === 'city' || t.environment === 'world'
+      ? t.environment
+      : fallback.environment;
+  const citySource = t.city ?? fallback.city;
   return cloneTheme({
     id: typeof t.id === 'string' && t.id.trim() ? t.id : fallback.id,
     version: typeof t.version === 'number' && Number.isInteger(t.version) && t.version >= 1 ? t.version : fallback.version,
     name: typeof t.name === 'string' && t.name.trim() ? t.name : fallback.name,
     mode: t.mode === 'flat' ? 'flat' : 'reactive',
+    ...(environment ? { environment } : {}),
     colors: {
       ...DEFAULT_THEME.colors,
       ...fallback.colors,
@@ -419,7 +693,25 @@ export function normalizeTheme(raw: unknown): MapTheme {
         ...DEFAULT_THEME_FONTS.presets,
         ...(t.fonts?.presets ?? {})
       }
-    }
+    },
+    ...(citySource
+      ? {
+          city: {
+            renderStyle: citySource.renderStyle === 'ink-plan' ? 'ink-plan' : 'roof-25d',
+            roofPalette:
+              Array.isArray(citySource.roofPalette) && citySource.roofPalette.length > 0
+                ? [...citySource.roofPalette]
+                : [...(fallback.city?.roofPalette ?? CITY_MEDIEVAL_THEME.city!.roofPalette)],
+            roofShadow: citySource.roofShadow || fallback.city?.roofShadow || 'rgba(31,20,13,0.34)',
+            wallStone: citySource.wallStone || fallback.city?.wallStone || '#6E665C',
+            streetFill: citySource.streetFill || fallback.city?.streetFill || '#EAE0C8',
+            streetBorder: citySource.streetBorder || fallback.city?.streetBorder || '#694F37',
+            plazaFill: citySource.plazaFill || fallback.city?.plazaFill || '#DED2B4',
+            canalWater: citySource.canalWater || fallback.city?.canalWater || '#5F939C',
+            parkGreen: citySource.parkGreen || fallback.city?.parkGreen || '#829A63'
+          }
+        }
+      : {})
   });
 }
 

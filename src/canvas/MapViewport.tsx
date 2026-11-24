@@ -919,6 +919,9 @@ export function MapViewport({
         event: e.nativeEvent
       });
       if (handled) {
+        if (pointerType !== 'mouse' && tool !== 'select') {
+          e.preventDefault();
+        }
         activeGestureRef.current = {
           mode: 'object',
           pointerId: e.pointerId,
@@ -1359,9 +1362,20 @@ export function MapViewport({
   let cursorStyle = 'default';
   if (effectiveTool === 'hand') {
     cursorStyle = activeGestureRef.current?.mode === 'pan' ? 'grabbing' : 'grab';
-  } else if (isTerrainBrushTool(effectiveTool) || effectiveTool === 'path') {
+  } else if (
+    isTerrainBrushTool(effectiveTool) ||
+    effectiveTool === 'path' ||
+    effectiveTool === 'district' ||
+    effectiveTool === 'street' ||
+    effectiveTool === 'streetGrid' ||
+    effectiveTool === 'cityWall'
+  ) {
     cursorStyle = 'crosshair';
-  } else if (effectiveTool === 'poi') {
+  } else if (
+    effectiveTool === 'poi' ||
+    effectiveTool === 'building' ||
+    effectiveTool === 'plaza'
+  ) {
     cursorStyle = 'copy';
   } else if (effectiveTool === 'label') {
     cursorStyle = 'text';
@@ -1402,6 +1416,10 @@ export function MapViewport({
       {!hasLand ? (
         <div className="stage-empty-aid" role="status" aria-live="polite">
           Disegna la prima costa con Terra
+        </div>
+      ) : doc.manifest.kind === 'city' && doc.manifest.objects.length === 0 ? (
+        <div className="stage-empty-aid" role="status" aria-live="polite">
+          Traccia le strade o dipingi un quartiere, oppure usa Genera…
         </div>
       ) : null}
 

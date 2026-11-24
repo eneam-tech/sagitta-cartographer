@@ -402,3 +402,96 @@ export function SendDeviceIcon({ size = 24, ...rest }: IconProps) {
     </svg>
   );
 }
+
+/**
+ * Pennello Quartiere: tre tetti/case sfalsate di un borgo urbano.
+ */
+export function DistrictIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M3.5 11 8 7l4.5 4v5.5h-9V11Z" />
+      <path d="M12.5 10.5 16.5 7l4 3.5v6h-8" />
+      <path d="M7.5 18.5 12 14.5l4.5 4v2h-9v-2Z" />
+    </svg>
+  );
+}
+
+/**
+ * Edificio singolo: pianta rettangolare con tetto a falde e colmo centrale.
+ */
+export function BuildingIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <rect x="4.5" y="6.5" width="15" height="11" rx="1" />
+      <path d="M4.5 6.5 9.2 12l-4.7 5.5" />
+      <path d="M19.5 6.5 14.8 12l4.7 5.5" />
+      <path d="M9.2 12h5.6" />
+    </svg>
+  );
+}
+
+/**
+ * Griglia stradale: reticolo ortogonale di vie e isolati.
+ */
+export function StreetGridIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4 9h16" />
+      <path d="M4 15h16" />
+      <path d="M9 4v16" />
+      <path d="M15 4v16" />
+    </svg>
+  );
+}
+
+/**
+ * Piazza cittadina: perimetro ottagonale con fontana centrale.
+ */
+export function PlazaIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M8.5 4.2h7l4.3 4.3v7l-4.3 4.3h-7l-4.3-4.3v-7l4.3-4.3Z" />
+      <circle cx="12" cy="12" r="3" />
+    </svg>
+  );
+}
+
+/**
+ * Mura cittadine: cortina merlata con torrioni laterali.
+ */
+export function CityWallIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M4 19V7h3v2.5h2.5V7h5v2.5H17V7h3v12H4Z" />
+      <path d="M9.5 19v-4.2a2.5 2.5 0 0 1 5 0V19" />
+    </svg>
+  );
+}
+
+/**
+ * Ambiente Città: profilo architettonico di torri e tetti cittadini.
+ */
+export function CityEnvIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <path d="M3.5 20h17" />
+      <path d="M5 20V10l3.5-2.5L12 10v10" />
+      <path d="M12 20V6l3.5-2.2L19 6v14" />
+      <path d="M15.5 9.5v.8" />
+      <path d="M8.5 13.5v.8" />
+    </svg>
+  );
+}
+
+/**
+ * Ambiente Continente: globo topografico con terre emerse.
+ */
+export function WorldEnvIcon({ size = 24, ...rest }: IconProps) {
+  return (
+    <svg {...createIconProps(size, rest)}>
+      <circle cx="12" cy="12" r="8.5" />
+      <path d="M4.8 10.2c2.4-1.3 4.5.8 6-.3 1.4-1 1.7-2.8 3.6-2.8 1.5 0 2.7 1.3 4.2 1.5" />
+      <path d="M6.2 16c2-.9 3.6.9 5.7.2 1.8-.7 2.5-2.2 4.8-1.9" />
+    </svg>
+  );
+}

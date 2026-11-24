@@ -7,7 +7,7 @@ import {
   validateMaskDimensions,
   validatePageSizeMm
 } from './coordinates';
-import { DEFAULT_THEME, MapTheme, cloneTheme } from '../theme/theme';
+import { DEFAULT_CITY_THEME, DEFAULT_THEME, MapTheme, cloneTheme } from '../theme/theme';
 
 export const SCHEMA_VERSION = 3;
 export const RULES_VERSION = 2;
@@ -131,10 +131,12 @@ export const COVER_MATERIALS: readonly CoverMaterialSpec[] = [
 
 export const DEFAULT_LAYER_TERRAIN_ID = 'layer-terrain';
 export const DEFAULT_LAYER_VECTORS_ID = 'layer-vectors';
+export const DEFAULT_LAYER_BUILDINGS_ID = 'layer-buildings';
 export const DEFAULT_LAYER_POI_ID = 'layer-poi';
 export const DEFAULT_LAYER_LABELS_ID = 'layer-labels';
 
-export type LayerKind = 'terrain' | 'vector' | 'poi' | 'labels' | 'custom';
+export type MapEnvironmentKind = 'world' | 'city';
+export type LayerKind = 'terrain' | 'vector' | 'buildings' | 'poi' | 'labels' | 'custom';
 
 export interface MapLayer {
   id: string;
@@ -145,7 +147,51 @@ export interface MapLayer {
   opacity: number;
 }
 
-export function createDefaultLayers(): MapLayer[] {
+export function createDefaultLayers(kind: MapEnvironmentKind = 'world'): MapLayer[] {
+  if (kind === 'city') {
+    return [
+      {
+        id: DEFAULT_LAYER_TERRAIN_ID,
+        name: 'Suolo e Acque',
+        kind: 'terrain',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_VECTORS_ID,
+        name: 'Strade, Piazze e Mura',
+        kind: 'vector',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_BUILDINGS_ID,
+        name: 'Quartieri ed Edifici',
+        kind: 'buildings',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_POI_ID,
+        name: 'Luoghi e Monumenti',
+        kind: 'poi',
+        visible: true,
+        locked: false,
+        opacity: 1
+      },
+      {
+        id: DEFAULT_LAYER_LABELS_ID,
+        name: 'Nomi e Quartieri',
+        kind: 'labels',
+        visible: true,
+        locked: false,
+        opacity: 1
+      }
+    ];
+  }
   return [
     {
       id: DEFAULT_LAYER_TERRAIN_ID,
@@ -183,7 +229,54 @@ export function createDefaultLayers(): MapLayer[] {
 }
 
 export type StampRole = 'poi' | 'decorative';
-export type PathKind = 'river' | 'road' | 'border' | 'freehand';
+export type PathKind =
+  | 'river'
+  | 'road'
+  | 'border'
+  | 'freehand'
+  | 'avenue'
+  | 'alley'
+  | 'canal'
+  | 'wall';
+
+export type BuildingShape = 'rect' | 'l-shape' | 'courtyard' | 'tower' | 'cathedral' | 'market';
+export type BuildingRenderStyle = 'roof-25d' | 'ink-plan';
+
+export interface BuildingObject {
+  id: string;
+  type: 'building';
+  layerId?: string;
+  shape: BuildingShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotationDeg: number;
+  roofColor: string;
+  wallColor?: string;
+  roofAngleDeg?: number;
+  renderStyle?: BuildingRenderStyle;
+  districtTag?: string;
+  seed?: number;
+}
+
+export type PlazaShape = 'rect' | 'circle' | 'octagon';
+export type PlazaCenterpiece = 'none' | 'fountain' | 'obelisk' | 'market-stalls' | 'tree';
+
+export interface PlazaObject {
+  id: string;
+  type: 'plaza';
+  layerId?: string;
+  shape: PlazaShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotationDeg: number;
+  fillColor: string;
+  borderColor: string;
+  centerpiece: PlazaCenterpiece;
+}
 
 export interface TerrainManifest {
   mask: string;
@@ -260,10 +353,11 @@ export interface PathObject {
   smooth?: boolean;
 }
 
-export type MapObject = StampObject | LabelObject | PathObject;
+export type MapObject = StampObject | LabelObject | PathObject | BuildingObject | PlazaObject;
 
 export function defaultLayerIdForObject(obj: Pick<MapObject, 'type'>): string {
-  if (obj.type === 'path') return DEFAULT_LAYER_VECTORS_ID;
+  if (obj.type === 'path' || obj.type === 'plaza') return DEFAULT_LAYER_VECTORS_ID;
+  if (obj.type === 'building') return DEFAULT_LAYER_BUILDINGS_ID;
   if (obj.type === 'label') return DEFAULT_LAYER_LABELS_ID;
   return DEFAULT_LAYER_POI_ID;
 }
@@ -276,6 +370,10 @@ export function resolveObjectLayerId(obj: Pick<MapObject, 'type' | 'layerId'>, l
   if (layers.some((layer) => layer.id === preferred && layer.kind !== 'terrain')) {
     return preferred;
   }
+  if (obj.type === 'building') {
+    const byKind = layers.find((layer) => layer.kind === 'buildings');
+    if (byKind) return byKind.id;
+  }
   const fallback = layers.find((layer) => layer.kind !== 'terrain');
   return fallback ? fallback.id : DEFAULT_LAYER_POI_ID;
 }
@@ -284,7 +382,7 @@ export interface DocumentManifest {
   schemaVersion: number;
   id: string;
   revision: number;
-  kind: 'world';
+  kind: MapEnvironmentKind;
   title: string;
   page: PageSizeMm;
   space: DocSpace;
@@ -312,6 +410,7 @@ export interface MapDocument {
 
 export interface CreateEmptyDocumentOptions {
   id?: string;
+  kind?: MapEnvironmentKind;
   title?: string;
   page?: PageSizeMm;
   widthPx?: number;
@@ -341,6 +440,7 @@ export function safeRandomUUID(): string {
 }
 
 export function createEmptyDocument(options: CreateEmptyDocumentOptions = {}): MapDocument {
+  const kind: MapEnvironmentKind = options.kind ?? 'world';
   const page: PageSizeMm = options.page ?? { widthMm: 297, heightMm: 210 };
   validatePageSizeMm(page);
   const space = pageMmToSpace(page);
@@ -350,16 +450,27 @@ export function createEmptyDocument(options: CreateEmptyDocumentOptions = {}): M
   validateMaskDimensions({ widthPx, heightPx });
 
   const totalCells = widthPx * heightPx;
-  const theme = cloneTheme(options.theme ?? DEFAULT_THEME);
+  const theme = cloneTheme(
+    options.theme ?? (kind === 'city' ? DEFAULT_CITY_THEME : DEFAULT_THEME)
+  );
   const seed = ((options.seed ?? 173) >>> 0);
+  const mask = new Uint8Array(totalCells);
+  const height = new Uint8Array(totalCells);
+  const cover = new Uint8Array(totalCells);
+
+  if (kind === 'city') {
+    // Le mappe urbane partono con suolo pianeggiante edificabile anziché oceano vuoto
+    mask.fill(255);
+    height.fill(72);
+  }
 
   return {
     manifest: {
       schemaVersion: SCHEMA_VERSION,
       id: options.id ?? safeRandomUUID(),
       revision: 0,
-      kind: 'world',
-      title: options.title?.trim() || 'Nuova carta',
+      kind,
+      title: options.title?.trim() || (kind === 'city' ? 'Nuova città' : 'Nuova carta'),
       page: { ...page },
       space,
       terrain: {
@@ -377,15 +488,15 @@ export function createEmptyDocument(options: CreateEmptyDocumentOptions = {}): M
         file: 'theme/theme.json'
       },
       assets: options.assets ? options.assets.map((a) => ({ ...a })) : [],
-      layers: createDefaultLayers(),
+      layers: createDefaultLayers(kind),
       objects: []
     },
     terrain: {
       widthPx,
       heightPx,
-      mask: new Uint8Array(totalCells),
-      height: new Uint8Array(totalCells),
-      cover: new Uint8Array(totalCells)
+      mask,
+      height,
+      cover
     },
     theme,
     terrainVersion: 0
@@ -422,7 +533,7 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
   if (typeof m.revision !== 'number' || !Number.isInteger(m.revision) || m.revision < 0) {
     throw new Error('Revisione del documento non valida.');
   }
-  if (m.kind !== 'world') {
+  if (m.kind !== 'world' && m.kind !== 'city') {
     throw new Error(`Tipo di mappa non supportato: ${String(m.kind)}.`);
   }
   if (typeof m.title !== 'string') {
@@ -480,6 +591,7 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
     if (
       l.kind !== 'terrain' &&
       l.kind !== 'vector' &&
+      l.kind !== 'buildings' &&
       l.kind !== 'poi' &&
       l.kind !== 'labels' &&
       l.kind !== 'custom'
@@ -548,7 +660,11 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
         obj.kind !== 'river' &&
         obj.kind !== 'road' &&
         obj.kind !== 'border' &&
-        obj.kind !== 'freehand'
+        obj.kind !== 'freehand' &&
+        obj.kind !== 'avenue' &&
+        obj.kind !== 'alley' &&
+        obj.kind !== 'canal' &&
+        obj.kind !== 'wall'
       ) {
         throw new Error(`Tipo tracciato non valido per ${obj.id}: ${String((obj as { kind?: unknown }).kind)}.`);
       }
@@ -569,6 +685,50 @@ export function validateDocumentManifest(raw: unknown): DocumentManifest {
         (typeof obj.opacity !== 'number' || !Number.isFinite(obj.opacity) || obj.opacity < 0 || obj.opacity > 1)
       ) {
         throw new Error(`Opacità tracciato non valida per ${obj.id}.`);
+      }
+    } else if (obj.type === 'building') {
+      if (
+        obj.shape !== 'rect' &&
+        obj.shape !== 'l-shape' &&
+        obj.shape !== 'courtyard' &&
+        obj.shape !== 'tower' &&
+        obj.shape !== 'cathedral' &&
+        obj.shape !== 'market'
+      ) {
+        throw new Error(`Forma edificio non valida per ${obj.id}: ${String((obj as { shape?: unknown }).shape)}.`);
+      }
+      assertFinitePositive(obj.width, `building(${obj.id}).width`);
+      assertFinitePositive(obj.height, `building(${obj.id}).height`);
+      if (typeof obj.roofColor !== 'string' || !obj.roofColor.trim()) {
+        throw new Error(`Colore tetto non valido per ${obj.id}.`);
+      }
+      if (
+        obj.renderStyle !== undefined &&
+        obj.renderStyle !== 'roof-25d' &&
+        obj.renderStyle !== 'ink-plan'
+      ) {
+        throw new Error(`Stile edificio non valido per ${obj.id}.`);
+      }
+    } else if (obj.type === 'plaza') {
+      if (obj.shape !== 'rect' && obj.shape !== 'circle' && obj.shape !== 'octagon') {
+        throw new Error(`Forma piazza non valida per ${obj.id}: ${String((obj as { shape?: unknown }).shape)}.`);
+      }
+      assertFinitePositive(obj.width, `plaza(${obj.id}).width`);
+      assertFinitePositive(obj.height, `plaza(${obj.id}).height`);
+      if (typeof obj.fillColor !== 'string' || !obj.fillColor.trim()) {
+        throw new Error(`Colore piazza non valido per ${obj.id}.`);
+      }
+      if (typeof obj.borderColor !== 'string' || !obj.borderColor.trim()) {
+        throw new Error(`Colore bordo piazza non valido per ${obj.id}.`);
+      }
+      if (
+        obj.centerpiece !== 'none' &&
+        obj.centerpiece !== 'fountain' &&
+        obj.centerpiece !== 'obelisk' &&
+        obj.centerpiece !== 'market-stalls' &&
+        obj.centerpiece !== 'tree'
+      ) {
+        throw new Error(`Elemento centrale piazza non valido per ${obj.id}.`);
       }
     } else {
       throw new Error(`Tipo di oggetto non supportato: ${String((obj as { type?: unknown }).type)}.`);

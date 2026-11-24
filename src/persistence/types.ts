@@ -1,5 +1,5 @@
 import { PageSizeMm } from '../model/coordinates';
-import { MapDocument } from '../model/document';
+import { MapDocument, MapEnvironmentKind } from '../model/document';
 
 export type SaveStatus = 'idle' | 'saving' | 'saved' | 'error' | 'conflict';
 
@@ -12,6 +12,7 @@ export interface PersistenceState {
 
 export interface SavedProjectSummary {
   id: string;
+  kind?: MapEnvironmentKind;
   title: string;
   revision: number;
   updatedAt: number;

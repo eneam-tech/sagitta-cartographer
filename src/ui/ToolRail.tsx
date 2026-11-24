@@ -3,14 +3,19 @@ import type { FocusEvent, MouseEvent, ReactNode } from 'react';
 import { COVER_MATERIALS } from '../model/document';
 import { EditorSnapshot, EditorStore, useEditorStore } from '../state/editorStore';
 import {
+  BuildingIcon,
+  CityWallIcon,
   CoverIcon,
+  DistrictIcon,
   ElevationIcon,
   HandIcon,
   LabelIcon,
   LandIcon,
   PathIcon,
+  PlazaIcon,
   PoiIcon,
   SelectIcon,
+  StreetGridIcon,
   WaterIcon
 } from './icons';
 
@@ -113,6 +118,107 @@ const TOOL_DEFS: readonly ToolDef[] = [
   }
 ];
 
+const CITY_TOOL_DEFS: readonly ToolDef[] = [
+  {
+    id: 'hand',
+    label: 'Mano',
+    shortcut: 'H',
+    isActive: (s) => s.activeTool === 'hand' || s.spacePanActive,
+    onSelect: (store) => store.setTool('hand'),
+    icon: <HandIcon />
+  },
+  {
+    id: 'select',
+    label: 'Selezione',
+    shortcut: 'V',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'select',
+    onSelect: (store) => store.setTool('select'),
+    icon: <SelectIcon />,
+    dividerAfter: true
+  },
+  {
+    id: 'district',
+    label: 'Quartiere intelligente',
+    shortcut: 'Q',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'district',
+    onSelect: (store) => store.setTool('district'),
+    icon: <DistrictIcon />
+  },
+  {
+    id: 'building',
+    label: 'Edificio',
+    shortcut: 'U',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'building',
+    onSelect: (store) => store.setTool('building'),
+    icon: <BuildingIcon />
+  },
+  {
+    id: 'street',
+    label: 'Strade',
+    shortcut: 'R',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'street',
+    onSelect: (store) => store.setTool('street'),
+    icon: <PathIcon />
+  },
+  {
+    id: 'streetGrid',
+    label: 'Griglia stradale',
+    shortcut: 'G',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'streetGrid',
+    onSelect: (store) => store.setTool('streetGrid'),
+    icon: <StreetGridIcon />
+  },
+  {
+    id: 'plaza',
+    label: 'Piazza',
+    shortcut: 'K',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'plaza',
+    onSelect: (store) => store.setTool('plaza'),
+    icon: <PlazaIcon />
+  },
+  {
+    id: 'cityWall',
+    label: 'Mura cittadine',
+    shortcut: 'M',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'cityWall',
+    onSelect: (store) => store.setTool('cityWall'),
+    icon: <CityWallIcon />,
+    dividerAfter: true
+  },
+  {
+    id: 'water',
+    label: 'Acqua e Suolo',
+    shortcut: 'W',
+    isActive: (s) => !s.spacePanActive && (s.activeTool === 'water' || s.activeTool === 'land'),
+    onSelect: (store) => store.setTool('water'),
+    icon: <WaterIcon />
+  },
+  {
+    id: 'cover',
+    label: 'Superfici',
+    shortcut: 'C',
+    isActive: (s) => !s.spacePanActive && COVER_TOOL_SET.has(s.activeTool),
+    onSelect: (store) => store.selectCoverGroup(),
+    icon: <CoverIcon />
+  },
+  {
+    id: 'poi',
+    label: 'POI',
+    shortcut: 'P',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'poi',
+    onSelect: (store) => store.setTool('poi'),
+    icon: <PoiIcon />
+  },
+  {
+    id: 'label',
+    label: 'Testo',
+    shortcut: 'T',
+    isActive: (s) => !s.spacePanActive && s.activeTool === 'label',
+    onSelect: (store) => store.setTool('label'),
+    icon: <LabelIcon />
+  }
+];
+
 interface ActiveTooltip {
   id: string;
   label: string;
@@ -125,6 +231,8 @@ export function ToolRail({ store }: ToolRailProps) {
   const snap = useEditorStore(store);
   const tooltipDomId = useId();
   const [tooltip, setTooltip] = useState<ActiveTooltip | null>(null);
+  const isCity = snap.doc.manifest.kind === 'city';
+  const visibleTools = isCity ? CITY_TOOL_DEFS : TOOL_DEFS;
 
   const showTooltipForButton = useCallback((el: HTMLButtonElement, tool: ToolDef) => {
     const rect = el.getBoundingClientRect();
@@ -170,8 +278,12 @@ export function ToolRail({ store }: ToolRailProps) {
   };
 
   return (
-    <nav className="editor-rail" role="toolbar" aria-label="Strumenti cartografici">
-      {TOOL_DEFS.map((tool) => {
+    <nav
+      className="editor-rail"
+      role="toolbar"
+      aria-label={isCity ? 'Strumenti cartografia urbana' : 'Strumenti cartografici'}
+    >
+      {visibleTools.map((tool) => {
         const active = tool.isActive(snap);
         const describedBy = tooltip?.id === tool.id ? tooltipDomId : undefined;
         return (

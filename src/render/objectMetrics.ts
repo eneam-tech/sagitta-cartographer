@@ -10,6 +10,11 @@ import {
   resolveObjectLayerId
 } from '../model/document';
 import { MapTheme, getFontSpec } from '../theme/theme';
+import {
+  drawBuildingToContext,
+  drawPlazaToContext,
+  drawUrbanPathSegmentsToContext
+} from './cityRenderer';
 
 export function resolveLabelFontCss(label: LabelObject, theme: MapTheme, scale = 1): string {
   const spec = getFontSpec(theme, label.fontId);
@@ -174,7 +179,8 @@ export function drawPathToContext(
   ctx: CanvasRenderingContext2D,
   path: PathObject,
   scaleX: number,
-  scaleY: number
+  scaleY: number,
+  theme?: MapTheme
 ): void {
   if (path.points.length < 4) return;
   const pts = path.smooth !== false ? sampleSmoothPathPoints(path.points, 5) : path.points;
@@ -193,6 +199,11 @@ export function drawPathToContext(
   ctx.lineCap = 'round';
   ctx.lineJoin = 'round';
   ctx.strokeStyle = path.color;
+
+  if (drawUrbanPathSegmentsToContext(ctx, path, pts, theme, scaleX, scaleY)) {
+    ctx.restore();
+    return;
+  }
 
   if (path.tapered && vertexCount >= 2 && typeof ctx.fill === 'function' && typeof ctx.closePath === 'function') {
     drawTaperedRibbon(ctx, pts, scaleX, scaleY, baseWidthPx, path.color);
@@ -261,7 +272,11 @@ function drawSingleMapObject(
     ctx.fillText(obj.text, 0, 0);
     ctx.restore();
   } else if (obj.type === 'path') {
-    drawPathToContext(ctx, obj, scaleX, scaleY);
+    drawPathToContext(ctx, obj, scaleX, scaleY, doc.theme);
+  } else if (obj.type === 'building') {
+    drawBuildingToContext(ctx, obj, doc.theme, scaleX, scaleY);
+  } else if (obj.type === 'plaza') {
+    drawPlazaToContext(ctx, obj, doc.theme, scaleX, scaleY);
   }
 }
 

@@ -6,14 +6,21 @@ import {
   PAGE_PRESETS,
   PageSizeMm
 } from '../model/coordinates';
+import { MapEnvironmentKind } from '../model/document';
 import { SavedProjectSummary } from '../persistence/types';
 import { EditorStore, useEditorStore } from '../state/editorStore';
-import { MAP_THEMES, MapTheme, getBuiltinThemeById } from '../theme/theme';
+import {
+  MAP_THEMES,
+  MapTheme,
+  getBuiltinThemeById,
+  getThemesForEnvironment
+} from '../theme/theme';
 import { PeerTransferManager } from '../transfer/peerTransfer';
 import { DeviceTransferDialog } from './DeviceTransferDialog';
 import { ResizeCanvasDialog } from './ResizeCanvasDialog';
+import { GenerateCityDialog } from './GenerateCityDialog';
 import { GenerateWorldDialog } from './GenerateWorldDialog';
-import { AlertErrorIcon, CloseIcon } from './icons';
+import { AlertErrorIcon, CityEnvIcon, CloseIcon, WorldEnvIcon } from './icons';
 
 const FOCUSABLE_SELECTOR = [
   'button:not([disabled]):not([tabindex="-1"])',
@@ -164,12 +171,33 @@ export function ModalDialog({
 /* Nuovo progetto                                                             */
 /* -------------------------------------------------------------------------- */
 
+function getThemeSwatchesForCard(theme: MapTheme): [string, string, string] {
+  if (theme.environment === 'city' && theme.city) {
+    if (theme.city.renderStyle === 'ink-plan') {
+      return [theme.colors.land, theme.colors.ink, theme.city.plazaFill];
+    }
+    return [
+      theme.colors.land,
+      theme.city.roofPalette[0] ?? theme.colors.settlement,
+      theme.city.streetFill
+    ];
+  }
+  const accentColor =
+    theme.id === 'vulcanica'
+      ? theme.colors.lava
+      : theme.id === 'regni-del-nord'
+        ? theme.colors.settlement
+        : theme.colors.forest;
+  return [theme.colors.sea, theme.colors.land, accentColor];
+}
+
 function NewProjectDialog({ store }: { store: EditorStore }) {
   const titleInputRef = useRef<HTMLInputElement>(null);
   const titleFieldId = useId();
   const customWId = useId();
   const customHId = useId();
 
+  const [kind, setKind] = useState<MapEnvironmentKind>('world');
   const [title, setTitle] = useState('Nuova carta');
   const [presetId, setPresetId] = useState<string>(PAGE_PRESETS[0].id);
   const [customWidthMm, setCustomWidthMm] = useState('297');
@@ -177,7 +205,23 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
   const [themeId, setThemeId] = useState<string>(MAP_THEMES[0].id);
   const [error, setError] = useState<string | null>(null);
 
-  const selectedTheme: MapTheme = getBuiltinThemeById(themeId) ?? MAP_THEMES[0];
+  const availableThemes = getThemesForEnvironment(kind);
+  const selectedTheme: MapTheme =
+    availableThemes.find((t) => t.id === themeId) ??
+    getBuiltinThemeById(themeId) ??
+    availableThemes[0];
+
+  const handleKindChange = (nextKind: MapEnvironmentKind) => {
+    if (nextKind === kind) return;
+    setKind(nextKind);
+    const nextThemes = getThemesForEnvironment(nextKind);
+    setThemeId(nextThemes[0]?.id ?? MAP_THEMES[0].id);
+    setTitle((prev) => {
+      if (nextKind === 'city' && prev === 'Nuova carta') return 'Nuova città';
+      if (nextKind === 'world' && prev === 'Nuova città') return 'Nuova carta';
+      return prev;
+    });
+  };
 
   const handleSubmit = (e: FormEvent) => {
     e.preventDefault();
@@ -211,7 +255,7 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
     }
 
     setError(null);
-    store.newProject({ title: cleanTitle, page, theme: selectedTheme });
+    store.newProject({ title: cleanTitle, kind, page, theme: selectedTheme });
   };
 
   return (
@@ -249,6 +293,49 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
             onChange={(e) => setTitle(e.target.value)}
           />
         </div>
+
+        <fieldset className="form-field" style={{ border: 'none', margin: 0, padding: 0 }}>
+          <legend className="field-label" style={{ marginBottom: 8 }}>
+            Ambiente della carta
+          </legend>
+          <div className="env-choice-grid">
+            <label className={`env-choice-card ${kind === 'world' ? 'is-selected' : ''}`}>
+              <input
+                type="radio"
+                name="mapEnvironment"
+                value="world"
+                checked={kind === 'world'}
+                onChange={() => handleKindChange('world')}
+                style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }}
+              />
+              <span className="env-choice-head">
+                <WorldEnvIcon size={20} />
+                <span className="env-choice-title">Continente</span>
+              </span>
+              <span className="env-choice-desc">
+                Coste, catene montuose, biomi, rotte e atlanti geografici.
+              </span>
+            </label>
+
+            <label className={`env-choice-card ${kind === 'city' ? 'is-selected' : ''}`}>
+              <input
+                type="radio"
+                name="mapEnvironment"
+                value="city"
+                checked={kind === 'city'}
+                onChange={() => handleKindChange('city')}
+                style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }}
+              />
+              <span className="env-choice-head">
+                <CityEnvIcon size={20} />
+                <span className="env-choice-title">Città</span>
+              </span>
+              <span className="env-choice-desc">
+                Quartieri intelligenti, edifici, strade, griglie, piazze e mura.
+              </span>
+            </label>
+          </div>
+        </fieldset>
 
         <fieldset className="form-field" style={{ border: 'none', margin: 0, padding: 0 }}>
           <legend className="field-label" style={{ marginBottom: 8 }}>
@@ -327,13 +414,12 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
 
         <fieldset className="form-field" style={{ border: 'none', margin: 0, padding: 0 }}>
           <legend className="field-label" style={{ marginBottom: 8 }}>
-            Tema cartografico iniziale
+            {kind === 'city' ? 'Stile urbano iniziale' : 'Tema cartografico iniziale'}
           </legend>
           <div className="theme-preset-grid">
-            {MAP_THEMES.map((theme) => {
-              const isSelected = themeId === theme.id;
-              const accentColor =
-                theme.id === 'vulcanica' ? theme.colors.lava : theme.colors.forest;
+            {availableThemes.map((theme) => {
+              const isSelected = selectedTheme.id === theme.id;
+              const dots = getThemeSwatchesForCard(theme);
               return (
                 <label
                   key={theme.id}
@@ -348,9 +434,9 @@ function NewProjectDialog({ store }: { store: EditorStore }) {
                     style={{ position: 'absolute', opacity: 0, width: 1, height: 1 }}
                   />
                   <span className="theme-dots-row" aria-hidden="true">
-                    <span className="theme-dot" style={{ backgroundColor: theme.colors.sea }} />
-                    <span className="theme-dot" style={{ backgroundColor: theme.colors.land }} />
-                    <span className="theme-dot" style={{ backgroundColor: accentColor }} />
+                    <span className="theme-dot" style={{ backgroundColor: dots[0] }} />
+                    <span className="theme-dot" style={{ backgroundColor: dots[1] }} />
+                    <span className="theme-dot" style={{ backgroundColor: dots[2] }} />
                   </span>
                   <span className="theme-preset-name">{theme.name}</span>
                 </label>
@@ -447,6 +533,9 @@ function OpenProjectDialog({ store }: { store: EditorStore }) {
                 <div className="project-row-info">
                   <p className="project-row-title">
                     {p.title} {isCurrent ? '(aperto)' : ''}
+                    <span className="project-kind-badge">
+                      {p.kind === 'city' ? 'Città' : 'Continente'}
+                    </span>
                   </p>
                   <p className="project-row-meta tabular-nums">
                     {p.page.widthMm} × {p.page.heightMm} mm · rev. {p.revision} · {dateStr}
@@ -597,24 +686,37 @@ function ConflictDialog({ store }: { store: EditorStore }) {
 /* Guida alle scorciatoie da tastiera (?)                                     */
 /* -------------------------------------------------------------------------- */
 
-const SHORTCUT_GROUPS: ReadonlyArray<{
+const WORLD_TOOL_SHORTCUTS: ReadonlyArray<{ keys: string; label: string }> = [
+  { keys: 'L / B', label: 'Terra' },
+  { keys: 'W', label: 'Acqua' },
+  { keys: 'E', label: 'Rilievo (Alza picchi / Altopiano / Abbassa / Appiattisci / Ammorbidisci)' },
+  { keys: 'C', label: 'Superfici (10 materiali)' },
+  { keys: 'R', label: 'Fiumi e Strade' },
+  { keys: 'P', label: 'Simboli (POI)' },
+  { keys: 'T', label: 'Testo (etichette)' },
+  { keys: 'V', label: 'Seleziona' },
+  { keys: 'H / Spazio', label: 'Mano (spostamento vista)' }
+];
+
+const CITY_TOOL_SHORTCUTS: ReadonlyArray<{ keys: string; label: string }> = [
+  { keys: 'Q', label: 'Quartiere intelligente' },
+  { keys: 'U', label: 'Edificio singolo' },
+  { keys: 'R', label: 'Strade e Canali' },
+  { keys: 'G', label: 'Griglia stradale' },
+  { keys: 'K', label: 'Piazza' },
+  { keys: 'M', label: 'Mura cittadine' },
+  { keys: 'W / B', label: 'Acqua / Suolo' },
+  { keys: 'C', label: 'Superfici (10 materiali)' },
+  { keys: 'P', label: 'Simboli (POI)' },
+  { keys: 'T', label: 'Testo (etichette)' },
+  { keys: 'V', label: 'Seleziona' },
+  { keys: 'H / Spazio', label: 'Mano (spostamento vista)' }
+];
+
+const SHARED_SHORTCUT_GROUPS: ReadonlyArray<{
   title: string;
   items: ReadonlyArray<{ keys: string; label: string }>;
 }> = [
-  {
-    title: 'Strumenti cartografici',
-    items: [
-      { keys: 'L / B', label: 'Terra' },
-      { keys: 'W', label: 'Acqua' },
-      { keys: 'E', label: 'Rilievo (Alza picchi / Altopiano / Abbassa / Appiattisci / Ammorbidisci)' },
-      { keys: 'C', label: 'Superfici (10 materiali)' },
-      { keys: 'R', label: 'Fiumi e Strade' },
-      { keys: 'P', label: 'Simboli (POI)' },
-      { keys: 'T', label: 'Testo (etichette)' },
-      { keys: 'V', label: 'Seleziona' },
-      { keys: 'H / Spazio', label: 'Mano (spostamento vista)' }
-    ]
-  },
   {
     title: 'Pennello, oggetti e cronologia',
     items: [
@@ -640,7 +742,16 @@ const SHORTCUT_GROUPS: ReadonlyArray<{
 ];
 
 function ShortcutsDialog({ store }: { store: EditorStore }) {
+  const snap = useEditorStore(store);
   const closeFooterRef = useRef<HTMLButtonElement>(null);
+  const isCity = snap.doc.manifest.kind === 'city';
+  const groups = [
+    {
+      title: isCity ? 'Strumenti cartografia urbana' : 'Strumenti cartografici',
+      items: isCity ? CITY_TOOL_SHORTCUTS : WORLD_TOOL_SHORTCUTS
+    },
+    ...SHARED_SHORTCUT_GROUPS
+  ];
 
   return (
     <ModalDialog
@@ -662,7 +773,7 @@ function ShortcutsDialog({ store }: { store: EditorStore }) {
         Le scorciatoie restano inattive mentre digiti all’interno di campi di testo o etichette.
       </p>
 
-      {SHORTCUT_GROUPS.map((group) => (
+      {groups.map((group) => (
         <section key={group.title} className="panel-group" style={{ gap: 'var(--ui-space-2)' }}>
           <h3 className="panel-subheading">{group.title}</h3>
           <dl className="shortcuts-list">
@@ -708,6 +819,9 @@ export function DialogsHost({ store, exportPdfDialogSlot, peerManager }: Dialogs
   }
   if (activeDialog === 'generateWorld') {
     return <GenerateWorldDialog store={store} />;
+  }
+  if (activeDialog === 'generateCity') {
+    return <GenerateCityDialog store={store} />;
   }
   if (activeDialog === 'deviceTransfer') {
     if (peerManager) {

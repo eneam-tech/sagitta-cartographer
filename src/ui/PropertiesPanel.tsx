@@ -8,8 +8,10 @@ import {
   InspectorTab,
   MAX_BRUSH_DIAMETER_DOC,
   MIN_BRUSH_DIAMETER_DOC,
+  isCityObjectTool,
   useEditorStore
 } from '../state/editorStore';
+import { CityToolPanel } from './CityToolPanel';
 import {
   BrushDiameterFeedback,
   BrushPreviewSwatch,
@@ -17,6 +19,7 @@ import {
   ElevationBandSwatch
 } from './TerrainSwatches';
 import {
+  CityEnvIcon,
   CloseIcon,
   FlattenIcon,
   GenerateWorldIcon,
@@ -210,8 +213,18 @@ function getFallbackObjectName(obj: MapObject): string {
   if (obj.type === 'path') {
     if (obj.kind === 'river') return 'Fiume';
     if (obj.kind === 'road') return 'Strada';
+    if (obj.kind === 'avenue') return 'Corso';
+    if (obj.kind === 'alley') return 'Vicolo';
+    if (obj.kind === 'canal') return 'Canale';
+    if (obj.kind === 'wall') return 'Mura cittadine';
     if (obj.kind === 'border') return 'Confine';
     return 'Tracciato libero';
+  }
+  if (obj.type === 'building') {
+    return 'Edificio';
+  }
+  if (obj.type === 'plaza') {
+    return 'Piazza';
   }
   return obj.categoryId || obj.assetId;
 }
@@ -231,7 +244,11 @@ function FallbackObjectInspector({
             ? 'Simbolo selezionato'
             : object.type === 'label'
               ? 'Etichetta selezionata'
-              : 'Tracciato selezionato'}
+              : object.type === 'building'
+                ? 'Edificio selezionato'
+                : object.type === 'plaza'
+                  ? 'Piazza selezionata'
+                  : 'Tracciato selezionato'}
         </h3>
         <button type="button" className="btn btn-ghost btn-compact" onClick={onClearSelection}>
           Deseleziona
@@ -244,7 +261,7 @@ function FallbackObjectInspector({
         <span className="inspector-summary-val">
           {Math.round(object.x)}, {Math.round(object.y)} u
         </span>
-        {object.type === 'stamp' ? (
+        {object.type === 'stamp' || object.type === 'building' || object.type === 'plaza' ? (
           <>
             <span className="inspector-summary-key">Dimensione</span>
             <span className="inspector-summary-val">
@@ -494,12 +511,45 @@ export function PropertiesPanel({
               </div>
             ) : null}
 
+            {/* Strumenti urbani (Quartiere, Edificio, Strade, Griglia, Piazza, Mura) */}
+            {isCityObjectTool(activeTool) ? <CityToolPanel store={store} /> : null}
+
             {/* Strumenti Terra / Acqua (con pennello intelligente e scorciatoia generatore) */}
             {activeTool === 'land' || activeTool === 'water' ? (
               <div className="panel-group">
                 <h3 className="panel-subheading">
-                  {activeTool === 'land' ? 'Pennello terra' : 'Pennello acqua'}
+                  {activeTool === 'land'
+                    ? doc.manifest.kind === 'city'
+                      ? 'Suolo cittadino'
+                      : 'Pennello terra'
+                    : doc.manifest.kind === 'city'
+                      ? 'Acqua (fiumi e bacini portuali)'
+                      : 'Pennello acqua'}
                 </h3>
+
+                {doc.manifest.kind === 'city' ? (
+                  <div className="form-field">
+                    <span className="field-label">Tipo pennello idrico/suolo</span>
+                    <div className="segmented-group" role="group" aria-label="Suolo o acqua urbana">
+                      <button
+                        type="button"
+                        className="segmented-btn"
+                        aria-pressed={activeTool === 'water'}
+                        onClick={() => store.setTool('water')}
+                      >
+                        Scava acqua
+                      </button>
+                      <button
+                        type="button"
+                        className="segmented-btn"
+                        aria-pressed={activeTool === 'land'}
+                        onClick={() => store.setTool('land')}
+                      >
+                        Ricrea suolo
+                      </button>
+                    </div>
+                  </div>
+                ) : null}
 
                 <div className="form-field">
                   <span className="field-label">Modalità pennello</span>
@@ -561,11 +611,19 @@ export function PropertiesPanel({
                 <button
                   type="button"
                   className="btn btn-secondary"
-                  onClick={() => store.openDialog('generateWorld')}
+                  onClick={() =>
+                    store.openDialog(doc.manifest.kind === 'city' ? 'generateCity' : 'generateWorld')
+                  }
                   style={{ width: '100%', justifyContent: 'center' }}
                 >
-                  <GenerateWorldIcon size={18} />
-                  <span>Genera continente…</span>
+                  {doc.manifest.kind === 'city' ? (
+                    <CityEnvIcon size={18} />
+                  ) : (
+                    <GenerateWorldIcon size={18} />
+                  )}
+                  <span>
+                    {doc.manifest.kind === 'city' ? 'Genera città…' : 'Genera continente…'}
+                  </span>
                 </button>
               </div>
             ) : null}
@@ -933,7 +991,11 @@ export function PropertiesPanel({
                                 ? 'POI'
                                 : obj.type === 'label'
                                   ? 'Testo'
-                                  : 'Tracciato'}
+                                  : obj.type === 'building'
+                                    ? 'Edificio'
+                                    : obj.type === 'plaza'
+                                      ? 'Piazza'
+                                      : 'Tracciato'}
                             </span>
                           </button>
                         </li>

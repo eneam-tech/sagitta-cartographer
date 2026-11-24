@@ -4,6 +4,10 @@ import { HistoryCommand } from '../model/commands';
 import { clampNumber } from '../model/coordinates';
 import {
   AssetManifestEntry,
+  BuildingObject,
+  BuildingRenderStyle,
+  BuildingShape,
+  DEFAULT_LAYER_BUILDINGS_ID,
   DEFAULT_LAYER_VECTORS_ID,
   LabelObject,
   MapDocument,
@@ -11,7 +15,11 @@ import {
   MapObject,
   PathKind,
   PathObject,
+  PlazaCenterpiece,
+  PlazaObject,
+  PlazaShape,
   StampObject,
+  TerrainBuffers,
   cloneMapObject,
   resolveObjectLayerId,
   safeRandomUUID
@@ -21,9 +29,11 @@ import {
   DEFAULT_THEME,
   LABEL_ROLE_PRESETS,
   MapTheme,
+  cloneTheme,
   getDefaultLabelColor,
   getFontSpec
 } from '../theme/theme';
+import { getCityThemePalette, pickDeterministicRoofColor } from '../city/geometry';
 
 function cloneAssetEntry(entry: AssetManifestEntry): AssetManifestEntry {
   return { ...entry };
@@ -87,6 +97,29 @@ export function areMapObjectsEqual(a: MapObject, b: MapObject): boolean {
     }
     return true;
   }
+  if (a.type === 'building' && b.type === 'building') {
+    return (
+      a.shape === b.shape &&
+      a.width === b.width &&
+      a.height === b.height &&
+      a.roofColor === b.roofColor &&
+      (a.wallColor ?? undefined) === (b.wallColor ?? undefined) &&
+      (a.roofAngleDeg ?? undefined) === (b.roofAngleDeg ?? undefined) &&
+      (a.renderStyle ?? undefined) === (b.renderStyle ?? undefined) &&
+      (a.districtTag ?? undefined) === (b.districtTag ?? undefined) &&
+      (a.seed ?? undefined) === (b.seed ?? undefined)
+    );
+  }
+  if (a.type === 'plaza' && b.type === 'plaza') {
+    return (
+      a.shape === b.shape &&
+      a.width === b.width &&
+      a.height === b.height &&
+      a.fillColor === b.fillColor &&
+      a.borderColor === b.borderColor &&
+      a.centerpiece === b.centerpiece
+    );
+  }
   return false;
 }
 
@@ -100,14 +133,70 @@ export const PATH_KIND_OPTIONS: ReadonlyArray<{
   { kind: 'freehand', label: 'Inchiostro libero' }
 ];
 
+export const CITY_PATH_KIND_OPTIONS: ReadonlyArray<{
+  kind: PathKind;
+  label: string;
+}> = [
+  { kind: 'avenue', label: 'Corso' },
+  { kind: 'road', label: 'Via' },
+  { kind: 'alley', label: 'Vicolo' },
+  { kind: 'canal', label: 'Canale' },
+  { kind: 'wall', label: 'Mura' }
+];
+
+export const ALL_PATH_KIND_OPTIONS: ReadonlyArray<{
+  kind: PathKind;
+  label: string;
+}> = [
+  ...PATH_KIND_OPTIONS,
+  { kind: 'avenue', label: 'Corso' },
+  { kind: 'alley', label: 'Vicolo' },
+  { kind: 'canal', label: 'Canale' },
+  { kind: 'wall', label: 'Mura' }
+];
+
 export function getPathKindLabel(kind: PathKind): string {
-  const found = PATH_KIND_OPTIONS.find((opt) => opt.kind === kind);
+  const found = ALL_PATH_KIND_OPTIONS.find((opt) => opt.kind === kind);
   return found ? found.label : 'Tracciato';
+}
+
+export function getBuildingShapeLabel(shape: BuildingShape): string {
+  switch (shape) {
+    case 'rect':
+      return 'Casa';
+    case 'l-shape':
+      return 'Edificio a L';
+    case 'courtyard':
+      return 'Cortile';
+    case 'tower':
+      return 'Torre';
+    case 'cathedral':
+      return 'Tempio / Cattedrale';
+    case 'market':
+      return 'Mercato coperto';
+    default:
+      return 'Edificio';
+  }
+}
+
+export function getPlazaShapeLabel(shape: PlazaShape): string {
+  switch (shape) {
+    case 'rect':
+      return 'Piazza rettangolare';
+    case 'circle':
+      return 'Piazza circolare';
+    case 'octagon':
+      return 'Piazza ottagonale';
+    default:
+      return 'Piazza';
+  }
 }
 
 export function getDeleteObjectLabel(obj: Pick<MapObject, 'type'>): string {
   if (obj.type === 'stamp') return 'Elimina simbolo';
   if (obj.type === 'label') return 'Elimina etichetta';
+  if (obj.type === 'building') return 'Elimina edificio';
+  if (obj.type === 'plaza') return 'Elimina piazza';
   return 'Elimina tracciato';
 }
 
@@ -117,6 +206,12 @@ export function getDefaultObjectLabel(obj: MapObject): string {
   }
   if (obj.type === 'path') {
     return getPathKindLabel(obj.kind);
+  }
+  if (obj.type === 'building') {
+    return getBuildingShapeLabel(obj.shape);
+  }
+  if (obj.type === 'plaza') {
+    return getPlazaShapeLabel(obj.shape);
   }
   return getCatalogItemById(obj.assetId)?.name ?? obj.categoryId ?? obj.assetId;
 }
@@ -398,6 +493,282 @@ export class DeleteObjectCommand implements HistoryCommand {
 }
 
 /**
+ * Deletes multiple MapObjects in a single atomic Undo/Redo command while
+ * restoring exact original z-order indices on undo.
+ */
+export class DeleteObjectsBatchCommand implements HistoryCommand {
+  readonly id = safeRandomUUID();
+  readonly kind = 'delete-objects-batch';
+  readonly label: string;
+  readonly byteSize: number;
+  readonly affectsTerrain = false;
+
+  private readonly targetIds: Set<string>;
+  private removedEntries: Array<{ index: number; object: MapObject }> = [];
+
+  constructor(objectIds: readonly string[], label = 'Rimuovi elementi') {
+    this.targetIds = new Set(objectIds);
+    this.label = label;
+    this.byteSize = Math.max(256, objectIds.length * 160);
+  }
+
+  apply(doc: MapDocument): void {
+    if (this.targetIds.size === 0) return;
+    this.removedEntries = [];
+    const remaining: MapObject[] = [];
+    for (let i = 0; i < doc.manifest.objects.length; i += 1) {
+      const obj = doc.manifest.objects[i];
+      if (this.targetIds.has(obj.id)) {
+        this.removedEntries.push({ index: i, object: cloneMapObject(obj) });
+      } else {
+        remaining.push(obj);
+      }
+    }
+    doc.manifest.objects = remaining;
+  }
+
+  revert(doc: MapDocument): void {
+    if (this.removedEntries.length === 0) return;
+    for (const entry of this.removedEntries) {
+      if (doc.manifest.objects.some((o) => o.id === entry.object.id)) continue;
+      const insertAt = Math.min(entry.index, doc.manifest.objects.length);
+      doc.manifest.objects.splice(insertAt, 0, cloneMapObject(entry.object));
+    }
+  }
+}
+
+/**
+ * Atomically deletes overlapping buildings (e.g. under a newly placed plaza)
+ * and inserts new objects in a single Undo/Redo command.
+ */
+export class AddAndDeleteObjectsCommand implements HistoryCommand {
+  readonly id = safeRandomUUID();
+  readonly kind = 'add-delete-objects';
+  readonly label: string;
+  readonly byteSize: number;
+  readonly affectsTerrain = false;
+
+  private readonly addItems: MapObject[];
+  private readonly deleteCmd: DeleteObjectsBatchCommand;
+
+  constructor(
+    addItems: readonly MapObject[],
+    deleteIds: readonly string[],
+    label = 'Colloca piazza urbana'
+  ) {
+    this.addItems = addItems.map((o) => cloneMapObject(o));
+    this.deleteCmd = new DeleteObjectsBatchCommand(deleteIds, label);
+    this.label = label;
+    this.byteSize = Math.max(256, (addItems.length + deleteIds.length) * 192);
+  }
+
+  apply(doc: MapDocument): void {
+    this.deleteCmd.apply(doc);
+    for (const item of this.addItems) {
+      if (!doc.manifest.objects.some((o) => o.id === item.id)) {
+        doc.manifest.objects.push(cloneMapObject(item));
+      }
+    }
+  }
+
+  revert(doc: MapDocument): void {
+    const addedIds = new Set(this.addItems.map((o) => o.id));
+    doc.manifest.objects = doc.manifest.objects.filter((o) => !addedIds.has(o.id));
+    this.deleteCmd.revert(doc);
+  }
+}
+
+export interface DocumentContentState {
+  terrain: TerrainBuffers;
+  objects: MapObject[];
+  theme: MapTheme;
+}
+
+function cloneContentState(doc: MapDocument): DocumentContentState {
+  return {
+    terrain: {
+      widthPx: doc.terrain.widthPx,
+      heightPx: doc.terrain.heightPx,
+      mask: new Uint8Array(doc.terrain.mask),
+      height: new Uint8Array(doc.terrain.height),
+      cover: new Uint8Array(doc.terrain.cover)
+    },
+    objects: doc.manifest.objects.map((o) => cloneMapObject(o)),
+    theme: cloneTheme(doc.theme)
+  };
+}
+
+/**
+ * Replaces terrain buffers, objects, and optionally theme atomically in a single
+ * Undo/Redo step (used by the procedural City Generator).
+ */
+export class ReplaceDocumentContentCommand implements HistoryCommand {
+  readonly id = safeRandomUUID();
+  readonly kind = 'replace-document-content';
+  readonly label: string;
+  readonly byteSize: number;
+  readonly affectsTerrain = true;
+
+  private readonly before: DocumentContentState;
+  private readonly after: DocumentContentState;
+
+  constructor(doc: MapDocument, nextState: DocumentContentState, label = 'Genera città') {
+    this.before = cloneContentState(doc);
+    this.after = {
+      terrain: {
+        widthPx: nextState.terrain.widthPx,
+        heightPx: nextState.terrain.heightPx,
+        mask: new Uint8Array(nextState.terrain.mask),
+        height: new Uint8Array(nextState.terrain.height),
+        cover: new Uint8Array(nextState.terrain.cover)
+      },
+      objects: nextState.objects.map((o) => cloneMapObject(o)),
+      theme: cloneTheme(nextState.theme)
+    };
+    this.label = label;
+    this.byteSize =
+      this.before.terrain.mask.byteLength * 3 +
+      this.after.terrain.mask.byteLength * 3 +
+      this.after.objects.length * 160;
+  }
+
+  private applyState(doc: MapDocument, state: DocumentContentState): void {
+    doc.terrain = {
+      widthPx: state.terrain.widthPx,
+      heightPx: state.terrain.heightPx,
+      mask: new Uint8Array(state.terrain.mask),
+      height: new Uint8Array(state.terrain.height),
+      cover: new Uint8Array(state.terrain.cover)
+    };
+    doc.manifest.terrain.widthPx = state.terrain.widthPx;
+    doc.manifest.terrain.heightPx = state.terrain.heightPx;
+    doc.manifest.objects = state.objects.map((o) => cloneMapObject(o));
+    doc.theme = cloneTheme(state.theme);
+    doc.manifest.theme = {
+      id: state.theme.id,
+      version: state.theme.version,
+      file: 'theme/theme.json'
+    };
+  }
+
+  apply(doc: MapDocument): void {
+    this.applyState(doc, this.after);
+  }
+
+  revert(doc: MapDocument): void {
+    this.applyState(doc, this.before);
+  }
+}
+
+/**
+ * Switches a city map's theme and atomically adapts urban object palettes
+ * (`BuildingObject` roof/wall, `PlazaObject` fill/border, urban `PathObject` colors,
+ * and default label colors) while staying 100% Undo/Redoable.
+ */
+export class SetCityThemeCommand implements HistoryCommand {
+  readonly id = safeRandomUUID();
+  readonly kind = 'set-city-theme';
+  readonly label = 'Cambia stile urbano';
+  readonly affectsTerrain = true;
+  readonly dirtyRect?: { x: number; y: number; width: number; height: number };
+  readonly byteSize: number;
+
+  private readonly prevTheme: MapTheme;
+  private readonly nextTheme: MapTheme;
+  private readonly prevObjects: MapObject[];
+  private readonly nextObjects: MapObject[];
+
+  constructor(doc: MapDocument, nextTheme: MapTheme) {
+    this.prevTheme = cloneTheme(doc.theme);
+    this.nextTheme = cloneTheme(nextTheme);
+    this.dirtyRect = {
+      x: 0,
+      y: 0,
+      width: doc.terrain.widthPx,
+      height: doc.terrain.heightPx
+    };
+    this.prevObjects = doc.manifest.objects.map((o) => cloneMapObject(o));
+
+    const prevPalette = getCityThemePalette(doc.theme);
+    const nextPalette = getCityThemePalette(nextTheme);
+    const prevLabelDefault = getDefaultLabelColor(doc.theme).toLowerCase();
+    const nextLabelDefault = getDefaultLabelColor(nextTheme);
+    const prevPaletteSet = new Set(prevPalette.roofPalette.map((c) => c.toLowerCase()));
+
+    this.nextObjects = doc.manifest.objects.map((obj, idx) => {
+      const cloned = cloneMapObject(obj);
+      if (cloned.type === 'building') {
+        if (prevPaletteSet.has(cloned.roofColor.toLowerCase())) {
+          cloned.roofColor = pickDeterministicRoofColor(nextTheme, cloned.seed ?? idx);
+        }
+        if (cloned.wallColor?.toLowerCase() === prevPalette.wallStone.toLowerCase()) {
+          cloned.wallColor = nextPalette.wallStone;
+        }
+        return cloned;
+      }
+      if (cloned.type === 'plaza') {
+        if (cloned.fillColor.toLowerCase() === prevPalette.plazaFill.toLowerCase()) {
+          cloned.fillColor = nextPalette.plazaFill;
+        }
+        if (cloned.borderColor.toLowerCase() === prevPalette.streetBorder.toLowerCase()) {
+          cloned.borderColor = nextPalette.streetBorder;
+        }
+        return cloned;
+      }
+      if (cloned.type === 'path') {
+        const cLow = cloned.color.toLowerCase();
+        if (
+          (cloned.kind === 'avenue' || cloned.kind === 'road' || cloned.kind === 'alley') &&
+          (cLow === prevPalette.streetFill.toLowerCase() || cLow === doc.theme.colors.pathRoad.toLowerCase())
+        ) {
+          cloned.color = nextPalette.streetFill;
+        } else if (
+          cloned.kind === 'canal' &&
+          (cLow === prevPalette.canalWater.toLowerCase() || cLow === doc.theme.colors.pathRiver.toLowerCase())
+        ) {
+          cloned.color = nextPalette.canalWater;
+        } else if (
+          cloned.kind === 'wall' &&
+          (cLow === prevPalette.wallStone.toLowerCase() || cLow === doc.theme.colors.stone.toLowerCase())
+        ) {
+          cloned.color = nextPalette.wallStone;
+        }
+        return cloned;
+      }
+      if (cloned.type === 'label') {
+        if (cloned.color.toLowerCase() === prevLabelDefault) {
+          cloned.color = nextLabelDefault;
+        }
+        return cloned;
+      }
+      return cloned;
+    });
+
+    this.byteSize = Math.max(4096, this.prevObjects.length * 160);
+  }
+
+  apply(doc: MapDocument): void {
+    doc.theme = cloneTheme(this.nextTheme);
+    doc.manifest.theme = {
+      id: this.nextTheme.id,
+      version: this.nextTheme.version,
+      file: 'theme/theme.json'
+    };
+    doc.manifest.objects = this.nextObjects.map((o) => cloneMapObject(o));
+  }
+
+  revert(doc: MapDocument): void {
+    doc.theme = cloneTheme(this.prevTheme);
+    doc.manifest.theme = {
+      id: this.prevTheme.id,
+      version: this.prevTheme.version,
+      file: 'theme/theme.json'
+    };
+    doc.manifest.objects = this.prevObjects.map((o) => cloneMapObject(o));
+  }
+}
+
+/**
  * Moves an object within `doc.manifest.objects` (z-order) while keeping its `id` unchanged.
  */
 export class ReorderObjectsCommand implements HistoryCommand {
@@ -654,7 +1025,7 @@ export interface CreatePathObjectOptions {
   rotationDeg?: number;
 }
 
-function getPathKindDefaults(kind: PathKind, theme: MapTheme): {
+export function getPathKindDefaults(kind: PathKind, theme: MapTheme): {
   strokeWidthDoc: number;
   color: string;
   smooth: boolean;
@@ -662,16 +1033,127 @@ function getPathKindDefaults(kind: PathKind, theme: MapTheme): {
   tapered: boolean;
 } {
   const c = theme.colors;
+  const city = theme.city;
   if (kind === 'river') {
     return { strokeWidthDoc: 14, color: c.pathRiver, smooth: true, dashed: false, tapered: true };
   }
   if (kind === 'road') {
-    return { strokeWidthDoc: 9, color: c.pathRoad, smooth: true, dashed: false, tapered: false };
+    return {
+      strokeWidthDoc: 9,
+      color: city?.streetFill ?? c.pathRoad,
+      smooth: true,
+      dashed: false,
+      tapered: false
+    };
+  }
+  if (kind === 'avenue') {
+    return {
+      strokeWidthDoc: 15,
+      color: city?.streetFill ?? c.pathRoad,
+      smooth: true,
+      dashed: false,
+      tapered: false
+    };
+  }
+  if (kind === 'alley') {
+    return {
+      strokeWidthDoc: 5.5,
+      color: city?.streetFill ?? c.pathRoad,
+      smooth: true,
+      dashed: false,
+      tapered: false
+    };
+  }
+  if (kind === 'canal') {
+    return {
+      strokeWidthDoc: 18,
+      color: city?.canalWater ?? c.pathRiver,
+      smooth: true,
+      dashed: false,
+      tapered: false
+    };
+  }
+  if (kind === 'wall') {
+    return {
+      strokeWidthDoc: 14,
+      color: city?.wallStone ?? c.stone,
+      smooth: false,
+      dashed: false,
+      tapered: false
+    };
   }
   if (kind === 'border') {
     return { strokeWidthDoc: 7, color: c.pathBorder, smooth: true, dashed: true, tapered: false };
   }
   return { strokeWidthDoc: 6, color: c.ink, smooth: true, dashed: false, tapered: false };
+}
+
+export interface CreateBuildingObjectOptions {
+  id?: string;
+  layerId?: string;
+  shape: BuildingShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotationDeg?: number;
+  roofColor: string;
+  wallColor?: string;
+  roofAngleDeg?: number;
+  renderStyle?: BuildingRenderStyle;
+  districtTag?: string;
+  seed?: number;
+}
+
+export function createBuildingObject(options: CreateBuildingObjectOptions): BuildingObject {
+  return {
+    id: options.id ?? safeRandomUUID(),
+    type: 'building',
+    layerId: options.layerId ?? DEFAULT_LAYER_BUILDINGS_ID,
+    shape: options.shape,
+    x: Number(options.x.toFixed(2)),
+    y: Number(options.y.toFixed(2)),
+    width: Math.max(8, Number(options.width.toFixed(2))),
+    height: Math.max(8, Number(options.height.toFixed(2))),
+    rotationDeg: normalizeRotationDeg(options.rotationDeg ?? 0),
+    roofColor: options.roofColor,
+    ...(options.wallColor ? { wallColor: options.wallColor } : {}),
+    ...(options.roofAngleDeg !== undefined ? { roofAngleDeg: options.roofAngleDeg } : {}),
+    ...(options.renderStyle ? { renderStyle: options.renderStyle } : {}),
+    ...(options.districtTag ? { districtTag: options.districtTag } : {}),
+    ...(options.seed !== undefined ? { seed: options.seed } : {})
+  };
+}
+
+export interface CreatePlazaObjectOptions {
+  id?: string;
+  layerId?: string;
+  shape: PlazaShape;
+  x: number;
+  y: number;
+  width: number;
+  height: number;
+  rotationDeg?: number;
+  fillColor: string;
+  borderColor: string;
+  centerpiece: PlazaCenterpiece;
+}
+
+export function createPlazaObject(options: CreatePlazaObjectOptions): PlazaObject {
+  return {
+    id: options.id ?? safeRandomUUID(),
+    type: 'plaza',
+    layerId: options.layerId ?? DEFAULT_LAYER_VECTORS_ID,
+    shape: options.shape,
+    x: Number(options.x.toFixed(2)),
+    y: Number(options.y.toFixed(2)),
+    width: Math.max(20, Number(options.width.toFixed(2))),
+    height: Math.max(20, Number(options.height.toFixed(2))),
+    rotationDeg: normalizeRotationDeg(options.rotationDeg ?? 0),
+    fillColor: options.fillColor,
+    borderColor: options.borderColor,
+    centerpiece: options.centerpiece
+  };
 }
 
 /**

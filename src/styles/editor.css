@@ -2164,6 +2164,7 @@ pre {
     display: none;
   }
 
+  .env-choice-grid,
   .theme-preset-grid,
   .generate-preset-grid,
   .resize-anchor-preview-grid {
@@ -2340,6 +2341,99 @@ pre {
   .pencil-check-row {
     min-height: 44px;
   }
+}
+
+/* Selettore ambiente e controlli urbani */
+.env-choice-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
+}
+
+.env-choice-card {
+  position: relative;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: var(--ui-space-3);
+  background-color: var(--ui-raised);
+  color: var(--ui-text);
+  border: var(--ui-border-w) solid var(--ui-line-subtle);
+  border-radius: var(--ui-radius-control);
+  cursor: pointer;
+  transition: background-color var(--ui-motion-fast), border-color var(--ui-motion-fast);
+}
+
+.env-choice-card:hover {
+  border-color: var(--ui-line);
+}
+
+.env-choice-card.is-selected {
+  border-color: var(--ui-accent);
+  box-shadow: inset 0 0 0 1px var(--ui-accent);
+}
+
+.env-choice-card:has(input:focus-visible) {
+  outline: 2px solid var(--ui-focus);
+  outline-offset: 2px;
+}
+
+.env-choice-head {
+  display: flex;
+  align-items: center;
+  gap: var(--ui-space-2);
+}
+
+.env-choice-title {
+  font-size: 15px;
+  line-height: 20px;
+  font-weight: 600;
+  color: var(--ui-text);
+}
+
+.env-choice-card.is-selected .env-choice-title,
+.env-choice-card.is-selected .env-choice-head {
+  color: var(--ui-accent);
+}
+
+.env-choice-desc {
+  font-size: 13px;
+  line-height: 18px;
+  color: var(--ui-muted);
+}
+
+.project-kind-badge {
+  display: inline-flex;
+  align-items: center;
+  margin-left: var(--ui-space-2);
+  padding: 0 6px;
+  background-color: var(--ui-bench);
+  color: var(--ui-accent);
+  border: var(--ui-border-w) solid var(--ui-line-subtle);
+  border-radius: var(--ui-radius-control);
+  font-size: 13px;
+  line-height: 18px;
+  font-weight: 600;
+  vertical-align: middle;
+}
+
+.city-preset-list {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.city-preset-btn {
+  text-align: left;
+  padding: 6px var(--ui-space-3);
+  font-size: 13px;
+  line-height: 18px;
+}
+
+.city-shape-grid {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: var(--ui-space-2);
 }
 
 /* Rispetto di prefers-reduced-motion */
